@@ -19,6 +19,28 @@ class WorkerTest(unittest.TestCase):
    result=runtime_status();self.assertEqual(result['status'],'unavailable');self.assertNotIn('private',json.dumps(result))
   with patch.dict(os.environ,{'RESEARCH_PROCESSING_IMAGE':'python:latest'}):self.assertEqual(runtime_status()['status'],'setup_required')
 
+ @unittest.skipUnless(shutil.which('flock') and shutil.which('timeout'),'GNU flock and timeout required')
+ def test_cpanel_queue_runner_prevents_overlapping_lane_and_validates_arguments(self):
+  import pathlib,subprocess,tempfile,time,sys
+  script=pathlib.Path(__file__).with_name('cpanel-queue.sh')
+  with tempfile.TemporaryDirectory()as directory:
+   root=pathlib.Path(directory);(root/'storage/framework').mkdir(parents=True);(root/'artisan').touch();log=root/'runs.txt';php=root/'fake php'
+   php.write_text('#!'+sys.executable+'\nimport os,time,pathlib,sys\nwith pathlib.Path(os.environ["QUEUE_TEST_LOG"]).open("a")as f:f.write("start\\n")\ntime.sleep(.5)\nsys.exit(42 if os.environ.get("QUEUE_TEST_FAIL") else 0)\n');php.chmod(0o700)
+   env={**os.environ,'QUEUE_TEST_LOG':str(log)};args=['sh',str(script),str(root),str(php),'1'];first=subprocess.Popen(args,env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+   try:
+    deadline=time.monotonic()+5
+    while not log.exists():
+     if first.poll()is not None:self.fail(first.stderr.read().decode())
+     if time.monotonic()>deadline:self.fail('runner did not start')
+     time.sleep(.01)
+    second=subprocess.run(args,env=env,capture_output=True,timeout=5);self.assertEqual(second.returncode,0)
+    out,err=first.communicate(timeout=5);self.assertEqual(first.returncode,0,err.decode());self.assertEqual(log.read_text().splitlines(),['start'])
+    failed=subprocess.run(args,env={**env,'QUEUE_TEST_FAIL':'1'},capture_output=True,timeout=5);self.assertEqual(failed.returncode,42)
+    retried=subprocess.run(args,env=env,capture_output=True,timeout=5);self.assertEqual(retried.returncode,0);self.assertEqual(len(log.read_text().splitlines()),3)
+    invalid=subprocess.run([*args[:-1],'4'],env=env,capture_output=True,timeout=5);self.assertEqual(invalid.returncode,2)
+   finally:
+    if first.poll()is None:first.kill();first.wait()
+
  def test_five_exports_reopen_with_math_tables_footnotes(self):
   for fmt in ['docx','pdf','tex','bib','md']:
    with self.subTest(format=fmt):

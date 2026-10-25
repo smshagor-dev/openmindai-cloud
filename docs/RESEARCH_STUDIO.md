@@ -111,6 +111,16 @@ Document workers have no network, host mounts, API secrets or writable root file
 
 Owner authorization is bound to code, dataset IDs and seed, revalidated by the worker job. Private dataset bytes are checksum verified. Reproducibility does not guarantee scientific validity. Human evidence/method/result review remains necessary.
 
+## cPanel queue scheduling
+
+The existing Laravel scheduler must still run every minute. When a hosting account provides GNU `flock` and `timeout` but no persistent supervisor, `runtime/research/cpanel-queue.sh` can consume the `research` database queue through scheduled CLI processes. Configure three once-per-minute Cron Jobs with the same application/PHP paths and lanes `1`, `2`, `3`:
+
+```sh
+/bin/sh /path/to/app/runtime/research/cpanel-queue.sh /path/to/app /path/to/php 1
+```
+
+Each lane has an OS file lock, exits successfully if already running, and has a 500-second outer deadline plus a ten-second termination grace period. This outer bound also works without PHP PCNTL. The consumer checks its shorter run duration between jobs; unfinished claims recover through the existing scheduler/lease mechanism. Direct output to a private rotated log, keep queue reservation retention above the worker deadline and use this mode instead of adding duplicate supervisor consumers. Check the hosting provider's CLI/cron execution limits before enabling it. This script does not install tools, change crontabs, execute generated Python on the web host or replace the isolated processing broker. PDF/experiment/export work still requires the private isolated worker endpoint.
+
 ## Exports
 
 DOCX, PDF, LaTeX ZIP, BibTeX and Markdown use actual Pandoc/CSL conversion. DOCX files reopen with python-docx/ZIP structure checks; PDF files reopen with pypdf and reject missing glyph logs; LaTeX validates generated content/bundled artifacts. Math, tables, footnotes, figure captions and resolved cross-references are preserved. PDF requires XeLaTeX, bidi, Latin Modern, DejaVu and relevant Noto fonts. Unicode font requirements accompany portable LaTeX output. Generated CSV tables are exact bounded previews with explicit truncation captions and full original artifacts retained.
