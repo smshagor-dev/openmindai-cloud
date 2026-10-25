@@ -71,7 +71,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: sudo apt-get update && sudo apt-get install -y pandoc
+      - name: Install browser document dependencies
+        timeout-minutes: 6
+        run: |
+          sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
+          sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y pandoc
       - run: pip install -r runtime/research/requirements.txt reportlab
       - run: composer install --no-interaction --prefer-dist
       - run: cp .env.example .env

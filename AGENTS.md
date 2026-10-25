@@ -16,7 +16,7 @@ The user explicitly authorized GitHub working-branch checkpoints on 2026-10-25 a
 
 ## Authorized deployment state
 
-On 2026-10-25, after the missing isolated worker was explained, the user explicitly instructed deployment to proceed. This authorizes deploying the available Research Studio web application, APIs and bounded research queue consumers with processing-dependent operations still gated by the missing private worker. It does not certify those operations or authorize an unsafe execution fallback. Release `ca6497c60c63917a5f8f5cdc102904f930e56dbc` was deployed from `feature/research-studio` to the existing cPanel backend and existing chat frontend. Preserve that deployment and consult the latest status record before repeating maintenance. A completion PR/merge still requires the remaining acceptance checks; do not describe this limited deployment as full production acceptance.
+On 2026-10-25, after the missing isolated worker was explained, the user explicitly instructed deployment to proceed. This authorizes deploying the available Research Studio web application, APIs and bounded research queue consumers with processing-dependent operations still gated by the missing private worker. It does not certify those operations or authorize an unsafe execution fallback. Conversation-first release `d08dd18f12032a5ef966d85c659f92842ecfbbbc` is deployed from `feature/research-studio` to the existing cPanel backend and existing chat frontend; see the 2026-10-26 live-design record. Preserve that deployment and consult the latest status record before repeating maintenance. A completion PR/merge still requires the remaining acceptance checks; do not describe this limited deployment as full production acceptance.
 
 ## Research Studio objective
 
