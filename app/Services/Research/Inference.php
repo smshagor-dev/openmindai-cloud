@@ -16,18 +16,20 @@ class Inference
 {
     public function json(Context $ctx, string $instruction, array $input, array $rules): array
     {
-        $ctx->fenced(function () use ($ctx) {
-            $r = $ctx->run();
-            abort_if($r->reserved_tokens + 6000 > config('research.token_budget'), 429, 'Research token reservation limit reached.');
-            $r->increment('reserved_tokens', 6000);
-        });
         $slugs = array_unique(array_merge([(string) ($ctx->project()->settings['models'][$ctx->task->agent] ?? config('research.model'))], config('research.fallback_models')));
         $last = null;
-        foreach ($slugs as $slug) {
+        foreach (array_slice($slugs, 0, 3) as $slug) {
             $m = DB::table('hosted_code_agents')->where('slug', $slug)->where('enabled', true)->where('api_ready', true)->where('api_protocol', 'chat')->where('last_test_status', 'success')->first();
             if (! $m) {
+                $ctx->event('model.unavailable', ['model' => $slug, 'status' => 'unverified_or_disabled']);
+
                 continue;
             }
+            $ctx->fenced(function () use ($ctx) {
+                $r = $ctx->run();
+                abort_if($r->reserved_tokens + 6000 > config('research.token_budget'), 429, 'Research token reservation limit reached.');
+                $r->increment('reserved_tokens', 6000);
+            });
             try {
                 $user = User::findOrFail($ctx->run()->actor_id);
                 abort_unless($user->is_active, 403);

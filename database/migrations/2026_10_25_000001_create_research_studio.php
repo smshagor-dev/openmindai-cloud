@@ -10,7 +10,7 @@ return new class extends Migration
     {
         Schema::create('research_projects', function (Blueprint $t) {
             $t->id();
-            $t->foreignId('owner_id')->constrained('users');
+            $t->foreignId('owner_id')->constrained('users')->cascadeOnDelete();
             $t->string('title', 200);
             $t->text('prompt');
             $t->string('status')->default('draft');
@@ -20,8 +20,8 @@ return new class extends Migration
         });
         Schema::create('research_members', function (Blueprint $t) {
             $t->id();
-            $t->foreignId('project_id')->constrained('research_projects');
-            $t->foreignId('user_id')->constrained('users');
+            $t->foreignId('project_id')->constrained('research_projects')->cascadeOnDelete();
+            $t->foreignId('user_id')->nullable()->constrained('users')->nullOnDelete();
             $t->string('role');
             $t->timestamp('accepted_at')->nullable();
             $t->unique(['project_id', 'user_id']);
@@ -29,8 +29,8 @@ return new class extends Migration
         });
         Schema::create('research_runs', function (Blueprint $t) {
             $t->id();
-            $t->foreignId('project_id')->constrained('research_projects');
-            $t->foreignId('actor_id')->constrained('users');
+            $t->foreignId('project_id')->constrained('research_projects')->cascadeOnDelete();
+            $t->foreignId('actor_id')->nullable()->constrained('users')->nullOnDelete();
             $t->string('kind')->default('workflow');
             $t->string('status')->default('running');
             $t->unsignedInteger('generation');
@@ -48,8 +48,8 @@ return new class extends Migration
         });
         Schema::create('research_tasks', function (Blueprint $t) {
             $t->id();
-            $t->foreignId('project_id')->constrained('research_projects');
-            $t->foreignId('run_id')->constrained('research_runs');
+            $t->foreignId('project_id')->constrained('research_projects')->cascadeOnDelete();
+            $t->foreignId('run_id')->constrained('research_runs')->cascadeOnDelete();
             $t->foreignId('definition_id')->constrained('research_agent_definitions');
             $t->string('key');
             $t->string('agent');
@@ -69,15 +69,15 @@ return new class extends Migration
         });
         Schema::create('research_dependencies', function (Blueprint $t) {
             $t->id();
-            $t->foreignId('task_id')->constrained('research_tasks');
-            $t->foreignId('depends_on')->constrained('research_tasks');
+            $t->foreignId('task_id')->constrained('research_tasks')->cascadeOnDelete();
+            $t->foreignId('depends_on')->constrained('research_tasks')->cascadeOnDelete();
             $t->unique(['task_id', 'depends_on']);
             $t->timestamps();
         });
         Schema::create('research_events', function (Blueprint $t) {
             $t->id();
-            $t->foreignId('project_id')->constrained('research_projects');
-            $t->foreignId('task_id')->nullable()->constrained('research_tasks');
+            $t->foreignId('project_id')->constrained('research_projects')->cascadeOnDelete();
+            $t->foreignId('task_id')->nullable()->constrained('research_tasks')->cascadeOnDelete();
             $t->string('type');
             $t->json('data');
             $t->index(['project_id', 'id']);
@@ -85,7 +85,7 @@ return new class extends Migration
         });
         Schema::create('research_sources', function (Blueprint $t) {
             $t->id();
-            $t->foreignId('project_id')->constrained('research_projects');
+            $t->foreignId('project_id')->constrained('research_projects')->cascadeOnDelete();
             $t->string('fingerprint', 64);
             $t->text('title');
             $t->string('doi', 255)->nullable();
@@ -104,19 +104,19 @@ return new class extends Migration
         });
         Schema::create('research_evidence', function (Blueprint $t) {
             $t->id();
-            $t->foreignId('project_id')->constrained('research_projects');
-            $t->foreignId('source_id')->constrained('research_sources');
-            $t->foreignId('task_id')->nullable()->constrained('research_tasks');
+            $t->foreignId('project_id')->constrained('research_projects')->cascadeOnDelete();
+            $t->foreignId('source_id')->constrained('research_sources')->cascadeOnDelete();
+            $t->foreignId('task_id')->nullable()->constrained('research_tasks')->cascadeOnDelete();
             $t->text('claim');
             $t->text('quote');
             $t->string('status')->default('unreviewed');
-            $t->foreignId('reviewed_by')->nullable()->constrained('users');
+            $t->foreignId('reviewed_by')->nullable()->constrained('users')->nullOnDelete();
             $t->timestamps();
         });
         Schema::create('research_findings', function (Blueprint $t) {
             $t->id();
-            $t->foreignId('project_id')->constrained('research_projects');
-            $t->foreignId('task_id')->constrained('research_tasks');
+            $t->foreignId('project_id')->constrained('research_projects')->cascadeOnDelete();
+            $t->foreignId('task_id')->constrained('research_tasks')->cascadeOnDelete();
             $t->string('kind');
             $t->json('data');
             $t->unique(['task_id', 'kind']);
@@ -124,15 +124,15 @@ return new class extends Migration
         });
         Schema::create('research_documents', function (Blueprint $t) {
             $t->id();
-            $t->foreignId('project_id')->unique()->constrained('research_projects');
+            $t->foreignId('project_id')->unique()->constrained('research_projects')->cascadeOnDelete();
             $t->json('content');
             $t->unsignedInteger('version')->default(1);
             $t->timestamps();
         });
         Schema::create('research_revisions', function (Blueprint $t) {
             $t->id();
-            $t->foreignId('project_id')->constrained('research_projects');
-            $t->foreignId('actor_id')->nullable()->constrained('users');
+            $t->foreignId('project_id')->constrained('research_projects')->cascadeOnDelete();
+            $t->foreignId('actor_id')->nullable()->constrained('users')->nullOnDelete();
             $t->unsignedInteger('version');
             $t->json('content');
             $t->string('kind')->default('manual');
@@ -141,15 +141,15 @@ return new class extends Migration
         });
         Schema::create('research_citations', function (Blueprint $t) {
             $t->id();
-            $t->foreignId('project_id')->constrained('research_projects');
-            $t->foreignId('source_id')->constrained('research_sources');
+            $t->foreignId('project_id')->constrained('research_projects')->cascadeOnDelete();
+            $t->foreignId('source_id')->constrained('research_sources')->cascadeOnDelete();
             $t->unsignedInteger('position');
             $t->timestamps();
         });
         Schema::create('research_comments', function (Blueprint $t) {
             $t->id();
-            $t->foreignId('project_id')->constrained('research_projects');
-            $t->foreignId('user_id')->constrained('users');
+            $t->foreignId('project_id')->constrained('research_projects')->cascadeOnDelete();
+            $t->foreignId('user_id')->nullable()->constrained('users')->nullOnDelete();
             $t->text('body');
             $t->string('anchor')->nullable();
             $t->boolean('resolved')->default(false);
@@ -157,8 +157,8 @@ return new class extends Migration
         });
         Schema::create('research_approvals', function (Blueprint $t) {
             $t->id();
-            $t->foreignId('project_id')->constrained('research_projects');
-            $t->foreignId('user_id')->constrained('users');
+            $t->foreignId('project_id')->constrained('research_projects')->cascadeOnDelete();
+            $t->foreignId('user_id')->nullable()->constrained('users')->nullOnDelete();
             $t->string('gate');
             $t->string('content_hash', 64);
             $t->boolean('override')->default(false);
@@ -167,7 +167,7 @@ return new class extends Migration
         });
         Schema::create('research_experiments', function (Blueprint $t) {
             $t->id();
-            $t->foreignId('project_id')->constrained('research_projects');
+            $t->foreignId('project_id')->constrained('research_projects')->cascadeOnDelete();
             $t->string('title');
             $t->text('code');
             $t->json('dataset_ids');
@@ -176,13 +176,13 @@ return new class extends Migration
             $t->string('status')->default('draft');
             $t->string('execution_id', 64)->nullable();
             $t->json('result')->nullable();
-            $t->foreignId('approved_by')->nullable()->constrained('users');
+            $t->foreignId('approved_by')->nullable()->constrained('users')->nullOnDelete();
             $t->timestamps();
         });
         Schema::create('research_artifacts', function (Blueprint $t) {
             $t->id();
-            $t->foreignId('project_id')->constrained('research_projects');
-            $t->foreignId('experiment_id')->nullable()->constrained('research_experiments');
+            $t->foreignId('project_id')->constrained('research_projects')->cascadeOnDelete();
+            $t->foreignId('experiment_id')->nullable()->constrained('research_experiments')->cascadeOnDelete();
             $t->string('kind');
             $t->string('name');
             $t->string('mime');
@@ -193,8 +193,8 @@ return new class extends Migration
         });
         Schema::create('research_exports', function (Blueprint $t) {
             $t->id();
-            $t->foreignId('project_id')->constrained('research_projects');
-            $t->foreignId('actor_id')->constrained('users');
+            $t->foreignId('project_id')->constrained('research_projects')->cascadeOnDelete();
+            $t->foreignId('actor_id')->nullable()->constrained('users')->nullOnDelete();
             $t->string('format');
             $t->string('status')->default('queued');
             $t->boolean('draft');

@@ -8,13 +8,33 @@ use Illuminate\Support\Facades\Http;
 
 class FullText
 {
+    public static function permitted(mixed $license): bool
+    {
+        if (is_array($license)) {
+            foreach ($license as $entry) {
+                if (is_array($entry) && self::permitted($entry['URL'] ?? null)) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+        if (! is_string($license)) {
+            return false;
+        }$value = strtolower(trim($license));
+        if (in_array($value, ['cc-by', 'cc-by-sa', 'cc0', 'public-domain'], true)) {
+            return true;
+        }
+
+        return (bool) preg_match('~^https?://creativecommons\.org/(?:licenses/by(?:-sa)?|publicdomain/(?:zero|mark))/[0-9]+(?:\.[0-9]+)?/?$~D', $value);
+    }
+
     public function fetch(Context $ctx, Source $source): void
     {
         if ($source->private_path || ($source->metadata['fulltext'] ?? false)) {
             return;
         }
-        $license = json_encode($source->metadata['license'] ?? '');
-        if (! preg_match('~cc-by(?:-sa)?(?:/|-|"|\\\\)|creativecommons.org/licenses/by(?:-sa)?/|cc0|public.domain~i', $license)) {
+        if (! self::permitted($source->metadata['license'] ?? null)) {
             return;
         }
         $url = $source->metadata['pdf_url'] ?? null;

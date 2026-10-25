@@ -1,6 +1,7 @@
 "use client";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
+import Heading from "@tiptap/extension-heading";
 import {
   Table,
   TableRow,
@@ -12,6 +13,20 @@ import { useEffect, useRef, useState } from "react";
 import katex from "katex";
 import "katex/dist/katex.min.css";
 import { api, Row, citation, bibliography, loadStyle } from "@/lib/research";
+const AcademicHeading = Heading.extend({
+  addAttributes() {
+    return { ...this.parent?.(), id: { default: null } };
+  },
+});
+const AcademicTable = Table.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      id: { default: null },
+      caption: { default: "" },
+    };
+  },
+});
 const Citation = Node.create({
   name: "citation",
   inline: true,
@@ -40,7 +55,7 @@ const MathNode = Node.create({
   group: "inline",
   atom: true,
   addAttributes() {
-    return { latex: { default: "" } };
+    return { latex: { default: "" }, id: { default: null } };
   },
   parseHTML() {
     return [{ tag: "span[data-equation]" }];
@@ -53,7 +68,7 @@ const MathNode = Node.create({
     ];
   },
   addNodeView() {
-    return ({ node }) => {
+    return ({ node, editor, getPos }) => {
       const dom = document.createElement("span");
       dom.className = "rs-equation";
       dom.innerHTML = katex.renderToString(node.attrs.latex, {
@@ -61,7 +76,26 @@ const MathNode = Node.create({
         trust: false,
         strict: "warn",
       });
-      return { dom };
+      const number = document.createElement("small");
+      dom.appendChild(number);
+      const refresh = () => {
+        let index = 0;
+        editor.state.doc.descendants((n, position) => {
+          if (n.type.name === "math") {
+            index++;
+            if (n.attrs.id === node.attrs.id)
+              number.textContent = " (" + index + ")";
+          }
+        });
+      };
+      refresh();
+      editor.on("transaction", refresh);
+      return {
+        dom,
+        destroy() {
+          editor.off("transaction", refresh);
+        },
+      };
     };
   },
 });
@@ -143,8 +177,40 @@ const CrossReference = Node.create({
       mergeAttributes(HTMLAttributes, {
         "data-cross-reference": HTMLAttributes.target,
       }),
-      "§ " + HTMLAttributes.target,
+      "Reference",
     ];
+  },
+  addNodeView() {
+    return ({ node, editor }) => {
+      const dom = document.createElement("span");
+      dom.className = "rs-citation";
+      const refresh = () => {
+        const counts: Record<string, number> = {};
+        let text = "Unresolved reference";
+        editor.state.doc.descendants((n) => {
+          const type = n.type.name;
+          counts[type] = (counts[type] || 0) + 1;
+          if (n.attrs.id === node.attrs.target)
+            text =
+              type === "heading"
+                ? n.textContent
+                : ({ figure: "Figure", table: "Table", math: "Equation" }[
+                    type as "figure"
+                  ] || "Reference") +
+                  " " +
+                  counts[type];
+        });
+        dom.textContent = text;
+      };
+      refresh();
+      editor.on("transaction", refresh);
+      return {
+        dom,
+        destroy() {
+          editor.off("transaction", refresh);
+        },
+      };
+    };
   },
 });
 type Props = {
@@ -193,8 +259,9 @@ export default function AcademicEditor({
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
-      StarterKit,
-      Table.configure({ resizable: true }),
+      StarterKit.configure({ heading: false }),
+      AcademicHeading,
+      AcademicTable.configure({ resizable: true }),
       TableRow,
       TableCell,
       TableHeader,
@@ -215,7 +282,25 @@ export default function AcademicEditor({
         dir: "auto",
       },
     },
-    onUpdate: () => {
+    onUpdate: ({ editor }) => {
+      const transaction = editor.state.tr;
+      let normalize = false;
+      editor.state.doc.descendants((node, pos) => {
+        if (
+          ["heading", "table", "figure", "math"].includes(node.type.name) &&
+          !node.attrs.id
+        ) {
+          transaction.setNodeMarkup(pos, undefined, {
+            ...node.attrs,
+            id: node.type.name + "-" + crypto.randomUUID(),
+          });
+          normalize = true;
+        }
+      });
+      if (normalize) {
+        editor.view.dispatch(transaction.setMeta("addToHistory", false));
+        return;
+      }
       dirtyRef.current = true;
       setDirty(true);
       setEditTick((n) => n + 1);
@@ -228,6 +313,14 @@ export default function AcademicEditor({
           editor.state.selection.from,
           editor.state.selection.to,
           " ",
+          (node) =>
+            node.type.name === "citation"
+              ? "[@s" + node.attrs.sourceId + "]"
+              : node.type.name === "math"
+                ? "$" + node.attrs.latex + "$"
+                : node.type.name === "footnote"
+                  ? "[footnote:" + node.attrs.text + "]"
+                  : "",
         ),
       );
     },
@@ -292,8 +385,18 @@ export default function AcademicEditor({
     const update = () => {
       const out: Row[] = [];
       editor.state.doc.descendants((n, pos) => {
-        if (n.type.name === "heading")
-          out.push({ text: n.textContent, pos, level: n.attrs.level });
+        if (["heading", "table", "figure", "math"].includes(n.type.name))
+          out.push({
+            text:
+              n.type.name === "heading"
+                ? n.textContent
+                : (n.type.name === "math" ? "Equation" : n.type.name) +
+                  ": " +
+                  (n.attrs.caption || n.attrs.latex || ""),
+            pos,
+            level: n.attrs.level,
+            id: n.attrs.id,
+          });
       });
       setOutline(out);
     };
@@ -526,25 +629,33 @@ export default function AcademicEditor({
                 attrs: {
                   artifactId: Number(figure),
                   caption,
-                  id: "figure-" + figure,
+                  id: "figure-" + crypto.randomUUID(),
                 },
               })
               .run();
         })}
         <label>
           Cross-reference target
-          <input
-            value={target}
-            onChange={(e) => setTarget(e.target.value)}
-            placeholder="section-1"
-          />
+          <select value={target} onChange={(e) => setTarget(e.target.value)}>
+            <option value="">Choose a document target</option>
+            {outline
+              .filter((h) => h.id)
+              .map((h, i) => (
+                <option key={i} value={h.id}>
+                  {h.text || "Untitled section"}
+                </option>
+              ))}
+          </select>
         </label>
-        {button("Insert cross-reference", () =>
-          editor
-            .chain()
-            .focus()
-            .insertContent({ type: "crossReference", attrs: { target } })
-            .run(),
+        {button(
+          "Insert cross-reference",
+          () =>
+            target &&
+            editor
+              .chain()
+              .focus()
+              .insertContent({ type: "crossReference", attrs: { target } })
+              .run(),
         )}
       </details>
       <EditorContent editor={editor} />

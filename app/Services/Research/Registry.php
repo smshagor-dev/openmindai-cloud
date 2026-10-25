@@ -21,7 +21,10 @@ class Registry
         $a = $this->get($key);
         $definition = $a->definition();
         $file = (new \ReflectionClass($a))->getFileName();
-        $version = hash('sha256', file_get_contents($file).file_get_contents(__DIR__.'/Agents/BaseAgent.php').json_encode($definition));
+        $tools = glob(__DIR__.'/*.php');
+        sort($tools);
+        $toolVersion = implode('', array_map(fn ($path) => hash_file('sha256', $path), $tools));
+        $version = hash('sha256', file_get_contents($file).file_get_contents(__DIR__.'/Agents/BaseAgent.php').$toolVersion.json_encode($definition));
         $row = DB::table('research_agent_definitions')->where('key', $key)->where('version', $version)->first();
         if ($row) {
             return $row->id;

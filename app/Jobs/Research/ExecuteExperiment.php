@@ -4,6 +4,7 @@ namespace App\Jobs\Research;
 
 use App\Models\Research\Experiment;
 use App\Models\Research\Project;
+use App\Models\User;
 use App\Services\Research\Events;
 use App\Services\Research\Transactions;
 use App\Services\Research\Worker;
@@ -24,8 +25,27 @@ class ExecuteExperiment implements ShouldQueue
 
     public function handle(): void
     {
-        $x = Experiment::find($this->experimentId);
-        if (! $x || ! Experiment::whereKey($x->id)->where('status', 'queued')->update(['status' => 'running', 'updated_at' => now()])) {
+        $x = Transactions::run(function () {
+            $candidate = Experiment::find($this->experimentId);
+            if (! $candidate) {
+                return null;
+            }
+            $project = Project::whereKey($candidate->project_id)->lockForUpdate()->firstOrFail();
+            $x = Experiment::whereKey($candidate->id)->lockForUpdate()->firstOrFail();
+            if ($x->status !== 'queued') {
+                return null;
+            }
+            if (! $x->hasApproval() || $project->owner_id !== $x->approved_by || ! User::whereKey($x->approved_by)->where('is_active', true)->exists()) {
+                $x->update(['status' => 'failed', 'result' => ['error_code' => 'experiment_authorization_changed']]);
+                Events::add($x->project_id, 'experiment.failed', ['execution_id' => $x->execution_id, 'error_code' => 'experiment_authorization_changed']);
+
+                return null;
+            }
+            $x->update(['status' => 'running']);
+
+            return $x;
+        });
+        if (! $x) {
             return;
         }
         try {
@@ -39,7 +59,7 @@ class ExecuteExperiment implements ShouldQueue
             }abort_if(array_sum(array_map(fn ($d) => strlen($d['data']), $datasets)) > 12000000, 422);
             $out = app(Worker::class)->call('experiment', ['execution_id' => $x->execution_id, 'code' => $x->code, 'code_hash' => hash('sha256', $x->code), 'seed' => $x->seed, 'datasets' => $datasets]);
             $provenance = $out['provenance'] ?? [];
-            if (($provenance['execution_id'] ?? '') !== $x->execution_id || ($provenance['code_hash'] ?? '') !== hash('sha256', $x->code) || ! preg_match('/^sha256:[a-f0-9]{64}$/', $provenance['image'] ?? '')) {
+            if (($provenance['execution_id'] ?? '') !== $x->execution_id || ($provenance['code_hash'] ?? '') !== hash('sha256', $x->code) || ($provenance['seed'] ?? null) !== $x->seed || ! preg_match('/^sha256:[a-f0-9]{64}$/', $provenance['image'] ?? '')) {
                 throw new \RuntimeException('execution_provenance_invalid');
             }
             Transactions::run(function () use ($x, $out) {

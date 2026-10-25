@@ -75,6 +75,10 @@ class ResearchStudioTest extends TestCase
             $ids = Source::where('project_id', $c->task->project_id)->pluck('id')->all();
             $id = $ids[0] ?? 1;
 
+            if ($c->task->agent === 'literature' && ! isset($data['source'])) {
+                return ['themes' => [['name' => 'Traceability', 'summary' => 'Synthetic fixture comparison.', 'source_ids' => $ids]], 'contradictions' => [], 'matrix' => array_map(fn ($id) => ['source_id' => $id, 'methodology' => 'Fixture methodology', 'findings' => 'Synthetic findings', 'limitations' => 'Fixture scope'], $ids)];
+            }
+
             return match ($c->task->agent) {
                 'planning' => ['language' => str_contains($c->project()->prompt, 'বাংলা') ? 'bn' : (str_contains($c->project()->prompt, 'исследование') ? 'ru' : 'en'), 'output_language' => 'en', 'discipline' => 'Computer science', 'objectives' => ['Analyze evidence'], 'constraints' => [], 'perspectives' => [['name' => 'Methods', 'query' => 'scientific methods'], ['name' => 'Limitations', 'query' => 'scientific limitations']], 'experimental' => false],
                 'literature' => ['analyses' => [['source_id' => $id, 'methods' => 'Controlled fixture method', 'findings' => 'Synthetic fixture evidence', 'limitations' => 'Test corpus only']], 'evidence' => [['source_id' => $data['source']['source_id'] ?? $id, 'claim' => 'The fixture describes controlled research.', 'quote' => 'Scientific methods use traceable evidence.']]],
@@ -92,7 +96,7 @@ class ResearchStudioTest extends TestCase
                 return Http::response(['results' => []]);
             }
 
-return Http::response(['message' => str_contains($request->url(), '/works/10.') ? $record : ['items' => [$record]]]);
+            return Http::response(['message' => str_contains($request->url(), '/works/10.') ? $record : ['items' => [$record]]]);
         });
     }
 
@@ -258,10 +262,75 @@ return Http::response(['message' => str_contains($request->url(), '/works/10.') 
         Queue::fake();
         $p = $this->project();
         $r = app(Orchestrator::class)->start($p, $p->owner_id);
-        $t = Task::where('run_id',$r->id)->first();
+        $t = Task::where('run_id', $r->id)->first();
         $t->update(['status' => 'running', 'claim' => 'test']);
         Http::fake();
         $this->expectException(\RuntimeException::class);
-        app(Inference::class)->json(new Context($t->fresh(),'test'),'Test',[],['answer' => 'required|string']);
+        app(Inference::class)->json(new Context($t->fresh(), 'test'), 'Test', [], ['answer' => 'required|string']);
+    }
+
+    public function test_multi_paper_literature_builds_a_source_linked_thematic_review(): void
+    {
+        Queue::fake();
+        $this->modelFixtures();
+        $p = $this->project();
+        foreach ([1, 2] as $i) {
+            Source::create(['project_id' => $p->id, 'fingerprint' => hash('sha256', 'matrix-'.$i), 'title' => 'Matrix fixture '.$i, 'authors' => [], 'text' => 'Scientific methods use traceable evidence.', 'metadata' => []]);
+        }
+        $run = app(Orchestrator::class)->start($p, $p->owner_id, 'literature');
+        $this->runTasks($run);
+        $result = Finding::where('project_id', $p->id)->where('kind', 'literature')->firstOrFail()->data;
+        $this->assertCount(2, $result['matrix']);
+        $this->assertCount(1, $result['themes']);
+        $this->assertSame(2, $result['coverage']['sources_analyzed']);
+    }
+
+    public function test_settings_and_replacement_pdf_parsing_preserve_newer_state(): void
+    {
+        Queue::fake();
+        Storage::fake('local');
+        $p = $this->project();
+        $this->putJson("/api/v1/research/projects/$p->id/settings", ['citation_style' => 'ieee'])->assertOk();
+        $bytes = '%PDF-1.4 synthetic';
+        $hash = hash('sha256', $bytes);
+        Storage::disk('local')->put('research/old.pdf', $bytes);
+        $source = Source::create(['project_id' => $p->id, 'fingerprint' => hash('sha256', 'parse-race'), 'title' => 'Race fixture', 'authors' => [], 'private_path' => 'research/old.pdf', 'metadata' => ['upload_sha256' => $hash, 'parse_status' => 'pending']]);
+        $this->mock(Worker::class)->shouldReceive('call')->once()->andReturnUsing(function () use ($source) {
+            $source->refresh()->update(['private_path' => 'research/new.pdf', 'text' => 'Newer document text', 'metadata' => ['upload_sha256' => 'new-hash', 'parse_status' => 'pending']]);
+
+            return ['text' => 'Old parsing result', 'pages' => 1];
+        });
+        (new ParseSource($source->id, 'research/old.pdf', $hash))->handle();
+        $source->refresh();
+        $this->assertSame('Newer document text', $source->text);
+        $this->assertSame('new-hash', $source->metadata['upload_sha256']);
+    }
+
+    public function test_account_deletion_does_not_break_research_foreign_keys(): void
+    {
+        $owner = $this->user();
+        $editor = $this->user('Former editor');
+        $p = $this->project($owner);
+        $run = Run::create(['project_id' => $p->id, 'actor_id' => $editor->id, 'generation' => 0]);
+        $editor->delete();
+        $this->assertNull($run->fresh()->actor_id);
+        $owner->delete();
+        $this->assertDatabaseMissing('research_projects', ['id' => $p->id]);
+        $this->assertDatabaseMissing('research_runs', ['id' => $run->id]);
+    }
+
+    public function test_literal_author_metadata_is_verified_and_wrong_given_names_are_rejected(): void
+    {
+        Queue::fake();
+        $this->modelFixtures();
+        $p = $this->project();
+        $s = Source::create(['project_id' => $p->id, 'fingerprint' => hash('sha256', 'literal-author'), 'title' => 'Controlled research fixture', 'doi' => '10.1234/fixture', 'authors' => [['literal' => 'Test Fixture']], 'year' => 2025, 'venue' => 'Fixture Journal', 'metadata' => []]);
+        $run = app(Orchestrator::class)->start($p, $p->owner_id, 'verification');
+        $this->runTasks($run);
+        $this->assertSame('verified', $s->fresh()->verification);
+        $s->update(['authors' => [['given' => 'Wrong', 'family' => 'Fixture']]]);
+        $run = app(Orchestrator::class)->start($p, $p->owner_id, 'verification');
+        $this->runTasks($run);
+        $this->assertSame('mismatch', $s->fresh()->verification);
     }
 }

@@ -3,6 +3,7 @@
 namespace App\Services\Research\Agents;
 
 use App\Services\Research\Context;
+use Illuminate\Support\Facades\DB;
 
 class Experiments extends BaseAgent
 {
@@ -16,6 +17,6 @@ class Experiments extends BaseAgent
             return ['plans' => [], 'disclosure' => 'No experimental execution requested.'];
         }
 
-        return $this->ask($ctx, 'Propose reproducible Python experiment plans (title, method, code, datasets_required) using approved user datasets only. No code is executed by this agent. Use /work/input authorized files and /work/output for artifacts. Include random seed and real baselines where feasible. Return plans[] and disclosure string. Missing datasets must be explicit, not simulated results.', ['project' => $this->project($ctx), 'findings' => $ctx->findings()]);
+        return $this->ask($ctx, 'Propose reproducible Python experiment plans (title, method, code, datasets_required) using approved user datasets only. No code is executed by this agent. Use /work/input authorized files and /work/output for artifacts. Include random seed and real baselines where feasible. Return plans[] and disclosure string. Missing datasets must be explicit, not simulated results.', ['project' => $this->project($ctx), 'findings' => $ctx->findings(), 'available_datasets' => DB::table('research_artifacts')->where('project_id', $ctx->task->project_id)->where('kind', 'dataset')->get(['id', 'name', 'bytes', 'sha256'])->map(fn ($a) => ['id' => $a->id, 'original_name' => $a->name, 'execution_path' => '/work/input/dataset-'.$a->id.'.csv', 'bytes' => $a->bytes, 'sha256' => $a->sha256])->all()]);
     }
 }

@@ -16,7 +16,18 @@ abstract class BaseAgent implements Agent
 
     public function definition(): array
     {
-        return ['responsibility' => static::class, 'tools' => $this->tools, 'permissions' => ['read_project', 'write_task_scoped_findings'], 'input_schema' => $this->inputs, 'output_schema' => $this->rules];
+        $permissions = ['read_project', 'write_task_scoped_findings'];
+        if (in_array('crossref.search', $this->tools, true)) {
+            $permissions[] = 'persist_project_sources';
+        }
+        if (in_array('exact_quote.extract', $this->tools, true)) {
+            $permissions[] = 'persist_unreviewed_evidence';
+        }
+        if (in_array('crossref.doi.verify', $this->tools, true)) {
+            $permissions[] = 'update_reference_verification';
+        }
+
+        return ['responsibility' => static::class, 'tools' => $this->tools, 'permissions' => $permissions, 'input_schema' => $this->inputs, 'output_schema' => $this->rules];
     }
 
     protected function ask(Context $ctx, string $instruction, array $data): array

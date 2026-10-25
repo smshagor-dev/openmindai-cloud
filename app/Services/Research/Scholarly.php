@@ -54,7 +54,13 @@ class Scholarly
             $data = $this->normalize($item, $provider);
             if (! $data['title']) {
                 continue;
-            }$s = $this->save($ctx, $data);
+            }
+            try {
+                $s = $this->save($ctx, $data);
+            } catch (SourceLimitReached) {
+                $ctx->event('browsing.limit', ['count' => config('research.source_limit'), 'error_code' => 'project_source_limit', 'status' => 'bounded']);
+                break;
+            }
             $ids[] = $s->id;
             $ctx->event('browsing.discovered', ['source_id' => $s->id, 'title' => $s->title, 'url' => $s->url, 'provider' => $provider, 'status' => 'completed']);
         }
@@ -91,7 +97,9 @@ class Scholarly
             })->first();
             if ($existing) {
                 return $existing;
-            }abort_if(Source::where('project_id', $ctx->task->project_id)->count() >= config('research.source_limit'), 422, 'Source quota reached.');
+            }if (Source::where('project_id', $ctx->task->project_id)->count() >= config('research.source_limit')) {
+                throw new SourceLimitReached;
+            }
 
             return Source::create(array_merge($data, ['project_id' => $ctx->task->project_id, 'doi' => $doi, 'fingerprint' => $fp]));
         });
@@ -106,19 +114,36 @@ class Scholarly
             $v = $this->get('crossref', '/works/'.rawurlencode($s->doi), []);
             $record = $this->normalize($v['message'] ?? [], 'crossref');
             $norm = fn ($t) => mb_strtolower(preg_replace('/[^\pL\pN]+/u', '', (string) $t));
-            $authors = fn ($as) => array_map(fn ($a) => $norm($a['family'] ?? $a['literal'] ?? ''), $as);
-            $sameAuthors = ! $s->authors || ! array_diff($authors($s->authors), $authors($record['authors']));
-            $ok = $norm($s->title) === $norm($record['title']) && $norm($s->doi) === $norm($record['doi']) && (! $s->year || $s->year === $record['year']) && (! $s->venue || $norm($s->venue) === $norm($record['venue'])) && $sameAuthors;
-            $bad = ($s->metadata['retracted'] ?? false) || array_filter($record['metadata']['updates'] ?? [], fn ($u) => str_contains(strtolower($u['type'] ?? ''), 'retract'));
+            $names = fn ($a) => array_filter([$norm(($a['given'] ?? '').' '.($a['family'] ?? '')), $norm($a['literal'] ?? ''), $norm($a['family'] ?? '')]);
+            $sameAuthors = ! $s->authors || count($s->authors) === count($record['authors']);
+            foreach ($s->authors as $i => $author) {
+                $other = $record['authors'][$i] ?? null;
+                if (! $other) {
+                    $sameAuthors = false;
+
+                    continue;
+                }
+                if (! empty($author['given']) && ! empty($other['given'])) {
+                    if ($norm($author['given'].' '.($author['family'] ?? '')) !== $norm($other['given'].' '.($other['family'] ?? ''))) {
+                        $sameAuthors = false;
+                    }
+                } elseif (! array_intersect($names($author), $names($other))) {
+                    $sameAuthors = false;
+                }
+            }
+            $ok = $norm($s->title) === $norm($record['title']) && mb_strtolower(trim($s->doi)) === mb_strtolower(trim((string) $record['doi'])) && (! $s->year || $s->year === $record['year']) && (! $s->venue || $norm($s->venue) === $norm($record['venue'])) && $sameAuthors;
+            $bad = ($s->verification === 'retracted') || ! empty($record['metadata']['relations']['is-retracted-by']) || ($s->metadata['retracted'] ?? false) || array_filter($record['metadata']['updates'] ?? [], fn ($u) => str_contains(strtolower($u['type'] ?? ''), 'retract'));
             $status = $bad ? 'retracted' : ($ok ? 'verified' : 'mismatch');
             $ctx->fenced(function () use ($s, $status, $record) {
-                $s->update(['verification' => $status, 'verified_at' => now(), 'metadata' => array_merge($s->metadata, ['verification_record' => $record, 'verification_provider' => 'crossref'])]);
+                $s->update(['authors' => $s->authors ?: $record['authors'], 'year' => $s->year ?: $record['year'], 'venue' => $s->venue ?: $record['venue'], 'verification' => $status, 'verified_at' => now(), 'metadata' => array_merge($s->metadata, ['verification_record' => $record, 'verification_provider' => 'crossref'])]);
             });
 
             return ['source_id' => $s->id, 'status' => $status, 'metadata_match' => $ok];
         } catch (StaleExecution $e) {
             throw $e;
         } catch (\Throwable) {
+            $ctx->fenced(fn () => $s->update(['verification' => $s->verification === 'retracted' ? 'retracted' : 'unverified', 'metadata' => array_merge($s->metadata, ['verification_error' => 'lookup_failed'])]));
+
             return ['source_id' => $s->id, 'status' => 'unverified', 'reason' => 'lookup_failed'];
         }
     }

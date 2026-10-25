@@ -44,7 +44,7 @@ const env = {
   FRONTEND_URL: url,
 };
 function service(command, args, cwd = root) {
-  const p = spawn(command, args, { cwd, env, stdio: ["ignore", log, log] });
+  const p = spawn(command,args,{cwd,env,stdio:["ignore",log,log],detached:process.platform!=="win32"});
   children.push(p);
   return p;
 }
@@ -143,6 +143,6 @@ try {
   console.log("Research E2E artifacts:", dir);
   if (code !== 0) process.exitCode = 1;
 } finally {
-  for (const p of children) p.kill("SIGTERM");
+  for (const p of children) {try{if(process.platform!=='win32'&&p.pid)process.kill(-p.pid,'SIGTERM');else p.kill('SIGTERM');}catch(error){if(error.code!=='ESRCH')throw error;}}
   closeSync(log);
 }

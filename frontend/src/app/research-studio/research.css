@@ -464,7 +464,7 @@
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--panel2);
-  overflow: hidden;
+  overflow: clip;
   margin-bottom: 22px;
 }
 .rs-toolbar {
@@ -707,5 +707,20 @@
     animation: none !important;
     transition: none !important;
     scroll-behavior: auto !important;
+  }
+}
+html:has(.rs) {
+  scroll-padding-top: 160px;
+}
+.rs :where(button, summary, input, textarea, select, [contenteditable]) {
+  scroll-margin-top: 190px;
+  scroll-margin-bottom: 50px;
+}
+@media (max-width: 760px) {
+  html:has(.rs) {
+    scroll-padding-top: 220px;
+  }
+  .rs :where(button, summary, input, textarea, select, [contenteditable]) {
+    scroll-margin-top: 220px;
   }
 }

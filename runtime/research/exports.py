@@ -40,6 +40,16 @@ def export(payload):
     settings=payload.get('settings',{});style=STYLES.get(settings.get('citation_style','apa'))
     if not style:raise ValueError('unsupported_csl')
     footnotes=[];cited=set();figures={int(f['id']):f for f in payload.get('figures',[])};source_ids={int(s['id']) for s in payload['sources']}
+    anchors={};node_ids={};numbers={};counts={}
+    def index_nodes(n):
+        kind=n.get('type');attrs=n.get('attrs',{})
+        if kind in ['heading','figure','table','math']:
+            counts[kind]=counts.get(kind,0)+1;number=counts[kind];target=re.sub('[^a-zA-Z0-9_-]','',str(attrs.get('id')or kind+'-'+str(number)))
+            if target in anchors:raise ValueError('duplicate_cross_reference_target')
+            label={'heading':'Section','figure':'Figure','table':'Table','math':'Equation'}[kind]+' '+str(number)
+            anchors[target]=label;node_ids[id(n)]=target;numbers[id(n)]=number
+        for child in n.get('content',[]):index_nodes(child)
+    if fmt!='bib':index_nodes(payload['document'])
     with tempfile.TemporaryDirectory() as tmp:
         root=Path(tmp)
         def node(n):
@@ -53,9 +63,12 @@ def export(payload):
                 sid=int(n['attrs']['sourceId'])
                 if sid not in source_ids:raise ValueError('unresolved_citation')
                 cited.add(sid);return ' [@s'+str(sid)+']'
-            if t=='math':return '$'+equation(n['attrs']['latex'])+'$'
+            if t=='math':return '[$'+equation(n['attrs']['latex'])+'$]{#'+node_ids[id(n)]+'} ('+str(numbers[id(n)])+')'
             if t=='footnote':footnotes.append(escape(n['attrs']['text']));return '[^f'+str(len(footnotes))+']'
-            if t=='crossReference':return '[Section reference](#'+re.sub('[^a-zA-Z0-9_-]','',n['attrs']['target'])+')'
+            if t=='crossReference':
+                target=n['attrs']['target']
+                if target not in anchors:raise ValueError('unresolved_cross_reference')
+                return '['+anchors[target]+'](#'+target+')'
             if t=='figure':
                 f=figures.get(int(n['attrs']['artifactId']))
                 if not f:raise ValueError('missing_figure')
@@ -64,14 +77,14 @@ def export(payload):
                 if not ext or len(raw)>4_000_000:raise ValueError('invalid_figure')
                 path='figure-'+str(f['id'])+'.'+ext;(root/path).write_bytes(raw)
                 url='data:image/'+('png' if ext=='png' else 'jpeg')+';base64,'+f['data'] if fmt=='md' else path
-                return '\n\n!['+escape(n['attrs'].get('caption','Figure'))+']('+url+')\n\n'
+                return '\n\n!['+escape(anchors[node_ids[id(n)]]+': '+n['attrs'].get('caption',''))+']('+url+'){#'+node_ids[id(n)]+'}\n\n'
             if t=='table':
                 rows=[[ ''.join(node(c) for c in cell.get('content',[])).strip().replace('\n',' ') for cell in row.get('content',[])] for row in children]
                 if not rows:return ''
                 width=max(map(len,rows));rows=[row+['']*(width-len(row)) for row in rows]
-                return '\n\n'+'| '+' | '.join(rows[0])+' |\n| '+' | '.join(['---']*width)+' |\n'+''.join('| '+' | '.join(row)+' |\n' for row in rows[1:])+'\n'
+                return '\n\n['+escape(anchors[node_ids[id(n)]]+': '+n.get('attrs',{}).get('caption',''))+']{#'+node_ids[id(n)]+'}\n\n'+'| '+' | '.join(rows[0])+' |\n| '+' | '.join(['---']*width)+' |\n'+''.join('| '+' | '.join(row)+' |\n' for row in rows[1:])+'\n'
             text=''.join(node(c) for c in children)
-            if t=='heading':return '\n\n'+'#'*max(1,min(6,int(n.get('attrs',{}).get('level',1))))+' '+text+' {#'+re.sub('[^a-zA-Z0-9_-]','',str(n.get('attrs',{}).get('id','section')))+'}\n\n'
+            if t=='heading':return '\n\n'+'#'*max(1,min(6,int(n.get('attrs',{}).get('level',1))))+' '+text+' {#'+node_ids[id(n)]+'}\n\n'
             if t=='paragraph':return text+'\n\n'
             if t in ['bulletList','orderedList']:return '\n'+''.join(('- ' if t=='bulletList' else str(i+1)+'. ')+node(c).strip()+'\n' for i,c in enumerate(children))+'\n'
             if t=='blockquote':return '\n> '+text.replace('\n','\n> ')+'\n'
@@ -79,12 +92,13 @@ def export(payload):
             if t=='hardBreak':return '  \n'
             if t=='horizontalRule':return '\n\n---\n\n'
             return text
-        content=node(payload['document'])
+        content=node(payload['document']) if fmt!='bib' else ''
         if payload.get('draft',True):content='**DRAFT — unresolved checks may remain. AI assistance requires human review.**\n\n'+content
         content+='\n'+''.join('[^f'+str(i+1)+']: '+text+'\n' for i,text in enumerate(footnotes))
         refs=[csl(s) for s in payload['sources'] if fmt=='bib' or int(s['id']) in cited]
         (root/'references.json').write_text(json.dumps(refs,ensure_ascii=False));(root/'manuscript.md').write_text(content)
-        stylefile=get_style_filepath(style)
+        stylefile=Path(__file__).resolve().parents[2]/'frontend/public/research-csl'/(settings.get('citation_style','apa')+'.csl')
+        if not stylefile.is_file():stylefile=get_style_filepath(style)
         def run(args):
             p=subprocess.run(['pandoc',*args],cwd=root,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=100)
             if p.returncode:raise ValueError('document_conversion_failed: '+p.stderr.decode(errors='replace')[-300:])
@@ -96,6 +110,19 @@ def export(payload):
         elif fmt=='md':raw=run(common+['-t','markdown-citations-raw_html']);assert raw
         elif fmt=='docx':
             run(common+['-o','out.docx']);raw=(root/'out.docx').read_bytes();d=Document(io.BytesIO(raw))
+            from docx.shared import Mm,Pt
+            font=int(settings.get('font_size',11));margin=int(settings.get('margin_mm',25));columns=int(settings.get('columns',1))
+            if settings.get('journal') in ['ieee','acm']:font=10;margin=19;columns=2
+            if not 9<=font<=14 or not 15<=margin<=35 or columns not in [1,2]:raise ValueError('invalid_layout')
+            d.styles['Normal'].font.size=Pt(font)
+            from docx.oxml.ns import qn
+            from docx.oxml import OxmlElement
+            for section in d.sections:
+                section.top_margin=section.bottom_margin=section.left_margin=section.right_margin=Mm(margin)
+                cols=section._sectPr.find(qn('w:cols'))
+                if cols is None:cols=OxmlElement('w:cols');section._sectPr.append(cols)
+                cols.set(qn('w:num'),str(columns))
+
             # Native bidi flags for Arabic paragraphs; scripts remain Unicode text.
             from docx.oxml import OxmlElement
             from docx.oxml.ns import qn
@@ -108,8 +135,8 @@ def export(payload):
             font=int(settings.get('font_size',11));margin=int(settings.get('margin_mm',25));columns=int(settings.get('columns',1));journal=settings.get('journal','generic')
             if journal in ['ieee','acm']:columns=2;font=10;margin=19
             if not 9<=font<=14 or not 15<=margin<=35 or columns not in [1,2]:raise ValueError('invalid_layout')
-            (root/'header.tex').write_text('\\usepackage{fontspec}\n')
-            variables=['-V',f'fontsize={font}pt','-V',f'geometry:margin={margin}mm','-V','mainfont=DejaVu Serif']
+            (root/'header.tex').write_text('\\usepackage{fontspec}\n\\usepackage{caption}\n\\captionsetup[figure]{labelformat=empty}\n')
+            variables=['--include-in-header=header.tex','-V',f'fontsize={font}pt','-V',f'geometry:margin={margin}mm','-V','mainfont=DejaVu Serif']
             if columns==2:variables+=['-V','classoption=twocolumn']
             if fmt=='pdf':
                 run(common+variables+['--standalone','-t','latex','-o','manuscript.tex']);tex=prepare((root/'manuscript.tex').read_text());(root/'manuscript.tex').write_text(tex)

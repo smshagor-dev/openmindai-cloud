@@ -7,6 +7,8 @@ use App\Models\Research\Project;
 use App\Models\Research\Run;
 use App\Models\Research\Source;
 use App\Models\Research\Task;
+use App\Models\User;
+use Illuminate\Support\Facades\DB;
 
 class Context
 {
@@ -28,7 +30,8 @@ class Context
             $p = Project::whereKey($this->task->project_id)->lockForUpdate()->firstOrFail();
             $r = Run::whereKey($this->task->run_id)->lockForUpdate()->firstOrFail();
             $t = Task::whereKey($this->task->id)->lockForUpdate()->firstOrFail();
-            if ($p->generation !== $r->generation || $r->status !== 'running' || $t->status !== 'running' || $t->claim !== $this->claim) {
+            $allowed = User::whereKey($r->actor_id)->where('is_active', true)->exists() && ($p->owner_id === $r->actor_id || DB::table('research_members')->where('project_id', $p->id)->where('user_id', $r->actor_id)->whereNotNull('accepted_at')->where('role', 'editor')->exists());
+            if (! $allowed || $p->generation !== $r->generation || $r->status !== 'running' || $t->status !== 'running' || $t->claim !== $this->claim) {
                 throw new StaleExecution;
             } $t->update(['lease_until' => now()->addSeconds(config('research.lease_seconds'))]);
 
@@ -68,7 +71,7 @@ class Context
                 $out[$key] = $compact($v, $depth + 1);
             }
 
-return $out;
+            return $out;
         };
 
         return Finding::where('project_id', $this->task->project_id)->latest('id')->limit(30)->get()->map(fn ($f) => ['finding_id' => $f->id, 'kind' => $f->kind, 'data' => $compact($f->data), 'context_excerpt' => true])->all();

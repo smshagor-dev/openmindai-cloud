@@ -14,7 +14,7 @@ class Worker
         $p = parse_url($url);
         $host = $p['host'] ?? '';
         abort_unless(strlen($key) >= 32 && isset($p['scheme']) && ! isset($p['user'],$p['pass']) && empty($p['query']) && empty($p['fragment']) && ($p['scheme'] === 'https' || ($p['scheme'] === 'http' && in_array($host, ['127.0.0.1', 'localhost', '[::1]'], true))), 503, 'Private research worker is not configured.');
-        $r = Http::withToken($key)->acceptJson()->connectTimeout(8)->timeout(160)->withOptions(['allow_redirects' => false, 'stream' => true])->post(rtrim($url, '/').'/'.$operation, $payload);
+        $r = Http::withToken($key)->acceptJson()->connectTimeout(8)->timeout($operation === 'cancel' ? 5 : 160)->withOptions(['allow_redirects' => false, 'stream' => true])->post(rtrim($url, '/').'/'.$operation, $payload);
         if (! $r->successful()) {
             throw new \RuntimeException('research_worker_failed');
         }$s = $r->toPsrResponse()->getBody();

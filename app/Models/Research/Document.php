@@ -12,6 +12,6 @@ class Document extends Model
 
     protected function casts(): array
     {
-        return ['content' => 'array'];
+        return ['project_id' => 'integer', 'version' => 'integer', 'content' => 'array'];
     }
 }

@@ -57,11 +57,14 @@ class ResearchStudioController
 
     public function show(Request $r, int $id)
     {
-        $p = $this->access($r, $id);
-        $run = Run::where('project_id', $id)->latest('id')->first();
-        $tasks = $run ? Task::where('run_id', $run->id)->get(['id', 'run_id', 'key', 'agent', 'status', 'input', 'checkpoint', 'errors', 'error_code', 'created_at', 'updated_at']) : collect();
+        return Transactions::run(function () use ($r, $id) {
+            Project::whereKey($id)->lockForUpdate()->firstOrFail();
+            $p = $this->access($r, $id);
+            $run = Run::where('project_id', $id)->latest('id')->first();
+            $tasks = $run ? Task::where('run_id', $run->id)->get(['id', 'run_id', 'key', 'agent', 'status', 'input', 'checkpoint', 'errors', 'error_code', 'created_at', 'updated_at']) : collect();
 
-        return ['project' => $p, 'run' => $run, 'tasks' => $tasks, 'dependencies' => DB::table('research_dependencies')->whereIn('task_id', $tasks->pluck('id'))->get(['task_id', 'depends_on']), 'sources' => Source::where('project_id', $id)->get(['id', 'title', 'doi', 'authors', 'year', 'venue', 'url', 'verification', 'verified_at', 'metadata', 'content_hash']), 'evidence' => Evidence::where('project_id', $id)->get(), 'findings' => Finding::where('project_id', $id)->latest('id')->limit(50)->get(), 'document' => Document::where('project_id', $id)->first(), 'comments' => DB::table('research_comments')->where('project_id', $id)->latest('id')->limit(200)->get(), 'members' => DB::table('research_members')->join('users', 'users.id', '=', 'research_members.user_id')->where('project_id', $id)->get(['research_members.id', 'research_members.user_id', 'role', 'accepted_at', 'users.name']), 'approvals' => DB::table('research_approvals')->where('project_id', $id)->latest('id')->limit(100)->get(), 'experiments' => Experiment::where('project_id', $id)->get(), 'artifacts' => DB::table('research_artifacts')->where('project_id', $id)->get(['id', 'kind', 'name', 'mime', 'bytes', 'sha256', 'experiment_id']), 'exports' => Export::where('project_id', $id)->latest('id')->limit(100)->get(), 'integrity' => app(IntegrityGates::class)->inspect($id), 'event_cursor' => (int) DB::table('research_events')->where('project_id', $id)->max('id')];
+            return ['project' => $p, 'run' => $run, 'tasks' => $tasks, 'dependencies' => DB::table('research_dependencies')->whereIn('task_id', $tasks->pluck('id'))->get(['task_id', 'depends_on']), 'sources' => Source::where('project_id', $id)->get(['id', 'title', 'doi', 'authors', 'year', 'venue', 'url', 'verification', 'verified_at', 'metadata', 'content_hash']), 'evidence' => Evidence::where('project_id', $id)->get(), 'findings' => Finding::where('project_id', $id)->latest('id')->limit(50)->get(), 'document' => Document::where('project_id', $id)->first(), 'comments' => DB::table('research_comments')->where('project_id', $id)->latest('id')->limit(200)->get(), 'members' => DB::table('research_members')->join('users', 'users.id', '=', 'research_members.user_id')->where('project_id', $id)->get(['research_members.id', 'research_members.user_id', 'role', 'accepted_at', 'users.name']), 'approvals' => DB::table('research_approvals')->where('project_id', $id)->latest('id')->limit(100)->get(), 'experiments' => Experiment::where('project_id', $id)->get(), 'artifacts' => DB::table('research_artifacts')->where('project_id', $id)->get(['id', 'kind', 'name', 'mime', 'bytes', 'sha256', 'experiment_id']), 'exports' => Export::where('project_id', $id)->latest('id')->limit(100)->get(), 'integrity' => app(IntegrityGates::class)->inspect($id), 'event_cursor' => (int) DB::table('research_events')->where('project_id', $id)->max('id'), 'recent_events' => DB::table('research_events')->where('project_id', $id)->latest('id')->limit(100)->get()->reverse()->values()->map(fn ($e) => ['id' => $e->id, 'type' => $e->type, 'data' => json_decode($e->data, true), 'created_at' => Carbon::parse($e->created_at)->toIso8601String()])];
+        });
     }
 
     public function settings(Request $r, int $id)
@@ -121,8 +124,9 @@ class ResearchStudioController
     public function events(Request $r, int $id)
     {
         $this->access($r, $id);
-        $d = $r->validate(['after' => 'sometimes|integer|min:0']);
-        $rows = DB::table('research_events')->where('project_id', $id)->where('id', '>', $d['after'] ?? 0)->orderBy('id')->limit(100)->get();
+        $d = $r->validate(['after' => 'sometimes|integer|min:0', 'before' => 'sometimes|integer|min:1']);
+        $query = DB::table('research_events')->where('project_id', $id);
+        $rows = isset($d['before']) ? $query->where('id', '<', $d['before'])->latest('id')->limit(100)->get()->reverse()->values() : $query->where('id', '>', $d['after'] ?? 0)->orderBy('id')->limit(100)->get();
 
         return response()->stream(function () use ($rows) {
             foreach ($rows as $row) {
@@ -182,6 +186,9 @@ class ResearchStudioController
         return Transactions::run(function () use ($id, $source, $d) {
             Project::whereKey($id)->lockForUpdate()->firstOrFail();
             $s = Source::where('project_id', $id)->findOrFail($source);
+            if (array_key_exists('text', $d)) {
+                $d['metadata'] = array_merge($s->metadata, ['parse_status' => 'manual']);
+            }
             $s->update(array_merge($d, ['verification' => 'unverified', 'verified_at' => null]));
 
             return $s;
@@ -306,9 +313,9 @@ class ResearchStudioController
     {
         $this->access($r, $id, ['owner', 'editor']);
         $d = $r->validate(['title' => 'required|string|max:200', 'code' => 'required|string|max:30000', 'dataset_ids' => 'present|array|max:10', 'dataset_ids.*' => 'integer', 'seed' => 'required|integer|min:0|max:2147483647']);
-        $ids = array_values(array_unique($d['dataset_ids']));
+        $ids = array_values(array_unique(array_map('intval', $d['dataset_ids'])));
         abort_unless(DB::table('research_artifacts')->where('project_id', $id)->where('kind', 'dataset')->whereIn('id', $ids)->count() === count($ids), 422, 'Dataset access denied.');
-        $hash = hash('sha256', json_encode([$d['code'], $ids, $d['seed']]));
+        $hash = hash('sha256', json_encode([$d['code'], $ids, (int) $d['seed']]));
 
         return Experiment::create(['project_id' => $id, 'title' => $d['title'], 'code' => $d['code'], 'dataset_ids' => $ids, 'seed' => $d['seed'], 'code_hash' => $hash]);
     }
@@ -321,7 +328,7 @@ class ResearchStudioController
         return Transactions::run(function () use ($r, $id, $experiment, $d) {
             Project::whereKey($id)->lockForUpdate()->firstOrFail();
             $x = Experiment::where('project_id', $id)->lockForUpdate()->findOrFail($experiment);
-            abort_unless($x->status === 'draft' && hash_equals($x->code_hash, $d['hash']), 409, 'Experiment changed or is already submitted.');
+            abort_unless($x->status === 'draft' && hash_equals($x->approvalHash(), $x->code_hash) && hash_equals($x->code_hash, $d['hash']), 409, 'Experiment changed or is already submitted.');
             $x->update(['status' => 'queued', 'approved_by' => $r->user()->id, 'execution_id' => 'research-'.bin2hex(random_bytes(16))]);
             DB::table('research_approvals')->insert(['project_id' => $id, 'user_id' => $r->user()->id, 'gate' => 'experiment:'.$x->id, 'content_hash' => $x->code_hash, 'override' => false, 'reason' => 'Explicit authorization for this code, dataset manifest and random seed.', 'created_at' => now(), 'updated_at' => now()]);
             ExecuteExperiment::dispatch($x->id)->onConnection('database')->onQueue('research')->afterCommit();
@@ -392,6 +399,6 @@ class ResearchStudioController
 
     private function quota(int $id, int $bytes): void
     {
-        abort_if(DB::table('research_artifacts')->where('project_id',$id)->sum('bytes') + Export::where('project_id',$id)->sum('bytes') + $bytes > config('research.storage_bytes'), 422, 'Project storage quota reached.');
+        abort_if(DB::table('research_artifacts')->where('project_id', $id)->sum('bytes') + Export::where('project_id', $id)->sum('bytes') + $bytes > config('research.storage_bytes'), 422, 'Project storage quota reached.');
     }
 }

@@ -4,6 +4,7 @@ namespace App\Services\Research\Agents;
 
 use App\Models\Research\Document;
 use App\Models\Research\Evidence;
+use App\Models\Research\Experiment;
 use App\Services\Research\Context;
 use App\Services\Research\Documents;
 
@@ -33,7 +34,7 @@ class Quality extends BaseAgent
                 $overlaps[] = ['source_id' => $s['id'], 'matching_ten_word_windows' => $hits];
             }
         }
-        $o = $this->ask($ctx, 'Review this ACTUAL saved manuscript for coherent sections, methods, citation coverage, unsupported factual/novelty/experimental claims, limitations, disclosure and supplied layout settings. A missing/empty manuscript must fail. Return passed boolean, issues[{severity:info|warning|error,message,agent}], disclosure. Do not certify global plagiarism freedom.', ['project' => $this->project($ctx), 'document' => $doc, 'evidence' => Evidence::where('project_id', $ctx->task->project_id)->get()->toArray()]);
+        $o = $this->ask($ctx, 'Review this ACTUAL saved manuscript for coherent sections, methods, citation coverage, unsupported factual/novelty/experimental claims, limitations, disclosure and supplied layout settings. A missing/empty manuscript must fail. Return passed boolean, issues[{severity:info|warning|error,message,agent}], disclosure. Do not certify global plagiarism freedom.', ['project' => $this->project($ctx), 'document' => $doc, 'executions' => Experiment::where('project_id', $ctx->task->project_id)->get()->map(fn ($x) => ['title' => $x->title, 'status' => $x->status, 'verified' => $x->verifiedExecution(), 'result' => $x->result])->all(), 'evidence' => Evidence::where('project_id', $ctx->task->project_id)->get()->toArray()]);
         if (! $this->hasText($doc)) {
             $o['passed'] = false;
         }$o['content_hash'] = $hash;

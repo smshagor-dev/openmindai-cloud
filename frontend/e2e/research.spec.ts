@@ -93,13 +93,17 @@ for (const width of [1440, 390])
         .getByText("I have permission to use and process this file.")
         .locator("input")
         .check();
+      await expect(page.getByLabel("Upload pdf")).toBeEnabled();
       await page
         .getByLabel("Upload pdf")
         .setInputFiles(process.env.RESEARCH_PDF_FIXTURE!);
       await expect(
         page.getByRole("status").filter({ hasText: "Uploaded privately" }),
       ).toBeVisible();
-      await page.waitForTimeout(1200);
+      const projectId=new URL(page.url()).searchParams.get('project');
+      await expect.poll(async()=>{const response=await page.request.get(`/api/backend/research/projects/${projectId}`);const value=await response.json();return value.sources?.find((s:{title:string})=>s.title==='fixture.pdf')?.metadata?.parse_status;},{timeout:20000}).toBe('completed');
+      await page.getByLabel('Selected source').selectOption({label:'fixture.pdf'});
+      await expect(page.getByText('Synthetic PDF fixture for research import.',{exact:false})).toBeVisible();
       await navigate("Manuscript");
       await page
         .getByText("Outline, search and academic elements", { exact: true })

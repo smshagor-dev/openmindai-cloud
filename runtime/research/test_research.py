@@ -41,10 +41,25 @@ class WorkerTest(unittest.TestCase):
    with self.assertRaises(ValueError):execute({'execution_id':'research-'+'1'*32,'code':'print(1)','code_hash':hashlib.sha256(b'print(1)').hexdigest(),'seed':42,'datasets':[]})
  @unittest.skipUnless(shutil.which('docker') and os.getenv('RESEARCH_SANDBOX_IMAGE'),'Docker and an immutable experiment image required')
  def test_actual_isolated_python_execution_and_artifact(self):
-  code="import socket,pathlib\ntry:\n socket.create_connection(('1.1.1.1',443),timeout=1)\n raise RuntimeError('network unexpectedly accessible')\nexcept OSError: pass\npathlib.Path('/work/output/result.txt').write_text('actual result')"
+  code="import socket,pathlib,os\nassert os.geteuid()==65534\ntry:\n socket.create_connection(('1.1.1.1',443),timeout=1)\n raise RuntimeError('network unexpectedly accessible')\nexcept OSError: pass\npathlib.Path('/work/output/result.txt').write_text('actual result')"
   r=execute({'execution_id':'research-'+'9'*32,'code':code,'code_hash':hashlib.sha256(code.encode()).hexdigest(),'seed':42,'datasets':[]});self.assertEqual(r['exit_code'],0);self.assertTrue(r['provenance']);self.assertEqual(len(r['artifacts']),1)
  @unittest.skipUnless(shutil.which('docker') and os.getenv('RESEARCH_PROCESSING_IMAGE'),'Docker and an immutable processing image required')
  def test_actual_isolated_document_processing(self):
   from .containers import processing
   p=fixture();p['format']='pdf';r=processing('export',p);text=processing('extract',{'data':r['data']});self.assertIn('Synthetic evidence',text['text'])
+
+ def test_cross_references_and_docx_layout_survive_export(self):
+  p=fixture();p['format']='md';p['document']['content'][1]['content'][2]['attrs']['id']='energy';p['document']['content'][2]['attrs']={'id':'results','caption':'Actual fixture table'}
+  p['document']['content'].append({'type':'paragraph','content':[{'type':'crossReference','attrs':{'target':target}}for target in ['intro','energy','results']]})
+  text=base64.b64decode(export(p)['data']).decode();self.assertIn('Section 1',text);self.assertIn('Equation 1',text);self.assertIn('Table 1',text)
+  p['format']='docx';p['settings']['journal']='ieee';raw=base64.b64decode(export(p)['data']);d=Document(io.BytesIO(raw));self.assertEqual(d.styles['Normal'].font.size.pt,10)
+  with zipfile.ZipFile(io.BytesIO(raw))as z:self.assertIn(b'w:num="2"',z.read('word/document.xml'))
+ def test_unicode_pdf_and_docx_rtl_with_provisioned_fonts(self):
+  from .unicode_fonts import SCRIPTS
+  if not all(os.path.isfile(os.environ.get(env,default))for env,default,*_ in SCRIPTS.values()):self.skipTest('Noto fonts are required for Unicode PDF verification')
+  p=fixture();p['document']['content']=[{'type':'paragraph','content':[{'type':'text','text':s}]}for s in ['বাংলা গবেষণা এবং বৈজ্ঞানিক প্রমাণ।','Русское научное исследование.','البحث العلمي يحتاج إلى أدلة موثوقة.','वैज्ञानिक अनुसंधान में विश्वसनीय साक्ष्य आवश्यक हैं।','科学研究需要可靠的证据和参考文献。']]
+  p['format']='pdf';raw=base64.b64decode(export(p)['data']);self.assertTrue(PdfReader(io.BytesIO(raw)).pages)
+  p['format']='docx';raw=base64.b64decode(export(p)['data'])
+  with zipfile.ZipFile(io.BytesIO(raw))as z:self.assertIn(b'<w:bidi',z.read('word/document.xml'))
 if __name__=='__main__':unittest.main()
+

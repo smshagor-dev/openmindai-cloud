@@ -5,7 +5,9 @@ namespace App\Services\Research;
 use App\Jobs\Research\ExecuteTask;
 use App\Models\Research\Project;
 use App\Models\Research\Run;
+use App\Models\Research\Source;
 use App\Models\Research\Task;
+use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 
@@ -129,6 +131,13 @@ class Orchestrator
         Transactions::run(function () use ($project, $action) {
             $p = Project::whereKey($project->id)->lockForUpdate()->firstOrFail();
             $r = Run::where('project_id', $p->id)->latest('id')->lockForUpdate()->first();
+            if (! $r && $action === 'cancel') {
+                $p->increment('generation');
+                $p->update(['status' => 'cancelled']);
+                Events::add($p->id, 'project.cancelled', ['status' => 'cancelled']);
+
+                return;
+            }
             abort_unless($r, 409, 'No research run.');
             if ($action === 'resume') {
                 abort_unless(in_array($r->status, ['paused', 'cancelled', 'failed'], true), 409);
@@ -149,6 +158,51 @@ class Orchestrator
 
     public function recover(): void
     {
+        // A revoked/deleted account cannot continue reading research through a queued job.
+        Run::whereIn('status', ['running', 'paused'])->get()->each(function ($run) {
+            $p = Project::find($run->project_id);
+            if (! $p) {
+                return;
+            }
+            $actor = User::find($run->actor_id);
+            $allowed = $actor && $actor->is_active && ($p->owner_id === $actor->id || DB::table('research_members')->where('project_id', $p->id)->where('user_id', $actor->id)->whereNotNull('accepted_at')->where('role', 'editor')->exists());
+            if (! $allowed) {
+                Transactions::run(function () use ($p, $run) {
+                    Project::whereKey($p->id)->lockForUpdate()->firstOrFail();
+                    Run::whereKey($run->id)->whereIn('status', ['running', 'paused'])->update(['status' => 'cancelled', 'updated_at' => now()]);
+                    Task::where('run_id', $run->id)->whereIn('status', ['queued', 'running', 'pending'])->update(['status' => 'cancelled', 'claim' => null, 'lease_until' => null, 'error_code' => 'actor_access_revoked', 'updated_at' => now()]);
+                    Project::whereKey($p->id)->update(['status' => 'attention']);
+                    Events::add($p->id, 'run.access_revoked', ['status' => 'cancelled', 'error_code' => 'actor_access_revoked']);
+                });
+            }
+        });
+        foreach (['research_exports', 'research_experiments'] as $table) {
+            DB::table($table)->whereIn('status', ['queued', 'running'])->where('updated_at', '<', now()->subMinutes(10))->orderBy('id')->eachById(function ($row) use ($table) {
+                Transactions::run(function () use ($row, $table) {
+                    Project::whereKey($row->project_id)->lockForUpdate()->firstOrFail();
+                    $q = DB::table($table)->where('id', $row->id)->whereIn('status', ['queued', 'running'])->where('updated_at', '<', now()->subMinutes(10));
+                    $values = ['status' => 'failed', 'updated_at' => now()];
+                    if ($table === 'research_exports') {
+                        $values['error_code'] = 'worker_interrupted';
+                    } else {
+                        $values['result'] = json_encode(['error_code' => 'worker_interrupted', 'physical_stop' => 'unconfirmed']);
+                    }if ($q->update($values)) {
+                        Events::add($row->project_id, 'worker.interrupted', ['status' => 'failed', 'error_code' => 'worker_interrupted']);
+                    }
+                });
+            });
+        }
+        Source::whereIn('metadata->parse_status', ['pending', 'running'])->where('updated_at', '<', now()->subMinutes(10))->eachById(function ($s) {
+            Transactions::run(function () use ($s) {
+                Project::whereKey($s->project_id)->lockForUpdate()->firstOrFail();
+                $s->refresh();
+                if (in_array($s->metadata['parse_status'] ?? '', ['pending', 'running'], true) && $s->updated_at->lt(now()->subMinutes(10))) {
+                    $s->update(['metadata' => array_merge($s->metadata, ['parse_status' => 'failed', 'parse_error' => 'worker_interrupted'])]);
+                    Events::add($s->project_id, 'pdf.failed', ['source_id' => $s->id, 'status' => 'failed', 'error_code' => 'worker_interrupted']);
+                }
+            });
+        });
+
         Task::whereIn('status', ['running', 'queued'])->where('lease_until', '<', now())->orderBy('id')->eachById(function ($task) {
             Transactions::run(function () use ($task) {
                 Project::whereKey($task->project_id)->lockForUpdate()->firstOrFail();

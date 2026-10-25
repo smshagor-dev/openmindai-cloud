@@ -20,7 +20,7 @@ class IntegrityGates
         $evidence = $cited->isNotEmpty() && $e->isNotEmpty() && $sources->whereIn('id', $cited)->every(fn ($s) => $s->verification === 'verified' && ! in_array($s->metadata['parse_status'] ?? 'completed', ['pending', 'running', 'failed'])) && $e->every(fn ($v) => $v->status === 'supported');
         $experiments = Experiment::where('project_id', $id)->get();
         $plan = Run::where('project_id', $id)->where('kind', 'workflow')->latest('id')->first()?->plan;
-        $exp = (! ($plan['experimental'] ?? false) || $experiments->isNotEmpty()) && $experiments->every(fn ($x) => $x->status === 'completed' && isset($x->result['provenance']['execution_id']));
+        $exp = (! ($plan['experimental'] ?? false) || $experiments->isNotEmpty()) && $experiments->every(fn ($x) => $x->verifiedExecution());
         $quality = Finding::where('project_id', $id)->where('kind', 'quality')->latest('id')->first();
         $review = $quality && ($quality->data['content_hash'] ?? '') === $hash && ($quality->data['passed'] ?? false) && DB::table('research_approvals')->where('project_id', $id)->where('gate', 'manuscript')->where('content_hash', $hash)->where('override', false)->exists();
         $gates = ['evidence' => $evidence, 'experiment' => $exp, 'manuscript' => (bool) $review];

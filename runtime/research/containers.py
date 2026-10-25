@@ -27,12 +27,14 @@ def attached(name,payload,timeout,limit=26_000_000):
                 if not chunk:sel.unregister(key.fileobj);continue
                 (out if key.fileobj is p.stdout else err).extend(chunk)
                 if len(out)>limit or len(err)>1_000_000:raise ValueError('container_output_limit')
-        if p.wait(timeout=3)!=0:raise ValueError('container_failed')
+        if p.wait(timeout=3)!=0:raise ValueError('container_failed: '+err.decode(errors='replace')[-1800:])
         return json.loads(out)
     finally:
         sel.close()
         if p.poll() is None:p.kill()
         p.wait(timeout=5)
+        for stream in [p.stdin,p.stdout,p.stderr]:
+            if stream and not stream.closed:stream.close()
 
 def processing(operation,payload):
     import secrets

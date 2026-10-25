@@ -190,6 +190,7 @@ async function proxy(
   try {
     const url = new URL(`${base.replace(/\/$/, "")}/${endpoint}`);
     // Only a numeric page parameter reaches Laravel; clients cannot choose an upstream URL.
+    const before=request.nextUrl.searchParams.get('before');if(researchRoute(request.method,endpoint)&&before&&/^\d{1,15}$/.test(before))url.searchParams.set('before',before);
     const after = request.nextUrl.searchParams.get("after");
     if (researchRoute(request.method, endpoint) && after && /^\d{1,15}$/.test(after)) url.searchParams.set("after",after);
     const page = request.nextUrl.searchParams.get("page");

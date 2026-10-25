@@ -1,9 +1,10 @@
 <?php
 
 use App\Http\Controllers\ResearchStudioController as R;
+use App\Http\Middleware\ResearchRequestLimits;
 use Illuminate\Support\Facades\Route;
 
-Route::prefix('v1/research')->middleware(['verified-mobile-ip', 'auth:sanctum', 'active', 'interactive-token', 'throttle:api'])->group(function () {
+Route::prefix('v1/research')->middleware([ResearchRequestLimits::class, 'verified-mobile-ip', 'auth:sanctum', 'active', 'interactive-token', 'throttle:api'])->group(function () {
     Route::get('projects', [R::class, 'index']);
     Route::post('projects', [R::class, 'create']);
     Route::get('invitations', [R::class, 'invitations']);
@@ -14,7 +15,7 @@ Route::prefix('v1/research')->middleware(['verified-mobile-ip', 'auth:sanctum', 
         Route::post('runs', [R::class, 'run'])->middleware('throttle:chat');
         Route::post('components', [R::class, 'component'])->middleware('throttle:chat');
         Route::post('control', [R::class, 'control']);
-        Route::get('events', [R::class, 'events']);
+        Route::get('events', [R::class, 'events'])->withoutMiddleware('throttle:api')->middleware('throttle:research-events');
         Route::put('document', [R::class, 'saveDocument']);
         Route::get('revisions', [R::class, 'revisions']);
         Route::post('sources', [R::class, 'import']);

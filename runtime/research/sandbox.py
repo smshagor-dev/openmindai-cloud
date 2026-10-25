@@ -3,8 +3,8 @@ from pathlib import Path
 from .containers import image,command,attached
 
 BOOTSTRAP=r"""
-import base64,hashlib,importlib.metadata,json,os,pathlib,random,subprocess,sys,tempfile,time
-p=json.load(sys.stdin);root=pathlib.Path('/work');(root/'input').mkdir();(root/'output').mkdir();os.chown(root/'output',65534,65534)
+import base64,hashlib,importlib.metadata,json,os,pathlib,random,subprocess,sys,tempfile,time,signal
+p=json.load(sys.stdin);root=pathlib.Path('/work');(root/'input').mkdir();(root/'output').mkdir();os.chmod(root/'output',0o777)
 inputs=[]
 for d in p['datasets']:
  data=base64.b64decode(d['data'],validate=True);name=d['name']
@@ -16,10 +16,12 @@ start=time.monotonic()
 with tempfile.TemporaryFile() as out,tempfile.TemporaryFile()as err:
  def drop_privileges():
   os.setgroups([]);os.setgid(65534);os.setuid(65534)
- child=subprocess.Popen([sys.executable,'-I',str(root/'runner.py')],cwd=root,stdout=out,stderr=err,preexec_fn=drop_privileges,env={'PATH':os.environ.get('PATH',''),'HOME':'/tmp','MPLCONFIGDIR':'/tmp/matplotlib','PYTHONHASHSEED':str(p['seed']),'OMP_NUM_THREADS':'1','OPENBLAS_NUM_THREADS':'1'})
+ child=subprocess.Popen([sys.executable,'-I',str(root/'runner.py')],cwd=root,stdout=out,stderr=err,preexec_fn=drop_privileges,start_new_session=True,env={'PATH':os.environ.get('PATH',''),'HOME':'/tmp','MPLCONFIGDIR':'/tmp/matplotlib','PYTHONHASHSEED':str(p['seed']),'OMP_NUM_THREADS':'1','OPENBLAS_NUM_THREADS':'1'})
  while child.poll()is None:
   if time.monotonic()-start>50 or out.tell()+err.tell()>1_000_000:child.kill();child.wait();break
   time.sleep(.1)
+ try:os.killpg(child.pid,signal.SIGKILL)
+ except ProcessLookupError:pass
  out.seek(0);err.seek(0);stdout=out.read(500000).decode(errors='replace');stderr=err.read(500000).decode(errors='replace')
 artifacts=[];total=0
 for f in (root/'output').rglob('*'):
@@ -53,7 +55,7 @@ def execute(payload):
     try:
         with guard.open('x')as file:file.write(payload['code_hash'])
     except FileExistsError:raise ValueError('execution_already_submitted')
-    command(['create','--name',identifier,'--network=none','--read-only','--user=0:0','--cap-drop=ALL','--cap-add=SETUID','--cap-add=SETGID','--security-opt=no-new-privileges','--memory=512m','--cpus=1','--pids-limit=64','--tmpfs=/work:rw,nosuid,size=128m,mode=1777','--tmpfs=/tmp:rw,noexec,nosuid,size=32m,mode=1777','--interactive',im,'python','-I','-c',BOOTSTRAP])
+    command(['create','--name',identifier,'--network=none','--read-only','--user=0:0','--cap-drop=ALL','--cap-add=SETUID','--cap-add=SETGID','--cap-add=KILL','--security-opt=no-new-privileges','--memory=512m','--cpus=1','--pids-limit=64','--tmpfs=/work:rw,nosuid,size=128m,mode=1777','--tmpfs=/tmp:rw,noexec,nosuid,size=32m,mode=1777','--interactive',im,'python','-I','-c',BOOTSTRAP])
     try:
         if tombstone.exists():raise ValueError('execution_cancelled')
         result=attached(identifier,payload,65,20_000_000)

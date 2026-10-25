@@ -12,6 +12,6 @@ class Project extends Model
 
     protected function casts(): array
     {
-        return ['settings' => 'array'];
+        return ['owner_id' => 'integer', 'generation' => 'integer', 'settings' => 'array'];
     }
 }

@@ -34,11 +34,16 @@ class Documents
                 $out['marks'] = array_values(array_filter($n['marks'], fn ($m) => in_array($m['type'] ?? '', ['bold', 'italic', 'strike', 'code', 'underline'], true)));
             }
             $keys = match ($type) {
-                'heading' => ['level', 'id'],'citation' => ['sourceId'],'math' => ['latex'],'footnote' => ['text'],'figure' => ['artifactId', 'caption', 'id'],'crossReference' => ['target'],'orderedList' => ['start'],'tableCell','tableHeader' => ['colspan', 'rowspan'],default => []
+                'heading' => ['level', 'id'],'citation' => ['sourceId'],'math' => ['latex', 'id'],'footnote' => ['text'],'figure' => ['artifactId', 'caption', 'id'],'crossReference' => ['target'],'table' => ['id', 'caption'],'orderedList' => ['start'],'tableCell','tableHeader' => ['colspan', 'rowspan'],default => []
             };
             if ($keys) {
                 $a = array_intersect_key($n['attrs'] ?? [], array_flip($keys));
-                foreach ($a as $v) {
+                foreach ($a as $key => $v) {
+                    if ($v === null) {
+                        unset($a[$key]);
+
+                        continue;
+                    }
                     if (! is_scalar($v) || strlen((string) $v) > 4000) {
                         throw ValidationException::withMessages(['content' => 'Invalid attributes.']);
                     }

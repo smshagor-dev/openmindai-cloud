@@ -12,6 +12,6 @@ class Run extends Model
 
     protected function casts(): array
     {
-        return ['plan' => 'array'];
+        return ['actor_id' => 'integer', 'project_id' => 'integer', 'generation' => 'integer', 'reserved_tokens' => 'integer', 'plan' => 'array'];
     }
 }

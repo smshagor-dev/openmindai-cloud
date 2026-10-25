@@ -12,7 +12,7 @@ class Source extends Model
 
     protected function casts(): array
     {
-        return ['authors' => 'array', 'metadata' => 'array', 'verified_at' => 'datetime'];
+        return ['project_id' => 'integer', 'year' => 'integer', 'authors' => 'array', 'metadata' => 'array', 'verified_at' => 'datetime'];
     }
 
     protected $hidden = ['private_path'];
