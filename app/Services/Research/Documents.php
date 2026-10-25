@@ -67,7 +67,7 @@ class Documents
         abort_unless(($clean['type'] ?? '') === 'doc', 422, 'Document root required.');
         abort_unless(Source::where('project_id', $project)->whereIn('id', array_unique($sources))->count() === count(array_unique($sources)), 422, 'Citations must belong to this project.');
 
-        abort_unless(DB::table('research_artifacts')->where('project_id', $project)->where('kind', 'figure')->whereIn('id', array_unique($figures))->count() === count(array_unique($figures)), 422, 'Figures must belong to this project.');
+        abort_unless(ExperimentArtifacts::figures($project)->whereIn('id', array_unique($figures))->count() === count(array_unique($figures)), 422, 'Figures must belong to this project.');
 
         return $clean;
     }

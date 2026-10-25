@@ -28,6 +28,7 @@ Route::prefix('v1/research')->middleware([ResearchRequestLimits::class, 'verifie
         Route::delete('members/{member}', [R::class, 'revoke'])->whereNumber('member');
         Route::post('approvals', [R::class, 'approval']);
         Route::post('experiments', [R::class, 'experiment']);
+        Route::post('experiments/{experiment}/cancel', [R::class, 'cancelExperiment'])->whereNumber('experiment');
         Route::post('experiments/{experiment}/execute', [R::class, 'execute'])->whereNumber('experiment');
         Route::post('exports', [R::class, 'export']);
         Route::get('exports/{file}/download', [R::class, 'download'])->whereNumber('file');

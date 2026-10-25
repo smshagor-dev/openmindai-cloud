@@ -95,7 +95,7 @@ export default function ResearchStudio() {
   const [data, setData] = useState<Row | null>(null);
   const [view, setView] = useState<string>("Overview");
   const [events, setEvents] = useState<Row[]>([]);
-  const [historyPage,setHistoryPage]=useState<Row[]>([]);
+  const [historyPage, setHistoryPage] = useState<Row[]>([]);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
@@ -157,7 +157,23 @@ export default function ResearchStudio() {
     try {
       const value = await api(`projects/${project}`);
       if (currentId.current === project) {
-        setData(value);if(initial.current){cursor.current=Math.max(cursor.current,value.event_cursor);setEvents(old=>[...new Map([...value.recent_events,...old.filter(e=>e.id>value.event_cursor)].map(e=>[e.id,e])).values()].sort((a,b)=>a.id-b.id).slice(-150));initial.current=false;}
+        setData(value);
+        if (initial.current) {
+          cursor.current = Math.max(cursor.current, value.event_cursor);
+          setEvents((old) =>
+            [
+              ...new Map(
+                [
+                  ...value.recent_events,
+                  ...old.filter((e) => e.id > value.event_cursor),
+                ].map((e) => [e.id, e]),
+              ).values(),
+            ]
+              .sort((a, b) => a.id - b.id)
+              .slice(-150),
+          );
+          initial.current = false;
+        }
         if (!dataRef.current || dataRef.current.project.id !== project)
           setSettings(value.project.settings);
       }
@@ -180,7 +196,8 @@ export default function ResearchStudio() {
     if (!id) return;
     setData(null);
     dataRef.current = null;
-    setEvents([]);setHistoryPage([]);
+    setEvents([]);
+    setHistoryPage([]);
     cursor.current = 0;
     initial.current = true;
     setSourceId(null);
@@ -198,13 +215,24 @@ export default function ResearchStudio() {
     if (!id) return;
     let disposed = false;
     const abort = new AbortController();
-    const poll = async () => {let delay=3000;
+    const poll = async () => {
+      let delay = 3000;
       try {
         const response = await fetch(
           `/api/backend/research/projects/${id}/events?after=${cursor.current}`,
           { cache: "no-store", signal: abort.signal },
         );
-        if(!response.ok){if(response.status===429)delay=Math.min(120000,Math.max(3000,Number(response.headers.get('retry-after')||10)*1000));throw new Error(`Activity connection failed (${response.status}).`);}
+        if (!response.ok) {
+          if (response.status === 429)
+            delay = Math.min(
+              120000,
+              Math.max(
+                3000,
+                Number(response.headers.get("retry-after") || 10) * 1000,
+              ),
+            );
+          throw new Error(`Activity connection failed (${response.status}).`);
+        }
         const text = await response.text();
         if (disposed) return;
         const incoming: Row[] = [];
@@ -772,12 +800,43 @@ export default function ResearchStudio() {
             )}
             {view === "Web activity" && (
               <section className="rs-card">
-                <h2>Actual retrieval timeline</h2><div className="rs-actions"><button onClick={()=>void act(async()=>{const rows=historyPage.length?historyPage:events;if(!rows.length)return;const response=await fetch(`/api/backend/research/projects/${id}/events?before=${rows[0].id}`);if(!response.ok)throw new Error('Earlier activity could not be loaded.');const text=await response.text();const older=text.split('\n').filter(line=>line.startsWith('data: ')).map(line=>JSON.parse(line.slice(6)));if(older.length)setHistoryPage(older);else setNotice('No earlier activity.');},'Earlier activity loaded')}>Earlier activity</button>{historyPage.length>0&&<button onClick={()=>setHistoryPage([])}>Back to live activity</button>}</div>
+                <h2>Actual retrieval timeline</h2>
+                <div className="rs-actions">
+                  <button
+                    onClick={() =>
+                      void act(async () => {
+                        const rows = historyPage.length ? historyPage : events;
+                        if (!rows.length) return;
+                        const response = await fetch(
+                          `/api/backend/research/projects/${id}/events?before=${rows[0].id}`,
+                        );
+                        if (!response.ok)
+                          throw new Error(
+                            "Earlier activity could not be loaded.",
+                          );
+                        const text = await response.text();
+                        const older = text
+                          .split("\n")
+                          .filter((line) => line.startsWith("data: "))
+                          .map((line) => JSON.parse(line.slice(6)));
+                        if (older.length) setHistoryPage(older);
+                        else setNotice("No earlier activity.");
+                      }, "Earlier activity loaded")
+                    }
+                  >
+                    Earlier activity
+                  </button>
+                  {historyPage.length > 0 && (
+                    <button onClick={() => setHistoryPage([])}>
+                      Back to live activity
+                    </button>
+                  )}
+                </div>
                 <p>
                   Events come from index queries, licensed source retrieval and
                   DOI verification. Browser snapshots are not simulated.
                 </p>
-                {(historyPage.length?historyPage:events)
+                {(historyPage.length ? historyPage : events)
                   .filter((e) => e.type.startsWith("browsing."))
                   .reverse()
                   .map((e) => (
@@ -1161,6 +1220,30 @@ export default function ResearchStudio() {
                     >
                       Authorize this exact experiment
                     </button>
+                    {["queued", "running"].includes(x.status) && editable && (
+                      <button
+                        disabled={busy}
+                        onClick={() =>
+                          void act(
+                            () =>
+                              api(
+                                `projects/${id}/experiments/${x.id}/cancel`,
+                                "POST",
+                                {},
+                              ),
+                            "Cancellation requested; check confirmation below",
+                          )
+                        }
+                      >
+                        Cancel experiment
+                      </button>
+                    )}
+                    {x.result?.cancellation === "unconfirmed" && (
+                      <p role="alert">
+                        Result acceptance is cancelled. Worker termination is
+                        unconfirmed; check worker health.
+                      </p>
+                    )}
                     {x.result && <Data value={x.result} />}
                     <div>
                       {artifacts

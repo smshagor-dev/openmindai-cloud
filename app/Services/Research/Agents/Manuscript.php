@@ -5,6 +5,7 @@ namespace App\Services\Research\Agents;
 use App\Models\Research\Finding;
 use App\Services\Research\Context;
 use App\Services\Research\Documents;
+use App\Services\Research\ExperimentArtifacts;
 
 class Manuscript extends BaseAgent
 {
@@ -24,7 +25,8 @@ class Manuscript extends BaseAgent
                     $children[] = ['type' => 'citation', 'attrs' => ['sourceId' => $id]];
                 }$nodes[] = ['type' => 'paragraph', 'content' => $children];
             }
-        }$doc = app(Documents::class)->validate($ctx->task->project_id, ['type' => 'doc', 'content' => $nodes]);
+        }$nodes = array_merge($nodes, app(ExperimentArtifacts::class)->nodes($ctx->task->project_id));
+        $doc = app(Documents::class)->validate($ctx->task->project_id, ['type' => 'doc', 'content' => $nodes]);
 
         return ['content' => $doc, 'base_version' => $draft['base_version'], 'disclosure' => 'AI-generated proposal. Review before accepting; current user document was not overwritten.'];
     }

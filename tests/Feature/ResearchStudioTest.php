@@ -8,6 +8,7 @@ use App\Jobs\Research\ExportDocument;
 use App\Jobs\Research\ParseSource;
 use App\Models\Research\Document;
 use App\Models\Research\Evidence;
+use App\Models\Research\Experiment;
 use App\Models\Research\Export;
 use App\Models\Research\Finding;
 use App\Models\Research\Project;
@@ -17,6 +18,8 @@ use App\Models\Research\Task;
 use App\Models\User;
 use App\Services\Research\Context;
 use App\Services\Research\Documents;
+use App\Services\Research\ExperimentArtifacts;
+use App\Services\Research\FullText;
 use App\Services\Research\Inference;
 use App\Services\Research\IntegrityGates;
 use App\Services\Research\Orchestrator;
@@ -222,6 +225,72 @@ class ResearchStudioTest extends TestCase
         $this->postJson("/api/v1/research/projects/$p->id/experiments/{$x['id']}/execute", ['hash' => $x['code_hash'], 'authorized' => true])->assertOk();
         Queue::assertPushed(ExecuteExperiment::class);
         $this->assertDatabaseHas('research_approvals', ['gate' => 'experiment:'.$x['id'], 'content_hash' => $x['code_hash']]);
+    }
+
+    public function test_cancelled_worker_callback_is_fenced_and_tampered_approval_never_executes(): void
+    {
+        Queue::fake();
+        Storage::fake('local');
+        $p = $this->project();
+        $create = fn () => $this->postJson("/api/v1/research/projects/$p->id/experiments", ['title' => 'Authorized fixture', 'code' => 'print(1)', 'seed' => '42', 'dataset_ids' => []])->assertCreated()->json();
+        $x = $create();
+        $this->postJson("/api/v1/research/projects/$p->id/experiments/{$x['id']}/execute", ['hash' => $x['code_hash'], 'authorized' => true])->assertOk();
+        $this->mock(Worker::class)->shouldReceive('call')->once()->with('experiment', \Mockery::any())->andReturnUsing(function ($operation, $payload) use ($x) {
+            Experiment::findOrFail($x['id'])->update(['status' => 'cancelled']);
+
+            return ['exit_code' => 0, 'artifacts' => [], 'provenance' => ['execution_id' => $payload['execution_id'], 'code_hash' => $payload['code_hash'], 'seed' => $payload['seed'], 'image' => 'sha256:'.str_repeat('a', 64)]];
+        });
+        (new ExecuteExperiment($x['id']))->handle();
+        $this->assertDatabaseHas('research_experiments', ['id' => $x['id'], 'status' => 'cancelled']);
+        $y = $create();
+        $this->postJson("/api/v1/research/projects/$p->id/experiments/{$y['id']}/execute", ['hash' => $y['code_hash'], 'authorized' => true])->assertOk();
+        Experiment::findOrFail($y['id'])->update(['seed' => 43]);
+        (new ExecuteExperiment($y['id']))->handle();
+        $this->assertDatabaseHas('research_experiments', ['id' => $y['id'], 'status' => 'failed']);
+        $this->assertFalse(app(IntegrityGates::class)->inspect($p->id)['gates']['experiment']);
+    }
+
+    public function test_experiment_cancellation_reports_unconfirmed_and_preserves_other_projects(): void
+    {
+        Queue::fake();
+        $p = $this->project();
+        $x = $this->postJson("/api/v1/research/projects/$p->id/experiments", ['title' => 'Fixture', 'code' => 'print(1)', 'seed' => 42, 'dataset_ids' => []])->assertCreated()->json();
+        $this->postJson("/api/v1/research/projects/$p->id/experiments/{$x['id']}/execute", ['hash' => $x['code_hash'], 'authorized' => true])->assertOk();
+        $this->mock(Worker::class)->shouldReceive('call')->once()->with('cancel', \Mockery::any())->andThrow(new \RuntimeException('offline'));
+        $this->postJson("/api/v1/research/projects/$p->id/experiments/{$x['id']}/cancel")->assertOk()->assertJsonPath('unconfirmed_experiment_cancellations.0', $x['id']);
+        $this->assertSame('unconfirmed', Experiment::findOrFail($x['id'])->result['cancellation']);
+        $other = $this->project();
+        $this->postJson("/api/v1/research/projects/$other->id/experiments/{$x['id']}/cancel")->assertNotFound();
+    }
+
+    public function test_manuscript_uses_only_verified_experiment_csv_with_exact_values(): void
+    {
+        Queue::fake();
+        Storage::fake('local');
+        $p = $this->project();
+        $x = $this->postJson("/api/v1/research/projects/$p->id/experiments", ['title' => 'Actual fixture', 'code' => 'print(1)', 'seed' => 42, 'dataset_ids' => []])->assertCreated()->json();
+        $this->postJson("/api/v1/research/projects/$p->id/experiments/{$x['id']}/execute", ['hash' => $x['code_hash'], 'authorized' => true])->assertOk();
+        $bytes = "method,score\n\"real, baseline\",0.75\n";
+        $this->mock(Worker::class)->shouldReceive('call')->once()->andReturnUsing(fn ($operation, $payload) => ['exit_code' => 0, 'stdout' => 'actual fixture', 'artifacts' => [['name' => 'metrics.csv', 'data' => base64_encode($bytes), 'sha256' => hash('sha256', $bytes)]], 'provenance' => ['execution_id' => $payload['execution_id'], 'code_hash' => $payload['code_hash'], 'seed' => $payload['seed'], 'image' => 'sha256:'.str_repeat('a', 64)]]);
+        (new ExecuteExperiment($x['id']))->handle();
+        $model = Experiment::findOrFail($x['id']);
+        $this->assertTrue($model->verifiedExecution());
+        $nodes = app(ExperimentArtifacts::class)->nodes($p->id);
+        $this->assertCount(1, $nodes);
+        $this->assertSame('0.75', $nodes[0]['content'][1]['content'][1]['content'][0]['content'][0]['text']);
+        $this->assertSame('real, baseline', $nodes[0]['content'][1]['content'][0]['content'][0]['content'][0]['text']);
+        $model->update(['status' => 'cancelled']);
+        $this->assertSame([], app(ExperimentArtifacts::class)->nodes($p->id));
+    }
+
+    public function test_fulltext_license_allowlist_requires_an_actual_supported_license(): void
+    {
+        foreach (['cc-by', 'https://creativecommons.org/licenses/by/4.0/', [['URL' => 'https://creativecommons.org/publicdomain/zero/1.0/']]] as $license) {
+            $this->assertTrue(FullText::permitted($license));
+        }
+        foreach (['not public domain', 'cc-by-nc', 'https://creativecommons.org.evil.test/licenses/by/4.0/', null] as $license) {
+            $this->assertFalse(FullText::permitted($license));
+        }
     }
 
     public function test_real_markdown_converter_export_after_current_review_and_human_approval(): void

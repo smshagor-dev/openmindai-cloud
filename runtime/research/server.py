@@ -1,9 +1,22 @@
-import hmac,json,os,threading
+import hmac,json,os,threading,asyncio
+from contextlib import asynccontextmanager, suppress
 from fastapi import FastAPI,Request,HTTPException
 from fastapi.responses import JSONResponse
-from .containers import processing
+from .containers import processing,reap_expired
 from .sandbox import execute,cancel
-app=FastAPI(docs_url=None,redoc_url=None,openapi_url=None)
+@asynccontextmanager
+async def lifecycle(app):
+    async def cleanup():
+        while True:
+            try:await asyncio.to_thread(reap_expired)
+            except Exception:pass  # Broker operations still return explicit availability errors.
+            await asyncio.sleep(30)
+    task=asyncio.create_task(cleanup())
+    try:yield
+    finally:
+        task.cancel()
+        with suppress(asyncio.CancelledError):await task
+app=FastAPI(docs_url=None,redoc_url=None,openapi_url=None,lifespan=lifecycle)
 capacity=threading.BoundedSemaphore(3)
 @app.middleware('http')
 async def protect(request:Request,call_next):

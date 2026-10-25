@@ -48,6 +48,12 @@ class WorkerTest(unittest.TestCase):
   from .containers import processing
   p=fixture();p['format']='pdf';r=processing('export',p);text=processing('extract',{'data':r['data']});self.assertIn('Synthetic evidence',text['text'])
 
+ def test_reaper_only_removes_expired_managed_containers(self):
+  from .containers import reap_expired,MANAGED_LABEL,EXPIRY_LABEL
+  records=[{'Name':'/research-'+'a'*32,'Config':{'Labels':{MANAGED_LABEL:'true',EXPIRY_LABEL:'1'}}},{'Name':'/unrelated','Config':{'Labels':{MANAGED_LABEL:'true',EXPIRY_LABEL:'1'}}},{'Name':'/research-doc-'+'b'*32,'Config':{'Labels':{MANAGED_LABEL:'true',EXPIRY_LABEL:'9999999999'}}}]
+  with patch('runtime.research.containers.command',side_effect=['a'*12+'\n'+'b'*12+'\n'+'c'*12,json.dumps([records[0]]),'',json.dumps([records[1]]),json.dumps([records[2]])])as command:
+   reap_expired();removals=[call.args[0]for call in command.call_args_list if call.args[0][0]=='rm'];self.assertEqual(removals,[['rm','--force','a'*12]])
+
  def test_cross_references_and_docx_layout_survive_export(self):
   p=fixture();p['format']='md';p['document']['content'][1]['content'][2]['attrs']['id']='energy';p['document']['content'][2]['attrs']={'id':'results','caption':'Actual fixture table'}
   p['document']['content'].append({'type':'paragraph','content':[{'type':'crossReference','attrs':{'target':target}}for target in ['intro','energy','results']]})

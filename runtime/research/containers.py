@@ -40,6 +40,24 @@ def processing(operation,payload):
     import secrets
     name='research-doc-'+secrets.token_hex(16);im=image('RESEARCH_PROCESSING_IMAGE')
     args=['create','--name',name,'--network=none','--read-only','--user=65534:65534','--cap-drop=ALL','--security-opt=no-new-privileges','--memory=2g','--cpus=2','--pids-limit=96','--tmpfs=/tmp:rw,noexec,nosuid,size=384m,mode=1777','--interactive',im]
-    command(args)
+    command(args[:-1]+expiry_labels(180)+args[-1:])
     try:return attached(name,{'operation':operation,'payload':payload},140)
     finally:command(['rm','--force',name])
+
+MANAGED_LABEL='openmind.research.managed'
+EXPIRY_LABEL='openmind.research.expires'
+
+def expiry_labels(seconds):
+    return ['--label',MANAGED_LABEL+'=true','--label',EXPIRY_LABEL+'='+str(int(time.time())+seconds)]
+
+def reap_expired():
+    """Only broker-created, expired containers; never inspect/remove unrelated workloads."""
+    ids=command(['ps','--all','--quiet','--filter','label='+MANAGED_LABEL+'=true']).splitlines()
+    for identifier in ids:
+        if not re.fullmatch(r'[a-f0-9]{12,64}',identifier):continue
+        record=json.loads(command(['inspect',identifier]))[0]
+        labels=record.get('Config',{}).get('Labels',{}) or {};name=record.get('Name','').lstrip('/')
+        if labels.get(MANAGED_LABEL)!='true' or not re.fullmatch(r'research-(?:doc-)?[a-f0-9]{32}',name):continue
+        try:expired=int(labels.get(EXPIRY_LABEL,''))<time.time()
+        except ValueError:continue
+        if expired:command(['rm','--force',identifier])

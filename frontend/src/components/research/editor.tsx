@@ -602,11 +602,15 @@ export default function AcademicEditor({
             .run(),
         )}
         <label>
-          Uploaded figure
+          Project figure
           <select value={figure} onChange={(e) => setFigure(e.target.value)}>
             <option value="">Choose figure</option>
             {artifacts
-              .filter((a) => a.kind === "figure")
+              .filter(
+                (a) =>
+                  ["figure", "experiment"].includes(a.kind) &&
+                  ["image/png", "image/jpeg"].includes(a.mime),
+              )
               .map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.name}

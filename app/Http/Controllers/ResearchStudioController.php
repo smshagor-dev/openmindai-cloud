@@ -18,10 +18,11 @@ use App\Models\User;
 use App\Services\Research\Access;
 use App\Services\Research\Documents;
 use App\Services\Research\Events;
+use App\Services\Research\ExperimentArtifacts;
+use App\Services\Research\ExperimentControl;
 use App\Services\Research\IntegrityGates;
 use App\Services\Research\Orchestrator;
 use App\Services\Research\Transactions;
-use App\Services\Research\Worker;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -105,20 +106,15 @@ class ResearchStudioController
         $p = $this->access($r, $id, ['owner', 'editor']);
         $d = $r->validate(['action' => 'required|in:pause,resume,cancel']);
         app(Orchestrator::class)->control($p, $d['action']);
-        $unconfirmed = [];
-        if ($d['action'] === 'cancel') {
-            foreach (Experiment::where('project_id', $id)->whereIn('status', ['queued', 'running'])->get() as $x) {
-                $x->update(['status' => 'cancelled']);
-                try {
-                    app(Worker::class)->call('cancel', ['execution_id' => $x->execution_id]);
-                } catch (\Throwable) {
-                    $unconfirmed[] = $x->id;
-                    Events::add($id, 'experiment.cancel_unconfirmed', ['execution_id' => $x->execution_id, 'error_code' => 'worker_unreachable']);
-                }
-            }
-        }
 
-        return ['status' => 'accepted', 'unconfirmed_experiment_cancellations' => $unconfirmed];
+        return $d['action'] === 'cancel' ? app(ExperimentControl::class)->cancel($id) : ['status' => 'accepted'];
+    }
+
+    public function cancelExperiment(Request $r, int $id, int $experiment)
+    {
+        $this->access($r, $id, ['owner', 'editor']);
+
+        return app(ExperimentControl::class)->cancel($id, $experiment);
     }
 
     public function events(Request $r, int $id)
@@ -362,7 +358,7 @@ class ResearchStudioController
             $walk($doc->content);
             $figures = [];
             foreach (array_unique($ids) as $file) {
-                $a = DB::table('research_artifacts')->where('project_id', $id)->where('kind', 'figure')->where('id', $file)->firstOrFail();
+                $a = ExperimentArtifacts::figures($id)->where('id', $file)->firstOrFail();
                 $bytes = Storage::disk('local')->get($a->path);
                 abort_unless(hash_equals($a->sha256, hash('sha256', $bytes)), 422, 'Figure checksum mismatch.');
                 $figures[] = ['id' => $a->id, 'mime' => $a->mime, 'data' => base64_encode($bytes)];

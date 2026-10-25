@@ -70,20 +70,18 @@ for (const width of [1440, 390])
     });
     if (width === 1440) {
       await navigate("Citations");
-      await page
-        .getByLabel("Reference import")
-        .fill(
-          JSON.stringify([
-            {
-              id: "fixture",
-              type: "article-journal",
-              title: "Browser synthetic source",
-              author: [{ given: "Test", family: "Fixture" }],
-              issued: { "date-parts": [[2025]] },
-              DOI: "10.1234/browser-fixture",
-            },
-          ]),
-        );
+      await page.getByLabel("Reference import").fill(
+        JSON.stringify([
+          {
+            id: "fixture",
+            type: "article-journal",
+            title: "Browser synthetic source",
+            author: [{ given: "Test", family: "Fixture" }],
+            issued: { "date-parts": [[2025]] },
+            DOI: "10.1234/browser-fixture",
+          },
+        ]),
+      );
       await page.getByRole("button", { name: "Import references" }).click();
       await expect(
         page.getByRole("heading", { name: "Browser synthetic source" }),
@@ -100,16 +98,35 @@ for (const width of [1440, 390])
       await expect(
         page.getByRole("status").filter({ hasText: "Uploaded privately" }),
       ).toBeVisible();
-      const projectId=new URL(page.url()).searchParams.get('project');
-      await expect.poll(async()=>{const response=await page.request.get(`/api/backend/research/projects/${projectId}`);const value=await response.json();return value.sources?.find((s:{title:string})=>s.title==='fixture.pdf')?.metadata?.parse_status;},{timeout:20000}).toBe('completed');
-      await page.getByLabel('Selected source').selectOption({label:'fixture.pdf'});
-      await expect(page.getByText('Synthetic PDF fixture for research import.',{exact:false})).toBeVisible();
+      const projectId = new URL(page.url()).searchParams.get("project");
+      await expect
+        .poll(
+          async () => {
+            const response = await page.request.get(
+              `/api/backend/research/projects/${projectId}`,
+            );
+            const value = await response.json();
+            return value.sources?.find(
+              (s: { title: string }) => s.title === "fixture.pdf",
+            )?.metadata?.parse_status;
+          },
+          { timeout: 20000 },
+        )
+        .toBe("completed");
+      await page
+        .getByRole("combobox", { name: "Selected source", exact: true })
+        .selectOption({ label: "fixture.pdf" });
+      await expect(
+        page.getByText("Synthetic PDF fixture for research import.", {
+          exact: false,
+        }),
+      ).toBeVisible();
       await navigate("Manuscript");
       await page
         .getByText("Outline, search and academic elements", { exact: true })
         .click();
       await page
-        .getByLabel("Citation", { exact: true })
+        .getByRole("combobox", { name: "Citation", exact: true })
         .selectOption({ label: "Browser synthetic source" });
       await editor.click();
       await page

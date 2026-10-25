@@ -1,6 +1,6 @@
 import base64,hashlib,json,os,re,subprocess,time
 from pathlib import Path
-from .containers import image,command,attached
+from .containers import image,command,attached,expiry_labels
 
 BOOTSTRAP=r"""
 import base64,hashlib,importlib.metadata,json,os,pathlib,random,subprocess,sys,tempfile,time,signal
@@ -55,7 +55,7 @@ def execute(payload):
     try:
         with guard.open('x')as file:file.write(payload['code_hash'])
     except FileExistsError:raise ValueError('execution_already_submitted')
-    command(['create','--name',identifier,'--network=none','--read-only','--user=0:0','--cap-drop=ALL','--cap-add=SETUID','--cap-add=SETGID','--cap-add=KILL','--security-opt=no-new-privileges','--memory=512m','--cpus=1','--pids-limit=64','--tmpfs=/work:rw,nosuid,size=128m,mode=1777','--tmpfs=/tmp:rw,noexec,nosuid,size=32m,mode=1777','--interactive',im,'python','-I','-c',BOOTSTRAP])
+    command(['create','--name',identifier,'--network=none','--read-only','--user=0:0','--cap-drop=ALL','--cap-add=SETUID','--cap-add=SETGID','--cap-add=KILL','--security-opt=no-new-privileges','--memory=512m','--cpus=1','--pids-limit=64','--tmpfs=/work:rw,nosuid,size=128m,mode=1777','--tmpfs=/tmp:rw,noexec,nosuid,size=32m,mode=1777','--interactive',*expiry_labels(90),im,'python','-I','-c',BOOTSTRAP])
     try:
         if tombstone.exists():raise ValueError('execution_cancelled')
         result=attached(identifier,payload,65,20_000_000)

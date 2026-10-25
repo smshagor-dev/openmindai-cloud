@@ -24,6 +24,39 @@ jobs:
       - run: php artisan test
       - run: python3 tests/research_concurrency.py
       - run: vendor/bin/pint --test app/Models/Research app/Services/Research app/Jobs/Research app/Http/Controllers/ResearchStudioController.php config/research.php routes/research.php database/migrations/2026_10_25_000001_create_research_studio.php
+  mysql:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: research-ci-only
+          MYSQL_DATABASE: research_testing
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -presearch-ci-only"
+          --health-interval=10s --health-timeout=5s --health-retries=10
+    env:
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_DATABASE: research_testing
+      DB_USERNAME: root
+      DB_PASSWORD: research-ci-only
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring,pdo_mysql,fileinfo,curl,dom,zip
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: sudo apt-get update && sudo apt-get install -y pandoc
+      - run: pip install -r runtime/research/requirements.txt reportlab
+      - run: composer install --no-interaction --prefer-dist
+      - run: cp .env.example .env
+      - run: php artisan test --filter=ResearchStudioTest
   browser:
     runs-on: ubuntu-latest
     steps:
