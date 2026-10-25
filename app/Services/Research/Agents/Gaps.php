@@ -8,7 +8,7 @@ class Gaps extends BaseAgent
 {
     protected array $tools = ['project_findings.read', 'structured_reasoning'];
 
-    protected array $rules = ['gaps' => 'required|array', 'gaps.*.question' => 'required|string', 'gaps.*.evidence' => 'required|string', 'gaps.*.source_ids' => 'required|array', 'limitations' => 'required|array'];
+    protected array $rules = ['gaps' => 'present|array', 'gaps.*.question' => 'required|string', 'gaps.*.evidence' => 'required|string', 'gaps.*.source_ids' => 'present|array', 'limitations' => 'present|array'];
 
     public function execute(Context $ctx): array
     {

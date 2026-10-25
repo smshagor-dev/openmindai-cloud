@@ -31,7 +31,7 @@ class ExecuteExperiment implements ShouldQueue
         try {
             $datasets = [];
             foreach ($x->dataset_ids as $id) {
-                $a = DB::table('research_artifacts')->where('project_id', $x->project_id)->where('kind', 'dataset')->findOrFail($id);
+                $a = DB::table('research_artifacts')->where('project_id', $x->project_id)->where('kind', 'dataset')->where('id', $id)->firstOrFail();
                 $bytes = Storage::disk('local')->get($a->path);
                 if (! hash_equals($a->sha256, hash('sha256', $bytes))) {
                     throw new \RuntimeException('dataset_checksum');

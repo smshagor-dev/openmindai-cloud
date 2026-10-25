@@ -10,7 +10,7 @@ class Verification extends BaseAgent
 {
     protected array $tools = ['crossref.doi.verify'];
 
-    protected array $rules = ['references' => 'required|array'];
+    protected array $rules = ['references' => 'present|array'];
 
     public function execute(Context $ctx): array
     {

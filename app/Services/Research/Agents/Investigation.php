@@ -8,9 +8,9 @@ class Investigation extends BaseAgent
 {
     protected array $tools = ['project_evidence.read', 'structured_reasoning'];
 
-    protected array $inputs = ['perspective' => 'required|array'];
+    protected array $inputs = ['perspective' => 'present|array'];
 
-    protected array $rules = ['questions' => 'required|array', 'hypotheses' => 'required|array', 'synthesis' => 'required|string', 'source_ids' => 'required|array', 'uncertainties' => 'required|array', 'revisit_query' => 'nullable|string|max:300'];
+    protected array $rules = ['questions' => 'present|array', 'hypotheses' => 'present|array', 'synthesis' => 'required|string', 'source_ids' => 'present|array', 'uncertainties' => 'present|array', 'revisit_query' => 'nullable|string|max:300'];
 
     public function execute(Context $ctx): array
     {

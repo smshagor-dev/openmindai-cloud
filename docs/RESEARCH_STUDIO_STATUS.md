@@ -7,7 +7,7 @@ Updated: 2026-10-25 (Europe/Moscow).
 - Working branch: `feature/research-studio`.
 - Base: `main` at `6a42d5b55e35f93e792f5abad629c9aa66e3dee3`.
 - This checkpoint establishes remote-backed work instructions and a truthful continuation record.
-- Research Studio application code from the earlier local-only attempt is not present in this branch. Its old test counts do not verify this checkout.
+- The earlier local-only attempt was unavailable. The application is being rebuilt on this remote-backed branch; historical test counts do not verify the rebuilt code.
 - No Research Studio PR, merge or deployment has occurred.
 
 ## Verified repository baseline
@@ -46,3 +46,9 @@ Added 19 research tables; scoped models/access; immutable manuscript revisions; 
 ## Checkpoint 2 — authenticated APIs and processing jobs
 
 Added 25 authenticated/scoped research routes; project creation/settings; short SSE activity delivery; versioned document saves/revisions; reference import; authorized private PDF/CSV/figure uploads; queued PDF extraction with replacement checks; evidence review; accepted invitations/roles; hash-bound approvals; explicit experiment authorization; frozen export snapshots; private checksum-verified downloads. New jobs require a configured private worker and do not execute uploaded/generated code in PHP. Route registration and PHP syntax checks passed; baseline/full integration tests are running. Frontend and private worker implementation are not complete at this checkpoint.
+
+## Checkpoint 3 — integrated UI, private broker and first passing research flow
+
+Added the `/research-studio` route and Cloud navigation; all fourteen workspace views; Tiptap rich manuscript editor with tables, equations, footnotes, citations, autosave/revisions; six real CSL styles; responsive themes and real SSE agent/browsing events; scoped authenticated proxy/download support. Added authenticated private broker, per-job document processing containers, approved scientific experiment container protocol and five actual document export converters.
+
+New backend ResearchStudioTest: 11 tests passed with 84 assertions, including Bengali/English/Russian fixture workflows and a real Markdown converter export after evidence review/human approval. These model/index responses are deterministic mocks, not live inference. TypeScript and production frontend build passed. Worker converter checks exposed Markdown writer citation rendering, which was corrected; rerun in progress. Real Docker tests remain unavailable locally. Browser end-to-end, Unicode PDF, additional concurrency/security checks and final acceptance remain in progress.

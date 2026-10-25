@@ -291,7 +291,7 @@ return ['status' => 'accepted', 'unconfirmed_experiment_cancellations' => $uncon
     public function experiment(Request $r, int $id)
     {
         $this->access($r, $id, ['owner', 'editor']);
-        $d = $r->validate(['title' => 'required|string|max:200', 'code' => 'required|string|max:30000', 'dataset_ids' => 'required|array|max:10', 'dataset_ids.*' => 'integer', 'seed' => 'required|integer|min:0|max:2147483647']);
+        $d = $r->validate(['title' => 'required|string|max:200', 'code' => 'required|string|max:30000', 'dataset_ids' => 'present|array|max:10', 'dataset_ids.*' => 'integer', 'seed' => 'required|integer|min:0|max:2147483647']);
         $ids = array_values(array_unique($d['dataset_ids']));
         abort_unless(DB::table('research_artifacts')->where('project_id', $id)->where('kind', 'dataset')->whereIn('id', $ids)->count() === count($ids), 422, 'Dataset access denied.');
         $hash = hash('sha256', json_encode([$d['code'], $ids, $d['seed']]));
@@ -339,7 +339,7 @@ return ['status' => 'accepted', 'unconfirmed_experiment_cancellations' => $uncon
             $walk($doc->content);
             $figures = [];
             foreach (array_unique($ids) as $file) {
-                $a = DB::table('research_artifacts')->where('project_id', $id)->where('kind', 'figure')->findOrFail($file);
+                $a = DB::table('research_artifacts')->where('project_id', $id)->where('kind', 'figure')->where('id', $file)->firstOrFail();
                 $bytes = Storage::disk('local')->get($a->path);
                 abort_unless(hash_equals($a->sha256, hash('sha256', $bytes)), 422, 'Figure checksum mismatch.');
                 $figures[] = ['id' => $a->id, 'mime' => $a->mime, 'data' => base64_encode($bytes)];
@@ -366,7 +366,7 @@ return ['status' => 'accepted', 'unconfirmed_experiment_cancellations' => $uncon
     public function artifact(Request $r,int $id,int $file)
     {
         $this->access($r,$id);
-        $a = DB::table('research_artifacts')->where('project_id',$id)->findOrFail($file);
+        $a = DB::table('research_artifacts')->where('project_id',$id)->where('id',$file)->firstOrFail();
         $bytes = Storage::disk('local')->get($a->path);
         abort_unless(hash_equals($a->sha256,hash('sha256',$bytes)),500,'Artifact checksum mismatch.');
         $mime = in_array($a->mime,['application/pdf', 'image/png', 'image/jpeg', 'text/csv', 'text/plain'],true) ? $a->mime : 'application/octet-stream';

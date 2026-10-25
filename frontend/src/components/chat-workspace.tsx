@@ -1278,6 +1278,7 @@ export default function ChatWorkspace() {
             )}
             {user && (
               <>
+                <a className="sidebar-action" href="/research-studio"><BookOpen size={19} /><span>AI Research Studio</span></a>
                 <button
                   className="sidebar-action"
                   disabled={busy}

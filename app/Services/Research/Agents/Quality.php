@@ -11,7 +11,7 @@ class Quality extends BaseAgent
 {
     protected array $tools = ['saved_manuscript.review', 'project_similarity', 'structured_reasoning'];
 
-    protected array $rules = ['passed' => 'required|boolean', 'issues' => 'required|array', 'issues.*.severity' => 'required|in:info,warning,error', 'issues.*.message' => 'required|string', 'issues.*.agent' => 'required|string', 'disclosure' => 'required|string'];
+    protected array $rules = ['passed' => 'required|boolean', 'issues' => 'present|array', 'issues.*.severity' => 'required|in:info,warning,error', 'issues.*.message' => 'required|string', 'issues.*.agent' => 'required|string', 'disclosure' => 'required|string'];
 
     public function execute(Context $ctx): array
     {

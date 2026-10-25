@@ -10,7 +10,7 @@ class Citations extends BaseAgent
 {
     protected array $tools = ['citation.audit'];
 
-    protected array $rules = ['references' => 'required|array', 'missing' => 'present|array', 'status' => 'required|string'];
+    protected array $rules = ['references' => 'present|array', 'missing' => 'present|array', 'status' => 'required|string'];
 
     public function execute(Context $ctx): array
     {

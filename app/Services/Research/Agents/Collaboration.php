@@ -9,7 +9,7 @@ class Collaboration extends BaseAgent
 {
     protected array $tools = ['project_members.read', 'review_tasks.prepare'];
 
-    protected array $rules = ['review_assignments' => 'required|array', 'sharing' => 'required|string'];
+    protected array $rules = ['review_assignments' => 'present|array', 'sharing' => 'required|string'];
 
     public function execute(Context $ctx): array
     {

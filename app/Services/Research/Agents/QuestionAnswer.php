@@ -11,7 +11,7 @@ class QuestionAnswer extends BaseAgent
 
     protected array $inputs = ['question' => 'required|string|max:4000', 'source_id' => 'nullable|integer'];
 
-    protected array $rules = ['answer' => 'required|string', 'source_ids' => 'required|array', 'uncertainty' => 'required|string'];
+    protected array $rules = ['answer' => 'required|string', 'source_ids' => 'present|array', 'uncertainty' => 'required|string'];
 
     public function execute(Context $ctx): array
     {

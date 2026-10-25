@@ -1,0 +1,17 @@
+[Unit]
+Description=OpenMind private research broker
+After=network.target docker.service
+[Service]
+User=research-worker
+Group=research-worker
+WorkingDirectory=/srv/openmind
+EnvironmentFile=/etc/openmind/research-worker.env
+ExecStart=/srv/openmind/.venv/bin/uvicorn runtime.research.server:app --host 127.0.0.1 --port 8317
+Restart=on-failure
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/tmp
+[Install]
+WantedBy=multi-user.target

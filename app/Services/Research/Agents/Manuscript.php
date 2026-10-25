@@ -10,7 +10,7 @@ class Manuscript extends BaseAgent
 {
     protected array $tools = ['manuscript.build'];
 
-    protected array $rules = ['content' => 'required|array', 'base_version' => 'required|integer', 'disclosure' => 'required|string'];
+    protected array $rules = ['content' => 'present|array', 'base_version' => 'required|integer', 'disclosure' => 'required|string'];
 
     public function execute(Context $ctx): array
     {

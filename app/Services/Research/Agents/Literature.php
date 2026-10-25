@@ -9,7 +9,7 @@ class Literature extends BaseAgent
 {
     protected array $tools = ['project_sources.read', 'exact_quote.extract', 'structured_reasoning'];
 
-    protected array $rules = ['analyses' => 'required|array', 'evidence' => 'required|array|max:12', 'evidence.*.source_id' => 'required|integer', 'evidence.*.claim' => 'required|string|max:3000', 'evidence.*.quote' => 'required|string|max:3000'];
+    protected array $rules = ['analyses' => 'present|array', 'evidence' => 'required|array|max:12', 'evidence.*.source_id' => 'required|integer', 'evidence.*.claim' => 'required|string|max:3000', 'evidence.*.quote' => 'required|string|max:3000'];
 
     public function execute(Context $ctx): array
     {

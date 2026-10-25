@@ -8,7 +8,7 @@ class Experiments extends BaseAgent
 {
     protected array $tools = ['experiment.plan', 'structured_reasoning'];
 
-    protected array $rules = ['plans' => 'required|array', 'plans.*.title' => 'required|string', 'plans.*.method' => 'required|string', 'plans.*.code' => 'required|string|max:30000', 'plans.*.datasets_required' => 'required|array', 'disclosure' => 'required|string'];
+    protected array $rules = ['plans' => 'present|array', 'plans.*.title' => 'required|string', 'plans.*.method' => 'required|string', 'plans.*.code' => 'required|string|max:30000', 'plans.*.datasets_required' => 'present|array', 'disclosure' => 'required|string'];
 
     public function execute(Context $ctx): array
     {

@@ -11,3 +11,7 @@
 /runtime/media/__pycache__/
 /runtime/media/models/
 /storage/framework/testing/
+
+/runtime/research/__pycache__/
+/frontend/test-results/
+/frontend/playwright-report/

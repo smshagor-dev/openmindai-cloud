@@ -14,7 +14,7 @@ class Discovery extends BaseAgent
 
     protected array $inputs = ['query' => 'required|string|max:300', 'provider' => 'required|in:crossref,openalex'];
 
-    protected array $rules = ['source_ids' => 'required|array'];
+    protected array $rules = ['source_ids' => 'present|array'];
 
     public function execute(Context $ctx): array
     {
