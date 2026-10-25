@@ -2,7 +2,7 @@ import hmac,json,os,threading,asyncio
 from contextlib import asynccontextmanager, suppress
 from fastapi import FastAPI,Request,HTTPException
 from fastapi.responses import JSONResponse
-from .containers import processing,reap_expired
+from .containers import processing,reap_expired,runtime_status
 from .sandbox import execute,cancel
 @asynccontextmanager
 async def lifecycle(app):
@@ -30,7 +30,9 @@ async def protect(request:Request,call_next):
         request._body=bytes(body)
     return await call_next(request)
 @app.get('/health')
-def health():return {'status':'configured' if os.environ.get('RESEARCH_PROCESSING_IMAGE') and os.environ.get('RESEARCH_SANDBOX_IMAGE') else 'setup_required','document_processing':'isolated_container','experiments':'isolated_container'}
+def health():
+    result=runtime_status()
+    return JSONResponse(result,status_code=200 if result['status']=='ready' else 503)
 @app.post('/{operation}')
 def run(operation:str,payload:dict):
     if operation not in ['extract','export','experiment','cancel']:raise HTTPException(404)

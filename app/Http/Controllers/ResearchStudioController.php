@@ -22,6 +22,7 @@ use App\Services\Research\ExperimentArtifacts;
 use App\Services\Research\ExperimentControl;
 use App\Services\Research\IntegrityGates;
 use App\Services\Research\Orchestrator;
+use App\Services\Research\Readiness;
 use App\Services\Research\Transactions;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -33,6 +34,11 @@ class ResearchStudioController
     private function access(Request $r, int $id, array $roles = ['owner', 'editor', 'reviewer', 'viewer']): Project
     {
         return app(Access::class)->project($id, $r->user()->id, $roles);
+    }
+
+    public function readiness()
+    {
+        return app(Readiness::class)->inspect();
     }
 
     public function index(Request $r)

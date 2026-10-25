@@ -10,6 +10,7 @@ use App\Models\TaskRun;
 use App\Models\User;
 use App\Services\AdminSettings;
 use App\Services\Research\Orchestrator;
+use App\Services\Research\Readiness;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schedule;
@@ -214,3 +215,10 @@ Artisan::command('research:recover', function () {
     $this->info('Research leases checked.');
 });
 Schedule::command('research:recover')->everyMinute()->withoutOverlapping();
+
+Artisan::command('research:preflight {--fresh : Recheck worker instead of using the short health cache}', function () {
+    $status = app(Readiness::class)->inspect((bool) $this->option('fresh'));
+    $this->line(json_encode($status, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+
+    return $status['infrastructure_ready'] ? 0 : 1;
+})->purpose('Check Research Studio infrastructure without revealing credentials or executing research.');

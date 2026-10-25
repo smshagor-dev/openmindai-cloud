@@ -61,3 +61,15 @@ def reap_expired():
         try:expired=int(labels.get(EXPIRY_LABEL,''))<time.time()
         except ValueError:continue
         if expired:command(['rm','--force',identifier])
+
+
+def runtime_status():
+    base={'document_processing':'isolated_container','experiments':'isolated_container','runtime_checked':False,'execution_verified':False}
+    try:
+        images=[image('RESEARCH_PROCESSING_IMAGE'),image('RESEARCH_SANDBOX_IMAGE')]
+    except ValueError:return {**base,'status':'setup_required'}
+    try:
+        available=command(['image','inspect','--format','{{.Id}}',*images],timeout=3).splitlines()
+        if sorted(available)!=sorted(images):raise ValueError('image_mismatch')
+        return {**base,'status':'ready','runtime_checked':True}
+    except Exception:return {**base,'status':'unavailable','runtime_checked':True}

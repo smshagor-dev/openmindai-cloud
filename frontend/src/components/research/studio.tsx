@@ -26,6 +26,7 @@ import {
 import AcademicEditor from "./editor";
 import { effectiveLanguage, languageCode } from "@/lib/research-language";
 import TaskGraph from "./task-graph";
+import ResearchReadiness from "./readiness";
 import type { JSONContent } from "@tiptap/core";
 import "@fontsource/noto-serif-bengali";
 import "@fontsource/noto-naskh-arabic";
@@ -789,6 +790,7 @@ export default function ResearchStudio() {
             </div>
             {view === "Overview" && (
               <>
+                <ResearchReadiness />
                 <div className="rs-grid rs-stats">
                   {[
                     ["Sources", sources.length],
@@ -1776,6 +1778,7 @@ export default function ResearchStudio() {
                 </section>
               </>
             )}
+            {view === "Settings" && <ResearchReadiness />}
             {view === "Settings" && (
               <section className="rs-card">
                 <h2>Project settings</h2>

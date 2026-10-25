@@ -6,14 +6,59 @@ use Illuminate\Support\Facades\Http;
 
 class Worker
 {
-    public function call(string $operation, array $payload): array
+    public function configured(): bool
     {
-        abort_unless(in_array($operation, ['extract', 'export', 'experiment', 'cancel'], true), 422);
+        return $this->configuration() !== null;
+    }
+
+    private function configuration(): ?array
+    {
         $url = (string) config('research.worker_url');
         $key = (string) config('research.worker_key');
         $p = parse_url($url);
         $host = $p['host'] ?? '';
-        abort_unless(strlen($key) >= 32 && isset($p['scheme']) && ! isset($p['user'],$p['pass']) && empty($p['query']) && empty($p['fragment']) && ($p['scheme'] === 'https' || ($p['scheme'] === 'http' && in_array($host, ['127.0.0.1', 'localhost', '[::1]'], true))), 503, 'Private research worker is not configured.');
+        $valid = $host !== '' && strlen($key) >= 32 && isset($p['scheme']) && ! isset($p['user']) && ! isset($p['pass']) && empty($p['query']) && empty($p['fragment']) && ($p['scheme'] === 'https' || ($p['scheme'] === 'http' && in_array($host, ['127.0.0.1', 'localhost', '[::1]'], true)));
+
+        return $valid ? [rtrim($url, '/'), $key] : null;
+    }
+
+    public function health(): array
+    {
+        $configuration = $this->configuration();
+        if ($configuration === null) {
+            return ['status' => 'setup_required', 'configured' => false, 'runtime_checked' => false];
+        }
+        [$url, $key] = $configuration;
+        try {
+            $r = Http::withToken($key)->acceptJson()->connectTimeout(3)->timeout(6)->withOptions(['allow_redirects' => false, 'stream' => true])->get($url.'/health');
+            $body = $r->toPsrResponse()->getBody();
+            $raw = '';
+            try {
+                while (! $body->eof() && strlen($raw) <= 16384) {
+                    $raw .= $body->read(4096);
+                }
+            } finally {
+                $body->close();
+            }
+            if ($r->status() === 401 || $r->status() === 403) {
+                return ['status' => 'authorization_failed', 'configured' => true, 'runtime_checked' => false];
+            }
+            $data = strlen($raw) <= 16384 ? json_decode($raw, true) : null;
+            $runtime = is_array($data) && ($data['runtime_checked'] ?? false) === true;
+            $ready = $r->successful() && $runtime && ($data['status'] ?? '') === 'ready' && ($data['document_processing'] ?? '') === 'isolated_container' && ($data['experiments'] ?? '') === 'isolated_container';
+
+            return ['status' => $ready ? 'ready' : (($data['status'] ?? '') === 'setup_required' ? 'setup_required' : ($runtime ? 'runtime_unavailable' : 'unverified_runtime')), 'configured' => true, 'runtime_checked' => $runtime];
+        } catch (\Throwable) {
+            return ['status' => 'unreachable', 'configured' => true, 'runtime_checked' => false];
+        }
+    }
+
+    public function call(string $operation, array $payload): array
+    {
+        abort_unless(in_array($operation, ['extract', 'export', 'experiment', 'cancel'], true), 422);
+        $configuration = $this->configuration();
+        abort_unless($configuration, 503, 'Private research worker is not configured.');
+        [$url, $key] = $configuration;
         $r = Http::withToken($key)->acceptJson()->connectTimeout(8)->timeout($operation === 'cancel' ? 5 : 160)->withOptions(['allow_redirects' => false, 'stream' => true])->post(rtrim($url, '/').'/'.$operation, $payload);
         if (! $r->successful()) {
             throw new \RuntimeException('research_worker_failed');

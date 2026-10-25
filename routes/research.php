@@ -5,6 +5,7 @@ use App\Http\Middleware\ResearchRequestLimits;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1/research')->middleware([ResearchRequestLimits::class, 'verified-mobile-ip', 'auth:sanctum', 'active', 'interactive-token', 'throttle:api'])->group(function () {
+    Route::get('status', [R::class, 'readiness']);
     Route::get('projects', [R::class, 'index']);
     Route::post('projects', [R::class, 'create']);
     Route::get('invitations', [R::class, 'invitations']);

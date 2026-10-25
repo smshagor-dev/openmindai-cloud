@@ -9,6 +9,8 @@ import {
 } from "../src/lib/research.ts";
 import { researchRoute, researchDownload } from "../src/lib/research-proxy.ts";
 test("research proxy allows only scoped implemented methods and paths", () => {
+  assert.ok(researchRoute("GET", "research/status"));
+  assert.equal(researchRoute("POST", "research/status"), false);
   assert.ok(researchRoute("POST", "research/projects/1/experiments/2/execute"));
   assert.ok(researchDownload("research/projects/1/exports/2/download"));
   for (const path of [

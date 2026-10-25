@@ -1,5 +1,5 @@
 const paths: Record<string, RegExp> = {
-  GET: /^research\/(?:projects(?:\/\d+(?:\/sources\/\d+|\/revisions|\/events|\/(?:exports|artifacts)\/\d+\/download)?)?|invitations)$/,
+  GET: /^research\/(?:projects(?:\/\d+(?:\/sources\/\d+|\/revisions|\/events|\/(?:exports|artifacts)\/\d+\/download)?)?|invitations|status)$/,
   POST: /^research\/(?:projects(?:\/\d+\/(?:runs|control|components|sources|uploads|comments|members|approvals|experiments(?:\/\d+\/(?:execute|cancel))?|exports))?|invitations\/\d+\/accept)$/,
   PUT: /^research\/projects\/\d+\/(?:settings|document|sources\/\d+|evidence\/\d+)$/,
   DELETE: /^research\/projects\/\d+\/members\/\d+$/,

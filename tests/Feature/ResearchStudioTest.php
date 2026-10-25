@@ -55,6 +55,35 @@ class ResearchStudioTest extends TestCase
         return Project::findOrFail($id);
     }
 
+    public function test_readiness_is_scoped_to_interactive_users_and_never_exposes_configuration(): void
+    {
+        Sanctum::actingAs($this->user(), ['user']);
+        config(['research.model' => 'openmindai-ultra', 'research.fallback_models' => [], 'models.nvidia_key' => 'synthetic-nvidia-key', 'research.worker_url' => 'https://private-worker.example.test', 'research.worker_key' => str_repeat('k', 40)]);
+        DB::table('hosted_code_agents')->where('slug', 'openmindai-ultra')->update(['enabled' => true, 'api_ready' => true, 'last_test_status' => 'success']);
+        Http::fake(['https://private-worker.example.test/health' => Http::response(['status' => 'ready', 'runtime_checked' => true, 'document_processing' => 'isolated_container', 'experiments' => 'isolated_container', 'private_value' => 'do-not-reflect'], 200)]);
+        $this->getJson('/api/v1/research/status')->assertOk()->assertJsonPath('infrastructure_ready', true)->assertJsonPath('worker.status', 'ready')->assertDontSee('private-worker')->assertDontSee(str_repeat('k', 40))->assertDontSee('do-not-reflect')->assertDontSee('synthetic-nvidia-key');
+        $this->getJson('/api/v1/research/status')->assertOk();
+        Http::assertSentCount(1);
+        DB::table('hosted_code_agents')->where('slug', 'openmindai-ultra')->update(['last_test_status' => 'failed']);
+        $this->getJson('/api/v1/research/status')->assertJsonPath('reasoning.status', 'setup_required');
+        Sanctum::actingAs($this->user(), ['openmindai:invoke']);
+        $this->getJson('/api/v1/research/status')->assertForbidden();
+    }
+
+    public function test_readiness_rejects_unsafe_worker_urls_and_checks_actual_runtime_contract(): void
+    {
+        Sanctum::actingAs($this->user(), ['user']);
+        config(['research.worker_key' => str_repeat('k', 40), 'research.worker_url' => 'https://username@private-worker.example.test']);
+        Http::fake(['*' => Http::sequence()->push(['status' => 'configured', 'document_processing' => 'isolated_container', 'experiments' => 'isolated_container'], 200)->push(['private_error' => 'never return this'], 401)->push([], 401)]);
+        $this->getJson('/api/v1/research/status')->assertJsonPath('worker.status', 'setup_required');
+        Http::assertNothingSent();
+        config(['research.worker_url' => 'https://private-worker.example.test']);
+        $this->getJson('/api/v1/research/status')->assertJsonPath('worker.status', 'unverified_runtime')->assertJsonPath('infrastructure_ready', false);
+        config(['research.worker_key' => str_repeat('z', 40)]);
+        $this->getJson('/api/v1/research/status')->assertJsonPath('worker.status', 'authorization_failed')->assertDontSee('never return');
+        $this->artisan('research:preflight --fresh')->assertExitCode(1);
+    }
+
     private function runTasks(Run $r): void
     {
         for ($i = 0; $i < 90; $i++) {

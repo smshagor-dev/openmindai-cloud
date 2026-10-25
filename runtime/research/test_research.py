@@ -10,6 +10,15 @@ from .sandbox import execute,cancel
 def fixture():
  return {'format':'docx','draft':True,'settings':{'citation_style':'apa'},'sources':[{'id':7,'title':'Synthetic academic fixture','authors':[{'given':'Test','family':'Fixture'}],'year':2025,'doi':'10.1234/fixture'}],'document':{'type':'doc','content':[{'type':'heading','attrs':{'level':1,'id':'intro'},'content':[{'type':'text','text':'Research fixture'}]},{'type':'paragraph','content':[{'type':'text','text':'Synthetic evidence supports a test claim.'},{'type':'citation','attrs':{'sourceId':7}},{'type':'math','attrs':{'latex':r'E=mc^2'}},{'type':'footnote','attrs':{'text':'A real exported footnote.'}}]},{'type':'table','content':[{'type':'tableRow','content':[{'type':'tableHeader','content':[{'type':'paragraph','content':[{'type':'text','text':'Metric'}]}]}]},{'type':'tableRow','content':[{'type':'tableCell','content':[{'type':'paragraph','content':[{'type':'text','text':'Actual test fixture'}]}]}]}]}]}}
 class WorkerTest(unittest.TestCase):
+ def test_health_checks_immutable_images_without_claiming_execution(self):
+  from .containers import runtime_status
+  env={'RESEARCH_PROCESSING_IMAGE':'sha256:'+'a'*64,'RESEARCH_SANDBOX_IMAGE':'sha256:'+'b'*64,'RESEARCH_WORKER_KEY':'a-test-secret-with-at-least-32-characters'}
+  with patch.dict(os.environ,env),patch('runtime.research.containers.command',return_value=env['RESEARCH_PROCESSING_IMAGE']+'\n'+env['RESEARCH_SANDBOX_IMAGE']):
+   client=TestClient(app);response=client.get('/health',headers={'Authorization':'Bearer '+env['RESEARCH_WORKER_KEY']});self.assertEqual(response.status_code,200);self.assertEqual(response.json()['status'],'ready');self.assertTrue(response.json()['runtime_checked']);self.assertFalse(response.json()['execution_verified'])
+  with patch.dict(os.environ,env),patch('runtime.research.containers.command',side_effect=RuntimeError('private daemon details')):
+   result=runtime_status();self.assertEqual(result['status'],'unavailable');self.assertNotIn('private',json.dumps(result))
+  with patch.dict(os.environ,{'RESEARCH_PROCESSING_IMAGE':'python:latest'}):self.assertEqual(runtime_status()['status'],'setup_required')
+
  def test_five_exports_reopen_with_math_tables_footnotes(self):
   for fmt in ['docx','pdf','tex','bib','md']:
    with self.subTest(format=fmt):
@@ -46,6 +55,8 @@ class WorkerTest(unittest.TestCase):
  @unittest.skipUnless(shutil.which('docker') and os.getenv('RESEARCH_PROCESSING_IMAGE'),'Docker and an immutable processing image required')
  def test_actual_isolated_document_processing(self):
   from .containers import processing
+  from .containers import runtime_status
+  self.assertEqual(runtime_status()['status'],'ready')
   p=fixture();p['format']='pdf';r=processing('export',p);text=processing('extract',{'data':r['data']});self.assertIn('Synthetic evidence',text['text'])
 
  @unittest.skipUnless(shutil.which('docker') and os.getenv('RESEARCH_SANDBOX_IMAGE'),'Docker and an immutable experiment image required')

@@ -50,6 +50,7 @@ All paths below are relative to `/api/v1/research`. Interactive Sanctum sessions
 
 | Method | Path | Purpose |
 | --- | --- | --- |
+| GET | `/status` | Authenticated model/worker readiness; private endpoint and credentials are never returned |
 | GET, POST | `/projects` | List/create owned or accepted shared projects |
 | GET | `/projects/{id}` | Atomic workspace snapshot, integrity and recent event cursor |
 | PUT | `/projects/{id}/settings` | Languages, reference dates, journal/layout and model workloads |
@@ -102,7 +103,7 @@ docker image inspect openmind-research-processing --format '{{.Id}}'
 docker image inspect openmind-research-sandbox --format '{{.Id}}'
 ```
 
-Set the resulting immutable `sha256:...` IDs as `RESEARCH_PROCESSING_IMAGE` and `RESEARCH_SANDBOX_IMAGE` in the broker's private environment. Set `RESEARCH_WORKER_KEY` to an independently generated secret of at least 32 characters, never in Git/browser. The Laravel application needs the same key and `RESEARCH_WORKER_URL` (HTTPS, or loopback HTTP). A remote broker must sit behind authenticated TLS transport and private ingress controls. `GET /health` requires the bearer token and reports configuration, not a successful execution probe.
+Set the resulting immutable `sha256:...` IDs as `RESEARCH_PROCESSING_IMAGE` and `RESEARCH_SANDBOX_IMAGE` in the broker's private environment. Set `RESEARCH_WORKER_KEY` to an independently generated secret of at least 32 characters, never in Git/browser. The Laravel application needs the same key and `RESEARCH_WORKER_URL` (HTTPS, or loopback HTTP). A remote broker must sit behind authenticated TLS transport and private ingress controls. `GET /health` requires the bearer token and checks that the configured immutable images are available through the Docker daemon. It returns HTTP 503 when setup/runtime is unavailable and explicitly does not claim successful job execution. The workspace Overview/Settings status card exposes only sanitized readiness, cached for 30 seconds. Run `php artisan research:preflight --fresh` to perform the same check from the application host; its exit status is nonzero until model configuration and worker runtime are ready. No inference, conversion or experiment is executed by preflight.
 
 `runtime/research/research-worker.service` is a systemd template with restart-on-failure and persistent cancellation/submission guards. Adapt `/srv/openmind`, the virtualenv and service identity for the worker host. `runtime/research/queue-supervisor.conf` runs three database queue consumers for the `research` queue. Keep queue reservation retention longer than the 440-second consumer timeout; the existing default is 86400 seconds. Run the existing Laravel scheduler every minute so `research:recover` can fence expired leases and fail interrupted worker jobs truthfully. Check existing jobs before restarting consumers.
 
