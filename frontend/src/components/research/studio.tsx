@@ -174,6 +174,7 @@ export default function ResearchStudio() {
   const [data, setData] = useState<Row | null>(null);
   const [view, setActiveView] = useState<string>("Chat");
   const [events, setEvents] = useState<Row[]>([]);
+  const [activityState, setActivityState] = useState("connected");
   const [historyPage, setHistoryPage] = useState<Row[]>([]);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -283,6 +284,7 @@ export default function ResearchStudio() {
     setData(null);
     dataRef.current = null;
     setEvents([]);
+    setActivityState("connected");
     setHistoryPage([]);
     cursor.current = 0;
     initial.current = true;
@@ -313,25 +315,29 @@ export default function ResearchStudio() {
     let disposed = false;
     const abort = new AbortController();
     const poll = async () => {
-      let delay = 3000;
+      let delay = 5000;
+      let throttled = false;
       try {
         const response = await fetch(
           `/api/backend/research/projects/${id}/events?after=${cursor.current}`,
           { cache: "no-store", signal: abort.signal },
         );
         if (!response.ok) {
-          if (response.status === 429)
+          if (response.status === 429) {
+            throttled = true;
             delay = Math.min(
               120000,
               Math.max(
-                3000,
+                5000,
                 Number(response.headers.get("retry-after") || 10) * 1000,
               ),
             );
+          }
           throw new Error(`Activity connection failed (${response.status}).`);
         }
         const text = await response.text();
         if (disposed) return;
+        setActivityState("connected");
         const incoming: Row[] = [];
         for (const line of text.split("\n")) {
           if (line.startsWith("data: ")) {
@@ -346,8 +352,8 @@ export default function ResearchStudio() {
           setEvents((old) => [...old, ...incoming].slice(-150));
           await refresh(id);
         }
-      } catch (e) {
-        if (!disposed) setError((e as Error).message);
+      } catch {
+        if (!disposed) setActivityState(throttled ? "backoff" : "reconnecting");
       }
       if (!disposed) timer = setTimeout(poll, delay);
     };
@@ -866,6 +872,7 @@ export default function ResearchStudio() {
               <ResearchConversation
                 data={data}
                 events={events}
+                activityState={activityState}
                 question={question}
                 setQuestion={setQuestion}
                 send={sendQuestion}

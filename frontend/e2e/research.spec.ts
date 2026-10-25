@@ -256,6 +256,21 @@ test("new research starts directly from the chat composer", async ({
   await page.route("**/api/backend/research/projects/*/runs", (route) =>
     route.fulfill({ status: 200, json: { id: 700, status: "queued" } }),
   );
+  let activityRequests = 0;
+  await page.route("**/api/backend/research/projects/*/events?*", (route) => {
+    activityRequests++;
+    return activityRequests === 1
+      ? route.fulfill({
+          status: 429,
+          headers: { "retry-after": "1" },
+          json: { message: "Too Many Attempts." },
+        })
+      : route.fulfill({
+          status: 200,
+          contentType: "text/event-stream",
+          body: ": reconnect\n\n",
+        });
+  });
   await page.goto("/research-studio");
   await expect(
     page.getByRole("heading", { name: "Where does your curiosity lead?" }),
@@ -273,6 +288,20 @@ test("new research starts directly from the chat composer", async ({
   await expect(
     page.getByRole("article", { name: "Original research request" }),
   ).toContainText(topic);
+  await expect(
+    page.getByText("Activity updates delayed · retrying after cooldown", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Activity updates delayed · retrying after cooldown", {
+      exact: true,
+    }),
+  ).not.toBeVisible({ timeout: 12000 });
+  expect(activityRequests).toBeGreaterThanOrEqual(2);
+  await expect(
+    page.getByRole("alert").filter({ hasText: "Too Many Attempts" }),
+  ).toHaveCount(0);
   await page.reload();
   await expect(
     page.getByRole("article", { name: "Original research request" }),

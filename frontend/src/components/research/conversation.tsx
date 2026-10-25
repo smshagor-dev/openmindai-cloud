@@ -166,6 +166,7 @@ function Text({ children }: { children: string }) {
 export default function ResearchConversation({
   data,
   events,
+  activityState,
   question,
   setQuestion,
   send,
@@ -180,6 +181,7 @@ export default function ResearchConversation({
 }: {
   data: Row;
   events: Row[];
+  activityState: string;
   question: string;
   setQuestion: (value: string) => void;
   send: () => void;
@@ -225,6 +227,13 @@ export default function ResearchConversation({
             <span className="rs-cloud-dot" />
             OpenMind Cloud<span>·</span>
             <span>Private research workspace</span>
+            {activityState !== "connected" && (
+              <span role="status">
+                {activityState === "backoff"
+                  ? "Activity updates delayed · retrying after cooldown"
+                  : "Reconnecting activity…"}
+              </span>
+            )}
           </div>
           <article
             className="rs-user-bubble"
@@ -241,7 +250,7 @@ export default function ResearchConversation({
             </div>
             {!plan ? (
               <p>
-                {tasks.length
+                {workflow.length > 0 && data.run?.status === "running"
                   ? "Your research request is queued. Activity appears as the agents perform actual work."
                   : "Your research workspace is ready. Start research to interpret the request, discover sources and prepare an evidence-grounded plan."}
               </p>
