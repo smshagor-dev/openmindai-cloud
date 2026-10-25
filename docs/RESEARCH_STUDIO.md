@@ -113,6 +113,8 @@ Owner authorization is bound to code, dataset IDs and seed, revalidated by the w
 
 ## cPanel queue scheduling
 
+The verified target-account capabilities and remaining same-host provisioning requirements are recorded in [cPanel acceptance](RESEARCH_CPANEL_ACCEPTANCE.md). cPanel itself does not imply that an isolated processing runtime is available.
+
 The existing Laravel scheduler must still run every minute. When a hosting account provides GNU `flock` and `timeout` but no persistent supervisor, `runtime/research/cpanel-queue.sh` can consume the `research` database queue through scheduled CLI processes. Configure three once-per-minute Cron Jobs with the same application/PHP paths and lanes `1`, `2`, `3`:
 
 ```sh
