@@ -77,3 +77,8 @@ Actual local checks: full Laravel suite 337 passed (2169 assertions), including 
 GitHub Research Studio run 40194003218 verified the checkpoint-6 backend, MySQL 8.4 research suite and desktop/mobile browser jobs successfully. Actual isolated Python execution also passed. The minimal processing image still lacked the Zapf Dingbats TeX metrics required by hyperref; added explicit texlive-fonts-recommended instead of weakening PDF validation. The generic PHP CI workflow lacked the new real-converter test dependencies; it now provisions Python, Pandoc and the worker libraries just like the Research Studio backend workflow. A fresh CI rerun is required for these corrections.
 
 cPanel secure sign-in timed out. Fresh target-origin verification still shows cPanel Login. No production commands, config changes, database migrations or live NVIDIA inference have been performed. Model enablement remains blocked on verified credentials/provider access and real routing/streaming checks.
+
+
+## Checkpoint 8 — full formatting check and real cancellation test
+
+Full-repository Pint inspection found three remaining research fixture/console formatting files; formatted those without changing behavior, and full Pint now passes locally. Added a Docker-only test that cancels an actually running sandbox, confirms the container is gone and proves the persistent cancellation guard rejects delayed submission. This test requires fresh CI execution; it is not yet reported as passed.

@@ -48,6 +48,24 @@ class WorkerTest(unittest.TestCase):
   from .containers import processing
   p=fixture();p['format']='pdf';r=processing('export',p);text=processing('extract',{'data':r['data']});self.assertIn('Synthetic evidence',text['text'])
 
+ @unittest.skipUnless(shutil.which('docker') and os.getenv('RESEARCH_SANDBOX_IMAGE'),'Docker and an immutable experiment image required')
+ def test_actual_cancellation_terminates_container_and_fences_delayed_submission(self):
+  import concurrent.futures,tempfile,time,subprocess
+  identifier='research-'+'c'*32;code='import time\ntime.sleep(40)'
+  payload={'execution_id':identifier,'code':code,'code_hash':hashlib.sha256(code.encode()).hexdigest(),'seed':42,'datasets':[]}
+  with tempfile.TemporaryDirectory()as directory,patch.dict(os.environ,{'RESEARCH_CANCEL_DIR':directory}),concurrent.futures.ThreadPoolExecutor(max_workers=1)as pool:
+   future=pool.submit(execute,payload);deadline=time.monotonic()+15
+   while True:
+    state=subprocess.run(['docker','inspect','--format','{{.State.Running}}',identifier],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
+    if state.returncode==0 and state.stdout.strip()==b'true':break
+    if future.done():future.result();self.fail('execution ended before cancellation')
+    if time.monotonic()>deadline:self.fail('sandbox did not start')
+    time.sleep(.1)
+   self.assertEqual(cancel(identifier)['status'],'cancelled')
+   with self.assertRaises(Exception):future.result(timeout=10)
+   state=subprocess.run(['docker','inspect',identifier],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL);self.assertNotEqual(state.returncode,0)
+   with self.assertRaisesRegex(ValueError,'execution_cancelled'):execute(payload)
+
  def test_reaper_only_removes_expired_managed_containers(self):
   from .containers import reap_expired,MANAGED_LABEL,EXPIRY_LABEL
   records=[{'Name':'/research-'+'a'*32,'Config':{'Labels':{MANAGED_LABEL:'true',EXPIRY_LABEL:'1'}}},{'Name':'/unrelated','Config':{'Labels':{MANAGED_LABEL:'true',EXPIRY_LABEL:'1'}}},{'Name':'/research-doc-'+'b'*32,'Config':{'Labels':{MANAGED_LABEL:'true',EXPIRY_LABEL:'9999999999'}}}]

@@ -9,6 +9,7 @@ use App\Models\ScheduledTask;
 use App\Models\TaskRun;
 use App\Models\User;
 use App\Services\AdminSettings;
+use App\Services\Research\Orchestrator;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schedule;
@@ -208,5 +209,8 @@ Schedule::call(function () {
         });
 })->hourly();
 
-Artisan::command('research:recover', function(){ app(\App\Services\Research\Orchestrator::class)->recover(); $this->info('Research leases checked.'); });
+Artisan::command('research:recover', function () {
+    app(Orchestrator::class)->recover();
+    $this->info('Research leases checked.');
+});
 Schedule::command('research:recover')->everyMinute()->withoutOverlapping();
