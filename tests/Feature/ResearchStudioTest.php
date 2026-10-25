@@ -23,6 +23,7 @@ use App\Services\Research\FullText;
 use App\Services\Research\Inference;
 use App\Services\Research\IntegrityGates;
 use App\Services\Research\Orchestrator;
+use App\Services\Research\Registry;
 use App\Services\Research\StaleExecution;
 use App\Services\Research\Worker;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -152,6 +153,30 @@ class ResearchStudioTest extends TestCase
         $this->assertDatabaseCount('research_revisions', 2);
         $doc['content'][0]['content'][] = ['type' => 'citation', 'attrs' => ['sourceId' => 9999]];
         $this->putJson("/api/v1/research/projects/$p->id/document", ['version' => 2, 'content' => $doc])->assertUnprocessable();
+    }
+
+    public function test_conversation_survives_later_runs_is_bounded_and_omits_private_retrieval_context(): void
+    {
+        $owner = $this->user();
+        $p = $this->project($owner);
+        Run::create(['project_id' => $p->id, 'actor_id' => $owner->id, 'generation' => 0, 'kind' => 'workflow', 'status' => 'completed', 'plan' => ['language' => 'bn', 'objectives' => ['Persist the research plan']]]);
+        $definition = app(Registry::class)->snapshot('question');
+        $run = Run::create(['project_id' => $p->id, 'actor_id' => $owner->id, 'generation' => 0, 'kind' => 'component', 'status' => 'completed']);
+        foreach (range(0, 52) as $i) {
+            $task = Task::create(['project_id' => $p->id, 'run_id' => $run->id, 'definition_id' => $definition, 'key' => 'question-'.$i, 'agent' => 'question', 'status' => 'completed', 'input' => ['question' => 'Question '.$i]]);
+            Finding::create(['project_id' => $p->id, 'task_id' => $task->id, 'kind' => 'question', 'data' => ['answer' => 'Answer '.$i, 'source_ids' => [], 'uncertainty' => 'Fixture only', 'retrieval' => ['private' => 'private-retrieval-sentinel']]]);
+        }
+        $task = Task::create(['project_id' => $p->id, 'run_id' => $run->id, 'definition_id' => app(Registry::class)->snapshot('selection'), 'key' => 'selection', 'agent' => 'selection', 'status' => 'completed', 'input' => ['instruction' => 'Improve clarity', 'selection' => 'Original passage']]);
+        Finding::create(['project_id' => $p->id, 'task_id' => $task->id, 'kind' => 'selection', 'data' => ['suggestion' => 'Reviewable passage', 'explanation' => 'Preserved meaning']]);
+        Run::create(['project_id' => $p->id, 'actor_id' => $owner->id, 'generation' => 0, 'kind' => 'component', 'status' => 'completed']);
+
+        $response = $this->getJson('/api/v1/research/projects/'.$p->id)->assertOk()->assertJsonCount(50, 'conversation')
+            ->assertJsonPath('conversation_has_more', true)->assertJsonPath('conversation.0.question', 'Question 4')
+            ->assertJsonPath('conversation.49.kind', 'selection')->assertJsonPath('conversation.49.answer', 'Reviewable passage')
+            ->assertJsonPath('tasks', [])->assertJsonPath('research_plan.language', 'bn');
+        $this->assertStringNotContainsString('private-retrieval-sentinel', json_encode($response->json('conversation')));
+        Sanctum::actingAs($this->user());
+        $this->getJson('/api/v1/research/projects/'.$p->id)->assertNotFound();
     }
 
     public function test_multilingual_workflows_delegate_and_finish_with_reviewable_proposals(): void

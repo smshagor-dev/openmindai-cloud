@@ -3,6 +3,7 @@ import "@citation-js/plugin-csl";
 import "@citation-js/plugin-bibtex";
 export type Row = Record<string, any>;
 export const views = [
+  "Chat",
   "Overview",
   "Live agents",
   "Web activity",
