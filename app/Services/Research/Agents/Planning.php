@@ -12,6 +12,14 @@ class Planning extends BaseAgent
 
     public function execute(Context $ctx): array
     {
-        return $this->ask($ctx, 'Interpret the original multilingual/mixed/transliterated prompt including Banglish. Detect progress language without changing user intent; preserve explicitly chosen manuscript language. Extract discipline, objectives, constraints (journal/date range/method), 1–4 complementary investigation perspectives with real scholarly search queries, and experimental boolean. Return language, output_language, discipline, objectives[], constraints{}, perspectives[{name,query}], experimental. Do not search or invent results.', $this->project($ctx));
+        $out = $this->ask($ctx, 'Interpret the original multilingual/mixed/transliterated prompt including Banglish. Detect progress language without changing user intent; preserve explicitly chosen manuscript language. Extract discipline, objectives, constraints (journal/date range/method), 1–4 complementary investigation perspectives with real scholarly search queries, and experimental boolean. Return language, output_language, discipline, objectives[], constraints{}, perspectives[{name,query}], experimental. Do not search or invent results.', $this->project($ctx));
+        foreach (['progress_language' => 'language', 'output_language' => 'output_language'] as $setting => $key) {
+            $chosen = $ctx->project()->settings[$setting] ?? 'auto';
+            if (strtolower($chosen) !== 'auto') {
+                $out[$key] = $chosen;
+            }
+        }
+
+        return $out;
     }
 }

@@ -82,3 +82,9 @@ cPanel secure sign-in timed out. Fresh target-origin verification still shows cP
 ## Checkpoint 8 — full formatting check and real cancellation test
 
 Full-repository Pint inspection found three remaining research fixture/console formatting files; formatted those without changing behavior, and full Pint now passes locally. Added a Docker-only test that cancels an actually running sandbox, confirms the container is gone and proves the persistent cancellation guard rejects delayed submission. This test requires fresh CI execution; it is not yet reported as passed.
+
+## Checkpoint 9 — explicit language choices and verified CI baseline
+
+All checks on commit `36f6614a03fb490a07d25fd637f6fb54bb2bbc24` passed: Research Studio backend, MySQL 8.4, browser and worker jobs; generic PHP 8.2/8.3, frontend and runtime-contract jobs. Worker CI ran 11 tests with no skips, including actual isolated document export/extraction, actual network-isolated unprivileged Python execution/artifacts and termination of a running sandbox with delayed-submission fencing.
+
+Final review found that detected prompt language could take precedence over explicitly chosen progress/manuscript languages in presentation. Planning now preserves explicit user selections even if a provider returns conflicting language fields. Gateway prompts explicitly separate agent explanation and manuscript language, and UI resolves native language names/codes consistently with status translations for all eight non-English choices. Added backend and frontend regression coverage. Latest local checks: 20 research tests passed (141 assertions), frontend build/TypeScript and all 201 integration tests passed, full Pint passed. This final language delta requires its own CI rerun. No live NVIDIA/embedding or production verification is implied by these deterministic tests.

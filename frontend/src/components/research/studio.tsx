@@ -24,6 +24,7 @@ import {
   safeUrl,
 } from "@/lib/research";
 import AcademicEditor from "./editor";
+import { effectiveLanguage, languageCode } from "@/lib/research-language";
 import TaskGraph from "./task-graph";
 import type { JSONContent } from "@tiptap/core";
 import "@fontsource/noto-serif-bengali";
@@ -31,41 +32,114 @@ import "@fontsource/noto-naskh-arabic";
 import "@fontsource/noto-serif-devanagari";
 import "@fontsource/noto-serif-sc";
 const readable = (x: unknown) => (typeof x === "string" ? x : pretty(x));
-const statusLabels: Record<string, Record<string, string>> = {
-  bn: {
-    running: "চলছে",
-    pending: "অপেক্ষায়",
-    queued: "সারিতে",
-    completed: "সম্পন্ন",
-    failed: "ব্যর্থ",
-    paused: "বিরত",
-    cancelled: "বাতিল",
-  },
-  ru: {
-    running: "Выполняется",
-    pending: "Ожидание",
-    completed: "Завершено",
-    failed: "Ошибка",
-  },
-  ar: {
-    running: "قيد التنفيذ",
-    pending: "انتظار",
-    completed: "مكتمل",
-    failed: "فشل",
-  },
-  hi: {
-    running: "चल रहा है",
-    pending: "प्रतीक्षा",
-    completed: "पूर्ण",
-    failed: "विफल",
-  },
-  zh: {
-    running: "运行中",
-    pending: "等待中",
-    completed: "已完成",
-    failed: "失败",
-  },
-};
+const statusLabels: Record<string, Record<string, string>> = Object.fromEntries(
+  Object.entries({
+    bn: [
+      "চলছে",
+      "অপেক্ষায়",
+      "সারিতে",
+      "সম্পন্ন",
+      "ব্যর্থ",
+      "বিরত",
+      "বাতিল",
+      "অনুমোদনের অপেক্ষায়",
+      "খসড়া",
+    ],
+    ru: [
+      "Выполняется",
+      "Ожидание",
+      "В очереди",
+      "Завершено",
+      "Ошибка",
+      "Приостановлено",
+      "Отменено",
+      "Ожидает одобрения",
+      "Черновик",
+    ],
+    ar: [
+      "قيد التنفيذ",
+      "انتظار",
+      "في قائمة الانتظار",
+      "مكتمل",
+      "فشل",
+      "متوقف مؤقتًا",
+      "ملغى",
+      "بانتظار الموافقة",
+      "مسودة",
+    ],
+    hi: [
+      "चल रहा है",
+      "प्रतीक्षा",
+      "कतार में",
+      "पूर्ण",
+      "विफल",
+      "विराम",
+      "रद्द",
+      "अनुमोदन की प्रतीक्षा",
+      "मसौदा",
+    ],
+    zh: [
+      "运行中",
+      "等待中",
+      "排队中",
+      "已完成",
+      "失败",
+      "已暂停",
+      "已取消",
+      "等待批准",
+      "草稿",
+    ],
+    es: [
+      "En curso",
+      "Pendiente",
+      "En cola",
+      "Completado",
+      "Fallido",
+      "Pausado",
+      "Cancelado",
+      "Esperando aprobación",
+      "Borrador",
+    ],
+    fr: [
+      "En cours",
+      "En attente",
+      "En file",
+      "Terminé",
+      "Échec",
+      "En pause",
+      "Annulé",
+      "En attente d’approbation",
+      "Brouillon",
+    ],
+    de: [
+      "Läuft",
+      "Ausstehend",
+      "In Warteschlange",
+      "Abgeschlossen",
+      "Fehlgeschlagen",
+      "Pausiert",
+      "Abgebrochen",
+      "Wartet auf Freigabe",
+      "Entwurf",
+    ],
+  }).map(([code, values]) => [
+    code,
+    Object.fromEntries(
+      [
+        "running",
+        "pending",
+        "queued",
+        "completed",
+        "failed",
+        "paused",
+        "cancelled",
+        "awaiting_approval",
+        "draft",
+      ].map((key, i) => [key, values[i]]),
+    ),
+  ]),
+);
+
 function Data({ value }: { value: unknown }) {
   return (
     <pre className="rs-data" dir="auto">
@@ -400,11 +474,16 @@ export default function ResearchStudio() {
   const artifacts: Row[] = data?.artifacts || [];
   const done = tasks.filter((t) => t.status === "completed").length;
   const latest = (kind: string) => findings.find((f) => f.kind === kind)?.data;
-  const lang = String(
-    data?.run?.plan?.language || p?.settings?.progress_language || "",
+  const lang = effectiveLanguage(
+    p?.settings?.progress_language,
+    data?.run?.plan?.language,
+  );
+  const manuscriptLanguage = effectiveLanguage(
+    p?.settings?.output_language,
+    data?.run?.plan?.output_language,
   );
   const label = (status: string) =>
-    statusLabels[lang.toLowerCase().slice(0, 2)]?.[status] || status;
+    statusLabels[languageCode(lang)]?.[status] || status;
   const fileInput = (kind: string, accept: string) => (
     <label className="rs-file">
       Upload {kind}
@@ -649,13 +728,10 @@ export default function ResearchStudio() {
               <span className="rs-eyebrow">{view}</span>
               <h1 dir="auto">{p.title}</h1>
               <p>
-                Progress language:{" "}
-                {data.run?.plan?.language || p.settings.progress_language} ·
-                Manuscript:{" "}
-                {data.run?.plan?.output_language || p.settings.output_language}{" "}
-                · Role: {p.role}
+                Progress language: {lang} · Manuscript: {manuscriptLanguage} ·
+                Role: {p.role}
               </p>
-              <span className="rs-status">{p.status}</span>
+              <span className="rs-status">{label(p.status)}</span>
               <div className="rs-progress-row">
                 <div>
                   <strong>
@@ -846,7 +922,9 @@ export default function ResearchStudio() {
                         {e.type} · {e.data.provider || e.data.domain}
                       </strong>
                       <p dir="auto">
-                        {e.data.query || e.data.title || e.data.status}
+                        {e.data.query ||
+                          e.data.title ||
+                          label(e.data.status || "")}
                       </p>
                       {e.data.url && (
                         <SourceLink url={e.data.url}>{e.data.url}</SourceLink>
@@ -1904,7 +1982,7 @@ export default function ResearchStudio() {
                       e.data.agent ||
                       e.data.stage ||
                       e.data.error_code ||
-                      e.data.status}
+                      label(e.data.status || "")}
                   </p>
                   <time>{new Date(e.created_at).toLocaleTimeString()}</time>
                 </article>

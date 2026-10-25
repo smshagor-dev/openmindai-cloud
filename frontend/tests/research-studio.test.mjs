@@ -75,3 +75,14 @@ test("numeric citations retain manuscript order and BibTeX imports preserve DOI"
   );
   assert.equal(parsed[0].DOI, "10.1234/fixture");
 });
+
+import {
+  effectiveLanguage,
+  languageCode,
+} from "../src/lib/research-language.ts";
+test("explicit progress/manuscript choices take priority over detected prompt language", () => {
+  assert.equal(effectiveLanguage("العربية", "bn"), "العربية");
+  assert.equal(effectiveLanguage("Deutsch", "en"), "Deutsch");
+  assert.equal(languageCode(effectiveLanguage("বাংলা", "en")), "bn");
+  assert.equal(languageCode(effectiveLanguage("auto", "ru-RU")), "ru");
+});

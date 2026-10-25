@@ -216,6 +216,19 @@ class ResearchStudioTest extends TestCase
         $this->postJson("/api/v1/research/projects/$p->id/uploads", ['kind' => 'pdf', 'name' => 'bad.pdf', 'data' => base64_encode('not pdf'), 'authorized' => true])->assertUnprocessable();
     }
 
+    public function test_explicit_languages_survive_conflicting_model_detection(): void
+    {
+        Queue::fake();
+        $this->modelFixtures();
+        $p = $this->project();
+        $this->putJson("/api/v1/research/projects/$p->id/settings", ['progress_language' => 'العربية', 'output_language' => 'Deutsch'])->assertOk();
+        $run = app(Orchestrator::class)->start($p->fresh(), $p->owner_id);
+        $task = Task::where('run_id', $run->id)->where('agent', 'planning')->firstOrFail();
+        (new ExecuteTask($task->id))->handle();
+        $this->assertSame('العربية', $run->fresh()->plan['language']);
+        $this->assertSame('Deutsch', $run->fresh()->plan['output_language']);
+    }
+
     public function test_experiment_approval_is_exact_and_cancelled_results_cannot_promote_state(): void
     {
         Queue::fake();
