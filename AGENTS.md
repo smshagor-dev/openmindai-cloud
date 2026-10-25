@@ -14,6 +14,10 @@ The user explicitly authorized GitHub working-branch checkpoints on 2026-10-25 a
 - Never commit secrets, `.env` files, credentials, user uploads or server-specific private files. Do not reset the database or delete user data.
 - Tests performed with fixtures or mocked providers are not real-provider verification. Skips and external blockers must remain explicit.
 
+## Authorized deployment state
+
+On 2026-10-25, after the missing isolated worker was explained, the user explicitly instructed deployment to proceed. This authorizes deploying the available Research Studio web application, APIs and bounded research queue consumers with processing-dependent operations still gated by the missing private worker. It does not certify those operations or authorize an unsafe execution fallback. Release `ca6497c60c63917a5f8f5cdc102904f930e56dbc` was deployed from `feature/research-studio` to the existing cPanel backend and existing chat frontend. Preserve that deployment and consult the latest status record before repeating maintenance. A completion PR/merge still requires the remaining acceptance checks; do not describe this limited deployment as full production acceptance.
+
 ## Research Studio objective
 
 Integrate the multilingual autonomous research platform into the existing Laravel/Sanctum backend and Next.js Cloud frontend. Reuse the existing AI gateway and project authentication. Follow the user's full twelve-agent requirements, evidence/integrity gates, isolated experiment execution, persistent queues, activity events, academic editor, citations, collaboration and export requirements. Do not represent partial implementation as production-ready.

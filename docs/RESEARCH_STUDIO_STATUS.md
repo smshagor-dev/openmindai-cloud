@@ -8,7 +8,7 @@ Updated: 2026-10-25 (Europe/Moscow).
 - Base: `main` at `6a42d5b55e35f93e792f5abad629c9aa66e3dee3`.
 - This checkpoint establishes remote-backed work instructions and a truthful continuation record.
 - The earlier local-only attempt was unavailable. The application is being rebuilt on this remote-backed branch; historical test counts do not verify the rebuilt code.
-- No Research Studio PR, merge or deployment has occurred.
+- Web/API/queue release `ca6497c60c63917a5f8f5cdc102904f930e56dbc` is deployed on the existing cPanel backend and chat frontend, following the user's explicit instruction after the isolated-worker limitation was explained. See the latest deployment record below. No completion PR or merge has occurred; full processing/workflow acceptance remains pending.
 
 ## Verified repository baseline
 
@@ -41,7 +41,7 @@ No new application test suite was run for this documentation-only checkpoint. Li
 
 ## Checkpoint 1 — persistence and execution foundation
 
-Added 19 research tables; scoped models/access; immutable manuscript revisions; source-linked evidence; hash-bound integrity gates; fifteen independently executable components (planner, twelve specialists, Q&A and selection editing); existing-gateway JSON inference; Crossref/OpenAlex discovery; protected licensed PDF retrieval; scoped lexical/optional real embedding retrieval; dependency orchestration, three-task concurrency, claim/generation fences, bounded retries, pause/resume/cancel and lease recovery. PHP syntax checks passed on new models/services/jobs. Application APIs, UI and worker wiring are still in progress. No live provider or Docker verification is claimed.
+Added 18 research tables; scoped models/access; immutable manuscript revisions; source-linked evidence; hash-bound integrity gates; fifteen independently executable components (planner, twelve specialists, Q&A and selection editing); existing-gateway JSON inference; Crossref/OpenAlex discovery; protected licensed PDF retrieval; scoped lexical/optional real embedding retrieval; dependency orchestration, three-task concurrency, claim/generation fences, bounded retries, pause/resume/cancel and lease recovery. PHP syntax checks passed on new models/services/jobs. Application APIs, UI and worker wiring are still in progress. No live provider or Docker verification is claimed.
 
 ## Checkpoint 2 — authenticated APIs and processing jobs
 
@@ -129,3 +129,43 @@ Confirmed PHP 8.2.35 with PCNTL/POSIX/PDO MySQL, GNU flock 2.32.1, timeout 8.30,
 No Docker/Podman/bubblewrap/firejail/unshare executable is available on the account PATH. A harmless one-time user-namespace creation attempt returned `-1` / errno 28. The Landlock ABI query returned `-1` / errno 38 on the account's 4.18 LVE kernel. These account-level results provide no usable isolation path for the implemented processing worker. Pandoc, XeLaTeX and pdftotext are also absent from PATH. Python alone is not a safe substitute for the document/experiment sandbox.
 
 Added `docs/RESEARCH_CPANEL_ACCEPTANCE.md` with the exact observations, a prepared but unsent same-server hosting-support request and the remaining release/acceptance sequence. This does not require selecting another hosting vendor. The hosting administrator must provision the private isolated runtime on this server before its full workflow can be verified. No privileged daemon, namespace setting, public endpoint, worker credential, feature migration, cron consumer, PR, merge or production Research Studio activation was created. Existing production data/server files remain preserved. This documentation checkpoint changes no application/runtime behavior; application test suites were not rerun for it. `git diff --check` is the applicable local check.
+
+## User-authorized web/API/queue deployment — 2026-10-25
+
+After the processing limitation was explained, the user explicitly said to deploy. Deployed the available Studio components while keeping private processing unavailable and visibly marked setup required. This instruction overrides the earlier restriction on deploying before complete processing acceptance; it does not authorize removing security controls or claiming full completion.
+
+Release: `ca6497c60c63917a5f8f5cdc102904f930e56dbc`, branch `feature/research-studio`. All checks on this exact commit passed before release: Research Studio workflow `40220707077` and Backend/frontend validation `40220706226`, including PHP 8.2/8.3, frontend/runtime contract, MySQL, browser and real Docker worker jobs. The exact application delta from the previously passing implementation was documentation only. No completion PR or merge was opened.
+
+### Backend and preservation
+
+Created a private backup outside the webroot containing the original Git state/local patch, existing crontab, six configuration/server/seeder files and a transaction-consistent compressed database dump. The dump was 163771 bytes and passed `gzip -t`; its checksum and completion manifest are retained privately. Credentials/configuration values were never printed, copied to GitHub or downloaded. The dump has not been restored into a second database; gzip validation is not a restore test.
+
+Fetched and verified the exact release, confirmed no upstream change to the locally modified seeder or Composer manifests, then switched the production checkout to track the feature branch without stashing, resetting or overwriting local changes. Ran safe feature-branch pull, `composer install --no-dev --optimize-autoloader --no-interaction`, `php artisan migrate --force`, the requested `NemotronUltra550BSeeder --force`, `optimize:clear` and `optimize` successfully. Maintenance mode was brief and the application was returned to live. All six preserved-file hashes matched afterward; existing upload storage and server-specific files remain intact.
+
+The research migration is recorded as run in batch 14. Production inspection confirms **18 research tables**. Earlier documentation said 19; the actual migration creates 18, and that count has been corrected. No existing table was reset and no user data was deleted.
+
+Installed three once-per-minute bounded `cpanel-queue.sh` lanes with the verified CLI binary. The existing six cron entries and existing scheduler were preserved exactly; no duplicate scheduler or unrelated consumer was added. Executed the actual research consumer successfully. Subsequent real UI-created research work was consumed automatically by these scheduled workers. Final queue inspection: zero queued research jobs and zero failed research queue jobs.
+
+### Frontend and live verification
+
+Updated the existing `openmind-ai` Vercel project, not a new hosting destination. Production deployment `dpl_D9gqQ7tKr1Dv3jiJsVCd9NmRzpMD` reached READY for the exact release SHA, with no alias error, and serves the existing `chat.openmindai.org` domain. The previous ready production deployment remains available for code rollback; no protection setting, domain or private environment value was changed.
+
+Actual authenticated browser-to-frontend-to-Laravel checks passed:
+
+- Opened `/research-studio` and created a clearly labelled, private deployment-verification project.
+- Submitted Bengali instructions with explicit Bengali progress and English manuscript settings. Actual Ultra-backed planning preserved both language selections and the no-experiment constraint.
+- Observed actual queue-derived progress, Crossref/OpenAlex discovery, public source URLs and timestamped browsing/DOI-verification events through the live UI. The workflow reached 60 persisted sources and its configured source bound truthfully emitted limit events.
+- Canonical verification accepted 27 sources, flagged 8 metadata mismatches and left 25 unverified when the test was stopped. These counts are distinct from evidence approval or complete literature verification.
+- Literature processing created 12 exact-source evidence rows. They remain unreviewed; no evidence gate or manuscript approval was fabricated.
+- Edited a real rich-text heading and bilingual paragraph, saved version 3, reloaded and confirmed both content and formatting persisted.
+- Paused, reloaded, resumed and then cancelled the bounded deployment check. Final task states are 9 completed and 14 cancelled; all test sources, manuscript content and audit history remain available. The test project was retained rather than deleted. This is a stopped smoke workflow, not a completed research-to-export acceptance run.
+
+Fresh post-deployment `models:audit --live --model=openmindai-ultra --timeout=120` returned success/HTTP 200 with configured runtime and no missing settings. The existing verified model state was preserved. Research reasoning uses its verified fallback record. Readiness correctly reports reasoning ready and private processing setup required. The preflight nonzero exit for the missing worker is expected and was not hidden.
+
+HTTP checks: backend admin login 200; unauthenticated research projects 401 as required; deployed Studio page 200. The actual authenticated creation/edit/control flow above additionally verifies private frontend API routing. No new Laravel error headings appeared in the inspected recent log window after backup/deployment; latest observed historical error remains 2026-10-24 23:52:23. The live queue has no failed jobs. Previous JSON/SSE gateway smoke results remain recorded above; this release did not change the underlying gateway implementation.
+
+### Remaining acceptance
+
+Private PDF extraction, isolated Python experiments and all five final export conversions remain **unavailable on this production host** until its isolated processing broker is provisioned. No unsafe native execution fallback, fake export, fabricated experiment, production worker secret or new public processing endpoint was introduced. Full research-to-export acceptance, actual processing supervision/crash recovery, optional live embeddings and live mobile responsive verification remain open. CI desktop/mobile and actual Docker tests passed in their provisioned environments; they do not establish those missing production integrations. No complete-production-readiness or completion-PR claim is made.
+
+This deployment record and table-count correction change documentation only. `git diff --check` passed; application suites were not repeated for this audit-only delta.

@@ -2,6 +2,8 @@
 
 Verified on 2026-10-25 through the authenticated cPanel Terminal. This records the actual account's capabilities; it is not a claim about every cPanel installation or a completed Research Studio deployment.
 
+After this inspection, the user explicitly instructed deployment to proceed. The web/API/queue release `ca6497c60c63917a5f8f5cdc102904f930e56dbc` is now deployed on the existing backend and chat frontend, with processing-dependent operations still showing setup required. The observations below describe the pre-deployment capability inspection; the latest deployment results are in `RESEARCH_STUDIO_STATUS.md`. No completion PR/merge or full processing acceptance is implied.
+
 ## Observed capabilities
 
 | Check | Actual result | Deployment implication |

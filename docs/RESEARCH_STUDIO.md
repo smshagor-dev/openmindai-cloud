@@ -1,6 +1,6 @@
 # OpenMind AI Research Studio
 
-Implementation branch: `feature/research-studio`. Working implementation; live provider, hosting and final acceptance are not yet certified. See `RESEARCH_STUDIO_STATUS.md` for actual checkpoint results. No production secrets or uploads belong in this repository.
+Implementation branch: `feature/research-studio`. The web application, APIs and research queue were deployed on 2026-10-25 at the user's explicit request. Live planning, discovery and editor persistence have passed smoke checks. Isolated processing, exports and full workflow acceptance remain pending on this hosting. See `RESEARCH_STUDIO_STATUS.md` for actual results. No production secrets or uploads belong in this repository.
 
 ## Architecture
 
@@ -34,7 +34,7 @@ Each component has its own execution class, input/output validation, declared to
 
 ## Persistence
 
-Migration `2026_10_25_000001_create_research_studio.php` adds 19 tables:
+Migration `2026_10_25_000001_create_research_studio.php` adds 18 tables:
 
 - `research_projects`, `research_members`, `research_runs`
 - `research_agent_definitions`, `research_tasks`, `research_dependencies`, `research_events`
