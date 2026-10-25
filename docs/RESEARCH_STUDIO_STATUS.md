@@ -42,3 +42,7 @@ No new application test suite was run for this documentation-only checkpoint. Li
 ## Checkpoint 1 — persistence and execution foundation
 
 Added 19 research tables; scoped models/access; immutable manuscript revisions; source-linked evidence; hash-bound integrity gates; fifteen independently executable components (planner, twelve specialists, Q&A and selection editing); existing-gateway JSON inference; Crossref/OpenAlex discovery; protected licensed PDF retrieval; scoped lexical/optional real embedding retrieval; dependency orchestration, three-task concurrency, claim/generation fences, bounded retries, pause/resume/cancel and lease recovery. PHP syntax checks passed on new models/services/jobs. Application APIs, UI and worker wiring are still in progress. No live provider or Docker verification is claimed.
+
+## Checkpoint 2 — authenticated APIs and processing jobs
+
+Added 25 authenticated/scoped research routes; project creation/settings; short SSE activity delivery; versioned document saves/revisions; reference import; authorized private PDF/CSV/figure uploads; queued PDF extraction with replacement checks; evidence review; accepted invitations/roles; hash-bound approvals; explicit experiment authorization; frozen export snapshots; private checksum-verified downloads. New jobs require a configured private worker and do not execute uploaded/generated code in PHP. Route registration and PHP syntax checks passed; baseline/full integration tests are running. Frontend and private worker implementation are not complete at this checkpoint.

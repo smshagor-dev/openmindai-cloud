@@ -207,3 +207,6 @@ Schedule::call(function () {
             }
         });
 })->hourly();
+
+Artisan::command('research:recover', function(){ app(\App\Services\Research\Orchestrator::class)->recover(); $this->info('Research leases checked.'); });
+Schedule::command('research:recover')->everyMinute()->withoutOverlapping();
