@@ -53,7 +53,25 @@ class Context
 
     public function findings(): array
     {
-        return Finding::where('project_id', $this->task->project_id)->orderByDesc('id')->limit(50)->get(['kind', 'data'])->toArray();
+        $compact = function ($value, int $depth = 0) use (&$compact) {
+            if (is_string($value)) {
+                return mb_substr($value, 0, 1200);
+            }
+            if (! is_array($value)) {
+                return $value;
+            }
+            if ($depth > 5) {
+                return '[Nested context omitted; retrieve project sources for details.]';
+            }
+            $out = [];
+            foreach (array_slice($value, 0, 8, true) as $key => $v) {
+                $out[$key] = $compact($v, $depth + 1);
+            }
+
+return $out;
+        };
+
+        return Finding::where('project_id', $this->task->project_id)->latest('id')->limit(30)->get()->map(fn ($f) => ['finding_id' => $f->id, 'kind' => $f->kind, 'data' => $compact($f->data), 'context_excerpt' => true])->all();
     }
 
     public function assertSources(array $ids): void

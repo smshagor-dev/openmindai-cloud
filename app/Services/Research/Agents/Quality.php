@@ -15,8 +15,7 @@ class Quality extends BaseAgent
 
     public function execute(Context $ctx): array
     {
-        $hash = app(Documents::class)->hash($ctx->task->project_id);
-        $doc = Document::where('project_id', $ctx->task->project_id)->firstOrFail()->content;
+        [$hash,$doc] = $ctx->fenced(fn () => [app(Documents::class)->hash($ctx->task->project_id), Document::where('project_id', $ctx->task->project_id)->firstOrFail()->content]);
         $text = json_encode($doc, JSON_UNESCAPED_UNICODE);
         $overlaps = [];
         preg_match_all('/[\pL\pN]+/u', mb_strtolower($text), $words);
@@ -35,11 +34,26 @@ class Quality extends BaseAgent
             }
         }
         $o = $this->ask($ctx, 'Review this ACTUAL saved manuscript for coherent sections, methods, citation coverage, unsupported factual/novelty/experimental claims, limitations, disclosure and supplied layout settings. A missing/empty manuscript must fail. Return passed boolean, issues[{severity:info|warning|error,message,agent}], disclosure. Do not certify global plagiarism freedom.', ['project' => $this->project($ctx), 'document' => $doc, 'evidence' => Evidence::where('project_id', $ctx->task->project_id)->get()->toArray()]);
-        if (empty($doc['content'])) {
+        if (! $this->hasText($doc)) {
             $o['passed'] = false;
         }$o['content_hash'] = $hash;
         $o['similarity'] = ['scope' => 'project_sources_only', 'overlaps' => $overlaps, 'global_check' => 'not_available'];
 
         return $o;
+    }
+
+    private function hasText(array $doc): bool
+    {
+        $text = '';
+        $walk = function ($n) use (&$walk, &$text) {
+            if (($n['type'] ?? '') === 'text') {
+                $text .= $n['text'] ?? '';
+            }foreach ($n['content'] ?? [] as $c) {
+                $walk($c);
+            }
+        };
+        $walk($doc);
+
+        return mb_strlen(trim($text)) >= 80;
     }
 }

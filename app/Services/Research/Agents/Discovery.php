@@ -40,6 +40,6 @@ class Discovery extends BaseAgent
             }
         }
 
-return ['source_ids' => $ids];
+        return ['source_ids' => $ids];
     }
 }

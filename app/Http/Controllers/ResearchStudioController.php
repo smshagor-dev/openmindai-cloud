@@ -70,7 +70,10 @@ class ResearchStudioController
         $d = $r->validate(['progress_language' => 'sometimes|string|max:40', 'output_language' => 'sometimes|string|max:40', 'from_year' => 'sometimes|integer|min:1900|max:2100', 'to_year' => 'sometimes|integer|min:1900|max:2100', 'citation_style' => 'sometimes|in:apa,ieee,acm,vancouver,chicago,harvard', 'journal' => 'sometimes|in:generic,ieee,acm,springer,elsevier,custom', 'font_size' => 'sometimes|integer|min:9|max:14', 'margin_mm' => 'sometimes|integer|min:15|max:35', 'columns' => 'sometimes|integer|min:1|max:2', 'models' => 'sometimes|array', 'models.*' => 'string|max:60']);
         $s = array_merge($p->settings, $d);
         abort_unless($s['from_year'] <= $s['to_year'], 422, 'Invalid date range.');
-        $p->update(['settings' => $s]);
+        Transactions::run(function () use ($p, $s) {
+            Project::whereKey($p->id)->lockForUpdate()->firstOrFail();
+            $p->update(['settings' => $s]);
+        });
         Events::add($id, 'project.settings', ['status' => 'updated']);
 
         return $p;
@@ -91,7 +94,7 @@ class ResearchStudioController
             Source::where('project_id', $id)->findOrFail($d['input']['source_id']);
         }
 
-return app(Orchestrator::class)->start($p, $r->user()->id, $d['agent'], $d['input'] ?? []);
+        return app(Orchestrator::class)->start($p, $r->user()->id, $d['agent'], $d['input'] ?? []);
     }
 
     public function control(Request $r, int $id)
@@ -112,7 +115,7 @@ return app(Orchestrator::class)->start($p, $r->user()->id, $d['agent'], $d['inpu
             }
         }
 
-return ['status' => 'accepted', 'unconfirmed_experiment_cancellations' => $unconfirmed];
+        return ['status' => 'accepted', 'unconfirmed_experiment_cancellations' => $unconfirmed];
     }
 
     public function events(Request $r, int $id)
@@ -174,11 +177,15 @@ return ['status' => 'accepted', 'unconfirmed_experiment_cancellations' => $uncon
     public function sourceUpdate(Request $r, int $id, int $source)
     {
         $this->access($r, $id, ['owner', 'editor']);
-        $s = Source::where('project_id', $id)->findOrFail($source);
         $d = $r->validate(['title' => 'sometimes|string|max:2000', 'text' => 'sometimes|string|max:2000000', 'doi' => 'sometimes|nullable|string|max:255', 'authors' => 'sometimes|array|max:100', 'year' => 'sometimes|nullable|integer|min:1500|max:2100', 'venue' => 'sometimes|nullable|string|max:1000']);
-        $s->update(array_merge($d, ['verification' => 'unverified', 'verified_at' => null]));
 
-        return $s;
+        return Transactions::run(function () use ($id, $source, $d) {
+            Project::whereKey($id)->lockForUpdate()->firstOrFail();
+            $s = Source::where('project_id', $id)->findOrFail($source);
+            $s->update(array_merge($d, ['verification' => 'unverified', 'verified_at' => null]));
+
+            return $s;
+        });
     }
 
     public function upload(Request $r, int $id)
@@ -199,13 +206,16 @@ return ['status' => 'accepted', 'unconfirmed_experiment_cancellations' => $uncon
         return Transactions::run(function () use ($id, $d, $bytes, $mime, $kind, $ext) {
             Project::whereKey($id)->lockForUpdate()->firstOrFail();
             $this->quota($id, strlen($bytes));
+            if ($kind === 'pdf' && ! isset($d['source_id'])) {
+                abort_if(Source::where('project_id', $id)->count() >= config('research.source_limit') && ! Source::where('project_id', $id)->where('fingerprint', hash('sha256', 'upload:'.hash('sha256', $bytes)))->exists(), 422, 'Source quota reached.');
+            }
             $path = 'research/'.$id.'/'.bin2hex(random_bytes(20)).'.'.$ext;
             Storage::disk('local')->put($path, $bytes);
             $hash = hash('sha256', $bytes);
             $artifact = DB::table('research_artifacts')->insertGetId(['project_id' => $id, 'kind' => $kind, 'name' => basename($d['name']), 'mime' => $kind === 'dataset' ? 'text/csv' : ($kind === 'pdf' ? 'application/pdf' : $mime), 'path' => $path, 'sha256' => $hash, 'bytes' => strlen($bytes), 'created_at' => now(), 'updated_at' => now()]);
             $source = null;
             if ($kind === 'pdf') {
-                $source = isset($d['source_id']) ? Source::where('project_id', $id)->findOrFail($d['source_id']) : Source::create(['project_id' => $id, 'fingerprint' => hash('sha256', 'upload:'.$hash), 'title' => $d['name'], 'authors' => [], 'metadata' => []]);
+                $source = isset($d['source_id']) ? Source::where('project_id', $id)->findOrFail($d['source_id']) : Source::firstOrCreate(['project_id' => $id, 'fingerprint' => hash('sha256', 'upload:'.$hash)], ['title' => $d['name'], 'authors' => [], 'metadata' => []]);
                 $source->update(['private_path' => $path, 'text' => '', 'metadata' => array_merge($source->metadata, ['upload_sha256' => $hash, 'parse_status' => 'pending'])]);
                 ParseSource::dispatch($source->id, $path, $hash)->onConnection('database')->onQueue('research')->afterCommit();
             }Events::add($id, 'upload.saved', ['source_id' => $source?->id, 'status' => $kind === 'pdf' ? 'pending' : 'completed']);
@@ -217,14 +227,18 @@ return ['status' => 'accepted', 'unconfirmed_experiment_cancellations' => $uncon
     public function evidence(Request $r, int $id, int $evidence)
     {
         $this->access($r, $id, ['owner', 'editor', 'reviewer']);
-        $e = Evidence::where('project_id', $id)->findOrFail($evidence);
         $d = $r->validate(['status' => 'required|in:supported,unsupported,uncertain']);
-        $s = Source::where('project_id', $id)->findOrFail($e->source_id);
-        abort_unless($d['status'] !== 'supported' || str_contains((string) $s->text, $e->quote), 422, 'Quote is absent from current source text.');
-        $e->update(['status' => $d['status'], 'reviewed_by' => $r->user()->id]);
-        Events::add($id, 'evidence.reviewed', ['source_id' => $s->id, 'status' => $d['status']]);
 
-        return $e;
+        return Transactions::run(function () use ($r, $id, $evidence, $d) {
+            Project::whereKey($id)->lockForUpdate()->firstOrFail();
+            $e = Evidence::where('project_id', $id)->findOrFail($evidence);
+            $s = Source::where('project_id', $id)->findOrFail($e->source_id);
+            abort_unless($d['status'] !== 'supported' || str_contains((string) $s->text, $e->quote), 422, 'Quote is absent from current source text.');
+            $e->update(['status' => $d['status'], 'reviewed_by' => $r->user()->id]);
+            Events::add($id, 'evidence.reviewed', ['source_id' => $s->id, 'status' => $d['status']]);
+
+            return $e;
+        });
     }
 
     public function comment(Request $r, int $id)
@@ -325,6 +339,8 @@ return ['status' => 'accepted', 'unconfirmed_experiment_cancellations' => $uncon
 
         return Transactions::run(function () use ($r, $id, $d, $g) {
             Project::whereKey($id)->lockForUpdate()->firstOrFail();
+            $g = app(IntegrityGates::class)->inspect($id);
+            abort_unless($d['draft'] || $g['passed'], 422, 'Current integrity gates have not passed.');
             abort_if(Export::where('project_id', $id)->count() >= 100, 422, 'Export count limit.');
             $doc = Document::where('project_id', $id)->firstOrFail();
             $p = Project::findOrFail($id);
@@ -360,22 +376,22 @@ return ['status' => 'accepted', 'unconfirmed_experiment_cancellations' => $uncon
         $bytes = Storage::disk('local')->get($e->path);
         abort_unless(hash_equals($e->sha256, hash('sha256', $bytes)), 500, 'Export checksum mismatch.');
 
-        return response($bytes)->header('Content-Type', $mime)->header('Content-Disposition', 'attachment; filename="openmind-research-'.$file.'.'.($e->format === 'tex' ? 'zip' : $e->format).'"')->header('Cache-Control','private, no-store')->header('X-Content-Type-Options','nosniff');
+        return response($bytes)->header('Content-Type', $mime)->header('Content-Disposition', 'attachment; filename="openmind-research-'.$file.'.'.($e->format === 'tex' ? 'zip' : $e->format).'"')->header('Cache-Control', 'private, no-store')->header('X-Content-Type-Options', 'nosniff');
     }
 
-    public function artifact(Request $r,int $id,int $file)
+    public function artifact(Request $r, int $id, int $file)
     {
-        $this->access($r,$id);
-        $a = DB::table('research_artifacts')->where('project_id',$id)->where('id',$file)->firstOrFail();
+        $this->access($r, $id);
+        $a = DB::table('research_artifacts')->where('project_id', $id)->where('id', $file)->firstOrFail();
         $bytes = Storage::disk('local')->get($a->path);
-        abort_unless(hash_equals($a->sha256,hash('sha256',$bytes)),500,'Artifact checksum mismatch.');
-        $mime = in_array($a->mime,['application/pdf', 'image/png', 'image/jpeg', 'text/csv', 'text/plain'],true) ? $a->mime : 'application/octet-stream';
+        abort_unless(hash_equals($a->sha256, hash('sha256', $bytes)), 500, 'Artifact checksum mismatch.');
+        $mime = in_array($a->mime, ['application/pdf', 'image/png', 'image/jpeg', 'text/csv', 'text/plain'], true) ? $a->mime : 'application/octet-stream';
 
-        return response($bytes)->header('Content-Type',$mime)->header('Content-Disposition','attachment; filename="research-'.$file.'"')->header('Cache-Control','private, no-store')->header('X-Content-Type-Options','nosniff');
+        return response($bytes)->header('Content-Type', $mime)->header('Content-Disposition', 'attachment; filename="research-'.$file.'"')->header('Cache-Control', 'private, no-store')->header('X-Content-Type-Options', 'nosniff');
     }
 
-    private function quota(int $id,int $bytes): void
+    private function quota(int $id, int $bytes): void
     {
-        abort_if(DB::table('research_artifacts')->where('project_id',$id)->sum('bytes') + Export::where('project_id',$id)->sum('bytes') + $bytes > config('research.storage_bytes'),422,'Project storage quota reached.');
+        abort_if(DB::table('research_artifacts')->where('project_id',$id)->sum('bytes') + Export::where('project_id',$id)->sum('bytes') + $bytes > config('research.storage_bytes'), 422, 'Project storage quota reached.');
     }
 }

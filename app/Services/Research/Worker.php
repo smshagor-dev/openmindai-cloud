@@ -30,6 +30,6 @@ class Worker
             $s->close();
         }
 
-return json_decode($text, true, 128, JSON_THROW_ON_ERROR);
+        return json_decode($text, true, 128, JSON_THROW_ON_ERROR);
     }
 }

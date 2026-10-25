@@ -16,7 +16,8 @@ class Documents
     {
         $count = 0;
         $sources = [];
-        $walk = function ($n, $depth = 0) use (&$walk, &$count, &$sources) {
+        $figures = [];
+        $walk = function ($n, $depth = 0) use (&$walk, &$count, &$sources, &$figures) {
             if (++$count > 12000 || $depth > 30 || ! is_array($n)) {
                 throw ValidationException::withMessages(['content' => 'Document limit exceeded.']);
             }
@@ -43,6 +44,9 @@ class Documents
                     }
                 }$out['attrs'] = $a;
             }
+            if ($type === 'figure') {
+                $figures[] = (int) ($out['attrs']['artifactId'] ?? 0);
+            }
             if ($type === 'citation') {
                 $sources[] = (int) ($out['attrs']['sourceId'] ?? 0);
             }
@@ -52,11 +56,13 @@ class Documents
                 }$out['content'] = array_map(fn ($v) => $walk($v, $depth + 1), $n['content']);
             }
 
-return $out;
+            return $out;
         };
         $clean = $walk($doc);
         abort_unless(($clean['type'] ?? '') === 'doc', 422, 'Document root required.');
         abort_unless(Source::where('project_id', $project)->whereIn('id', array_unique($sources))->count() === count(array_unique($sources)), 422, 'Citations must belong to this project.');
+
+        abort_unless(DB::table('research_artifacts')->where('project_id', $project)->where('kind', 'figure')->whereIn('id', array_unique($figures))->count() === count(array_unique($figures)), 422, 'Figures must belong to this project.');
 
         return $clean;
     }
@@ -91,6 +97,6 @@ return $out;
 
     public function hash(int $id): string
     {
-        return hash('sha256', json_encode([Document::where('project_id', $id)->value('content'), Project::findOrFail($id)->settings, Source::where('project_id', $id)->orderBy('id')->get(['id', 'title', 'doi', 'authors', 'year', 'venue', 'verification', 'content_hash', 'metadata'])->toArray(), Evidence::where('project_id', $id)->orderBy('id')->get()->toArray(), Experiment::where('project_id',$id)->orderBy('id')->get()->toArray()], JSON_UNESCAPED_UNICODE));
+        return hash('sha256', json_encode([Document::where('project_id', $id)->value('content'), Project::findOrFail($id)->settings, Source::where('project_id', $id)->orderBy('id')->get(['id', 'title', 'doi', 'authors', 'year', 'venue', 'verification', 'content_hash', 'metadata'])->toArray(), Evidence::where('project_id', $id)->orderBy('id')->get()->toArray(), Experiment::where('project_id', $id)->orderBy('id')->get()->toArray()], JSON_UNESCAPED_UNICODE));
     }
 }

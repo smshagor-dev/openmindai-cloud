@@ -17,10 +17,13 @@ async def protect(request:Request,call_next):
         request._body=bytes(body)
     return await call_next(request)
 @app.get('/health')
-def health():return {'status':'ready','document_processing':'isolated_container','experiments':'isolated_container'}
+def health():return {'status':'configured' if os.environ.get('RESEARCH_PROCESSING_IMAGE') and os.environ.get('RESEARCH_SANDBOX_IMAGE') else 'setup_required','document_processing':'isolated_container','experiments':'isolated_container'}
 @app.post('/{operation}')
 def run(operation:str,payload:dict):
     if operation not in ['extract','export','experiment','cancel']:raise HTTPException(404)
+    if operation=='cancel':
+        try:return cancel(payload.get('execution_id'))
+        except Exception:raise HTTPException(503,'Cancellation is unconfirmed.')
     if not capacity.acquire(blocking=False):raise HTTPException(429,'Worker capacity reached.')
     try:
         if operation in ['extract','export']:return processing(operation,payload)

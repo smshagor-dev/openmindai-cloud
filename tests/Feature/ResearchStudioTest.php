@@ -1,42 +1,267 @@
 <?php
+
 namespace Tests\Feature;
+
+use App\Jobs\Research\ExecuteExperiment;
+use App\Jobs\Research\ExecuteTask;
+use App\Jobs\Research\ExportDocument;
+use App\Jobs\Research\ParseSource;
+use App\Models\Research\Document;
+use App\Models\Research\Evidence;
+use App\Models\Research\Export;
+use App\Models\Research\Finding;
+use App\Models\Research\Project;
+use App\Models\Research\Run;
+use App\Models\Research\Source;
+use App\Models\Research\Task;
 use App\Models\User;
-use App\Models\Research\{Project,Run,Task,Source,Evidence,Finding,Document,Experiment,Export};
-use App\Services\Research\{Access,Context,Documents,Inference,IntegrityGates,Orchestrator,Registry,StaleExecution,Worker};
-use App\Jobs\Research\{ExecuteTask,ParseSource,ExportDocument,ExecuteExperiment};
+use App\Services\Research\Context;
+use App\Services\Research\Documents;
+use App\Services\Research\Inference;
+use App\Services\Research\IntegrityGates;
+use App\Services\Research\Orchestrator;
+use App\Services\Research\StaleExecution;
+use App\Services\Research\Worker;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\{DB,Http,Queue,Storage,Cache};
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
 use Symfony\Component\Process\Process;
 use Tests\TestCase;
-class ResearchStudioTest extends TestCase {
- use RefreshDatabase;
- private function user(string $name='Research'): User {$u=User::create(['name'=>$name,'email'=>uniqid().'@example.com','password'=>'StrongPassword123']);$u->forceFill(['email_verified_at'=>now()])->save();return $u;}
- private function project(?User $user=null,string $prompt='বাংলায় গবেষণা বুঝে English manuscript লিখুন'): Project {Sanctum::actingAs($user??$this->user());$id=$this->postJson('/api/v1/research/projects',['title'=>'Scientific research','prompt'=>$prompt])->assertCreated()->json('id');return Project::findOrFail($id);}
- private function runTasks(Run $r): void {for($i=0;$i<90;$i++){app(Orchestrator::class)->pump($r->id);$tasks=Task::where('run_id',$r->id)->where('status','queued')->get();if($tasks->isEmpty()){if($r->fresh()->status!=='running')break;$this->travel(20)->seconds();continue;}foreach($tasks as $t)(new ExecuteTask($t->id))->handle();$this->travel(20)->seconds();} $this->assertSame('completed',$r->fresh()->status,json_encode(Task::where('run_id',$r->id)->get(['agent','status','error_code'])->toArray()));}
- private function modelFixtures(): void {$this->mock(Inference::class)->shouldReceive('json')->andReturnUsing(function(Context $c,string $instruction,array $data,array $rules){$ids=Source::where('project_id',$c->task->project_id)->pluck('id')->all();$id=$ids[0]??1;return match($c->task->agent){
- 'planning'=>['language'=>str_contains($c->project()->prompt,'বাংলা')?'bn':(str_contains($c->project()->prompt,'исследование')?'ru':'en'),'output_language'=>'en','discipline'=>'Computer science','objectives'=>['Analyze evidence'],'constraints'=>[],'perspectives'=>[['name'=>'Methods','query'=>'scientific methods'],['name'=>'Limitations','query'=>'scientific limitations']],'experimental'=>false],
- 'literature'=>['analyses'=>[['source_id'=>$id,'methods'=>'Controlled fixture method','findings'=>'Synthetic fixture evidence','limitations'=>'Test corpus only']],'evidence'=>[['source_id'=>$data['source']['source_id']??$id,'claim'=>'The fixture describes controlled research.','quote'=>'Scientific methods use traceable evidence.']]],
- 'investigation'=>['questions'=>['What evidence supports the method?'],'hypotheses'=>['The approach may improve traceability.'],'synthesis'=>'Synthetic evidence synthesis.','source_ids'=>$ids,'uncertainties'=>['Mocked fixture only'],'revisit_query'=>null],
- 'gaps'=>['gaps'=>[['question'=>'How does the method generalize?','evidence'=>'Fixture limitations','source_ids'=>$ids]],'limitations'=>['Small fixture corpus']],
- 'editor'=>['paragraphs'=>[['text'=>'Synthetic academic fixture discusses a controlled methodology with traceable evidence. No experiments were executed and no experimental results are reported. AI assistance requires disclosure and human review.','source_ids'=>$ids]]],
- 'quality'=>['passed'=>true,'issues'=>[],'disclosure'=>'Mock reviewer for deterministic workflow tests.'],
- 'question'=>['answer'=>'The supplied source describes traceable evidence.','source_ids'=>$ids,'uncertainty'=>'Fixture scope only'],
- 'selection'=>['suggestion'=>'Reviewed synthetic revision.','explanation'=>'Clarity improved.'],default=>throw new \RuntimeException('Unexpected fixture agent')};});
- $record=['title'=>['Controlled research fixture'],'DOI'=>'10.1234/fixture','author'=>[['given'=>'Test','family'=>'Fixture']],'published'=>['date-parts'=>[[2025]]],'container-title'=>['Fixture Journal'],'URL'=>'https://doi.org/10.1234/fixture','abstract'=>'Scientific methods use traceable evidence.'];
- Http::fake(function($request)use($record){if(str_contains($request->url(),'openalex'))return Http::response(['results'=>[]]);return Http::response(['message'=>str_contains($request->url(),'/works/10.')?$record:['items'=>[$record]]]);});
- }
- public function test_project_is_unicode_scoped_and_developer_tokens_are_forbidden(): void {$owner=$this->user();$p=$this->project($owner);$this->getJson('/api/v1/research/projects/'.$p->id)->assertOk()->assertJsonPath('project.prompt',$p->prompt);Sanctum::actingAs($this->user());$this->getJson('/api/v1/research/projects/'.$p->id)->assertNotFound();Sanctum::actingAs($owner,['openmindai:invoke']);$this->getJson('/api/v1/research/projects')->assertForbidden();}
- public function test_optimistic_document_saves_preserve_history_and_reject_cross_project_citations(): void {$p=$this->project();$doc=['type'=>'doc','content'=>[['type'=>'paragraph','content'=>[['type'=>'text','text'=>'বাংলা academic revision']]]]];$this->putJson("/api/v1/research/projects/$p->id/document",['version'=>1,'content'=>$doc])->assertOk()->assertJsonPath('version',2);$this->putJson("/api/v1/research/projects/$p->id/document",['version'=>1,'content'=>$doc])->assertConflict();$this->assertDatabaseCount('research_revisions',2);$doc['content'][0]['content'][]=['type'=>'citation','attrs'=>['sourceId'=>9999]];$this->putJson("/api/v1/research/projects/$p->id/document",['version'=>2,'content'=>$doc])->assertUnprocessable();}
- public function test_multilingual_workflows_delegate_and_finish_with_reviewable_proposals(): void {Queue::fake();$this->modelFixtures();foreach(['বাংলা গবেষণা English paper','English research with evidence','Научное исследование методов']as $prompt){Cache::flush();$p=$this->project(null,$prompt);$run=app(Orchestrator::class)->start($p,$p->owner_id);$this->runTasks($run);$this->assertGreaterThanOrEqual(17,Task::where('run_id',$run->id)->count());$this->assertDatabaseCount('research_sources',Project::count());$this->assertSame(1,Document::where('project_id',$p->id)->value('version'));$proposal=Finding::where('project_id',$p->id)->where('kind','manuscript')->firstOrFail()->data;$this->assertSame('doc',$proposal['content']['type']);$this->assertGreaterThan(10,count($proposal['content']['content']));$this->assertFalse(app(IntegrityGates::class)->inspect($p->id)['passed']);}}
- public function test_cancellation_generation_fences_old_workers_and_resume_preserves_completed_tasks(): void {Queue::fake();$p=$this->project();$r=app(Orchestrator::class)->start($p,$p->owner_id);app(Orchestrator::class)->pump($r->id);$t=Task::where('run_id',$r->id)->first();$t->update(['status'=>'running','claim'=>'old']);$ctx=new Context($t->fresh(),'old');app(Orchestrator::class)->control($p,'cancel');$this->expectException(StaleExecution::class);$ctx->fenced(fn()=>throw new \RuntimeException('must never execute'));}
- public function test_resume_recovery_and_graph_dependencies(): void {Queue::fake();$p=$this->project();$r=app(Orchestrator::class)->start($p,$p->owner_id);app(Orchestrator::class)->pump($r->id);$t=Task::where('run_id',$r->id)->first();$t->update(['status'=>'running','claim'=>'stale','lease_until'=>now()->subMinute()]);app(Orchestrator::class)->recover();$this->assertNull($t->fresh()->claim);$this->assertSame(1,$t->fresh()->errors);app(Orchestrator::class)->control($p,'pause');app(Orchestrator::class)->control($p,'resume');$this->assertSame('running',$r->fresh()->status);$this->assertGreaterThan(0,$r->fresh()->generation);}
- public function test_imports_deduplicate_and_activity_is_actual_cursor_scoped_sse(): void {$p=$this->project();$record=['title'=>'Test paper','DOI'=>'10.1234/paper','author'=>[['family'=>'Author']],'issued'=>['date-parts'=>[[2025]]]];foreach([1,2]as $i)$this->postJson("/api/v1/research/projects/$p->id/sources",['records'=>[$record]])->assertOk();$this->assertDatabaseCount('research_sources',1);$response=$this->get("/api/v1/research/projects/$p->id/events?after=0",['Accept'=>'application/json'])->assertOk();$stream=$response->streamedContent();$this->assertStringContainsString('sources.imported',$stream);$this->assertStringNotContainsString('NVIDIA_API_KEY',$stream);$this->assertStringContainsString('event: activity',$stream);}
- public function test_collaboration_requires_acceptance_and_roles_are_enforced(): void {$owner=$this->user();$member=$this->user('Reviewer');$p=$this->project($owner);$this->postJson("/api/v1/research/projects/$p->id/members",['email'=>$member->email,'role'=>'reviewer','authorized'=>true])->assertOk();$invite=DB::table('research_members')->first();Sanctum::actingAs($member);$this->getJson("/api/v1/research/projects/$p->id")->assertNotFound();$this->postJson("/api/v1/research/invitations/$invite->id/accept")->assertOk();$this->getJson("/api/v1/research/projects/$p->id")->assertOk();$this->putJson("/api/v1/research/projects/$p->id/document",['version'=>1,'content'=>['type'=>'doc']])->assertNotFound();$this->postJson("/api/v1/research/projects/$p->id/comments",['body'=>'Review recorded.'])->assertOk();}
- public function test_pdf_jobs_do_not_overwrite_replaced_uploads_and_private_files_are_scoped(): void {Queue::fake();Storage::fake('local');$p=$this->project();$s=Source::create(['project_id'=>$p->id,'fingerprint'=>str_repeat('a',64),'title'=>'PDF fixture','authors'=>[],'private_path'=>'research/new.pdf','metadata'=>['upload_sha256'=>'new']]);$this->mock(Worker::class)->shouldNotReceive('call');(new ParseSource($s->id,'research/old.pdf','old'))->handle();$this->assertNull($s->fresh()->text);$this->postJson("/api/v1/research/projects/$p->id/uploads",['kind'=>'pdf','name'=>'bad.pdf','data'=>base64_encode('not pdf'),'authorized'=>true])->assertUnprocessable();}
- public function test_experiment_approval_is_exact_and_cancelled_results_cannot_promote_state(): void {Queue::fake();$p=$this->project();$x=$this->postJson("/api/v1/research/projects/$p->id/experiments",['title'=>'Test','code'=>'print(1)','seed'=>42,'dataset_ids'=>[]])->assertCreated()->json();$this->postJson("/api/v1/research/projects/$p->id/experiments/{$x['id']}/execute",['hash'=>str_repeat('0',64),'authorized'=>true])->assertConflict();$this->postJson("/api/v1/research/projects/$p->id/experiments/{$x['id']}/execute",['hash'=>$x['code_hash'],'authorized'=>true])->assertOk();Queue::assertPushed(ExecuteExperiment::class);$this->assertDatabaseHas('research_approvals',['gate'=>'experiment:'.$x['id'],'content_hash'=>$x['code_hash']]);}
- public function test_real_markdown_converter_export_after_current_review_and_human_approval(): void {Queue::fake();Storage::fake('local');$this->modelFixtures();$p=$this->project();$r=app(Orchestrator::class)->start($p,$p->owner_id);$this->runTasks($r);$proposal=Finding::where('project_id',$p->id)->where('kind','manuscript')->firstOrFail()->data;$this->putJson("/api/v1/research/projects/$p->id/document",['version'=>1,'content'=>$proposal['content']])->assertOk();foreach(Evidence::where('project_id',$p->id)->get()as $e)$this->putJson("/api/v1/research/projects/$p->id/evidence/$e->id",['status'=>'supported'])->assertOk();$quality=app(Orchestrator::class)->start($p,$p->owner_id,'quality');$this->runTasks($quality);$hash=app(Documents::class)->hash($p->id);$this->postJson("/api/v1/research/projects/$p->id/approvals",['gate'=>'manuscript','hash'=>$hash,'override'=>false,'reason'=>'Reviewed current manuscript and evidence.'])->assertOk();$this->assertTrue(app(IntegrityGates::class)->inspect($p->id)['passed']);
- $this->mock(Worker::class)->shouldReceive('call')->with('export',\Mockery::type('array'))->andReturnUsing(function($operation,$payload){$process=new Process(['python3','-c','import sys,json;from runtime.research.exports import export;print(json.dumps(export(json.load(sys.stdin))))']);$process->setInput(json_encode($payload));$process->mustRun();return json_decode($process->getOutput(),true,512,JSON_THROW_ON_ERROR);});$out=$this->postJson("/api/v1/research/projects/$p->id/exports",['format'=>'md','draft'=>false])->assertCreated()->json();(new ExportDocument($out['id']))->handle();$this->assertSame('completed',Export::find($out['id'])->status);$this->get("/api/v1/research/projects/$p->id/exports/{$out['id']}/download")->assertOk()->assertSee('Synthetic academic fixture');
- $doc=Document::where('project_id',$p->id)->first();app(Documents::class)->save($p,$p->owner_id,['type'=>'doc','content'=>[['type'=>'paragraph','content'=>[['type'=>'text','text'=>'Changed research conclusion']]]]],$doc->version);$this->assertFalse(app(IntegrityGates::class)->inspect($p->id)['passed']);}
- public function test_unverified_models_cannot_be_used_or_silently_enabled(): void {Queue::fake();$p=$this->project();$r=app(Orchestrator::class)->start($p,$p->owner_id);$t=Task::where('run_id',$r->id)->first();$t->update(['status'=>'running','claim'=>'test']);Http::fake();$this->expectException(\RuntimeException::class);app(Inference::class)->json(new Context($t->fresh(),'test'),'Test',[],['answer'=>'required|string']);}
+
+class ResearchStudioTest extends TestCase
+{
+    use RefreshDatabase;
+
+    private function user(string $name = 'Research'): User
+    {
+        $u = User::create(['name' => $name, 'email' => uniqid().'@example.com', 'password' => 'StrongPassword123']);
+        $u->forceFill(['email_verified_at' => now()])->save();
+
+        return $u;
+    }
+
+    private function project(?User $user = null, string $prompt = 'বাংলায় গবেষণা বুঝে English manuscript লিখুন'): Project
+    {
+        Sanctum::actingAs($user ?? $this->user());
+        $id = $this->postJson('/api/v1/research/projects', ['title' => 'Scientific research', 'prompt' => $prompt])->assertCreated()->json('id');
+
+        return Project::findOrFail($id);
+    }
+
+    private function runTasks(Run $r): void
+    {
+        for ($i = 0; $i < 90; $i++) {
+            app(Orchestrator::class)->pump($r->id);
+            $tasks = Task::where('run_id', $r->id)->where('status', 'queued')->get();
+            if ($tasks->isEmpty()) {
+                if ($r->fresh()->status !== 'running') {
+                    break;
+                }$this->travel(20)->seconds();
+
+                continue;
+            }foreach ($tasks as $t) {
+                (new ExecuteTask($t->id))->handle();
+            }$this->travel(20)->seconds();
+        } $this->assertSame('completed', $r->fresh()->status, json_encode(Task::where('run_id', $r->id)->get(['agent', 'status', 'error_code'])->toArray()));
+    }
+
+    private function modelFixtures(): void
+    {
+        $this->mock(Inference::class)->shouldReceive('json')->andReturnUsing(function (Context $c, string $instruction, array $data, array $rules) {
+            $ids = Source::where('project_id', $c->task->project_id)->pluck('id')->all();
+            $id = $ids[0] ?? 1;
+
+            return match ($c->task->agent) {
+                'planning' => ['language' => str_contains($c->project()->prompt, 'বাংলা') ? 'bn' : (str_contains($c->project()->prompt, 'исследование') ? 'ru' : 'en'), 'output_language' => 'en', 'discipline' => 'Computer science', 'objectives' => ['Analyze evidence'], 'constraints' => [], 'perspectives' => [['name' => 'Methods', 'query' => 'scientific methods'], ['name' => 'Limitations', 'query' => 'scientific limitations']], 'experimental' => false],
+                'literature' => ['analyses' => [['source_id' => $id, 'methods' => 'Controlled fixture method', 'findings' => 'Synthetic fixture evidence', 'limitations' => 'Test corpus only']], 'evidence' => [['source_id' => $data['source']['source_id'] ?? $id, 'claim' => 'The fixture describes controlled research.', 'quote' => 'Scientific methods use traceable evidence.']]],
+                'investigation' => ['questions' => ['What evidence supports the method?'], 'hypotheses' => ['The approach may improve traceability.'], 'synthesis' => 'Synthetic evidence synthesis.', 'source_ids' => $ids, 'uncertainties' => ['Mocked fixture only'], 'revisit_query' => null],
+                'gaps' => ['gaps' => [['question' => 'How does the method generalize?', 'evidence' => 'Fixture limitations', 'source_ids' => $ids]], 'limitations' => ['Small fixture corpus']],
+                'editor' => ['heading' => $data['section'], 'paragraphs' => [['text' => 'Synthetic academic fixture discusses a controlled methodology with traceable evidence. No experiments were executed and no experimental results are reported. AI assistance requires disclosure and human review.', 'source_ids' => $ids]]],
+                'quality' => ['passed' => true, 'issues' => [], 'disclosure' => 'Mock reviewer for deterministic workflow tests.'],
+                'question' => ['answer' => 'The supplied source describes traceable evidence.', 'source_ids' => $ids, 'uncertainty' => 'Fixture scope only'],
+                'selection' => ['suggestion' => 'Reviewed synthetic revision.', 'explanation' => 'Clarity improved.'],default => throw new \RuntimeException('Unexpected fixture agent')
+            };
+        });
+        $record = ['title' => ['Controlled research fixture'], 'DOI' => '10.1234/fixture', 'author' => [['given' => 'Test', 'family' => 'Fixture']], 'published' => ['date-parts' => [[2025]]], 'container-title' => ['Fixture Journal'], 'URL' => 'https://doi.org/10.1234/fixture', 'abstract' => 'Scientific methods use traceable evidence.'];
+        Http::fake(function ($request) use ($record) {
+            if (str_contains($request->url(), 'openalex')) {
+                return Http::response(['results' => []]);
+            }
+
+return Http::response(['message' => str_contains($request->url(), '/works/10.') ? $record : ['items' => [$record]]]);
+        });
+    }
+
+    public function test_project_is_unicode_scoped_and_developer_tokens_are_forbidden(): void
+    {
+        $owner = $this->user();
+        $p = $this->project($owner);
+        $this->getJson('/api/v1/research/projects/'.$p->id)->assertOk()->assertJsonPath('project.prompt', $p->prompt);
+        Sanctum::actingAs($this->user());
+        $this->getJson('/api/v1/research/projects/'.$p->id)->assertNotFound();
+        Sanctum::actingAs($owner, ['openmindai:invoke']);
+        $this->getJson('/api/v1/research/projects')->assertForbidden();
+    }
+
+    public function test_optimistic_document_saves_preserve_history_and_reject_cross_project_citations(): void
+    {
+        $p = $this->project();
+        $doc = ['type' => 'doc', 'content' => [['type' => 'paragraph', 'content' => [['type' => 'text', 'text' => 'বাংলা academic revision']]]]];
+        $this->putJson("/api/v1/research/projects/$p->id/document", ['version' => 1, 'content' => $doc])->assertOk()->assertJsonPath('version', 2);
+        $this->putJson("/api/v1/research/projects/$p->id/document", ['version' => 1, 'content' => $doc])->assertConflict();
+        $this->assertDatabaseCount('research_revisions', 2);
+        $doc['content'][0]['content'][] = ['type' => 'citation', 'attrs' => ['sourceId' => 9999]];
+        $this->putJson("/api/v1/research/projects/$p->id/document", ['version' => 2, 'content' => $doc])->assertUnprocessable();
+    }
+
+    public function test_multilingual_workflows_delegate_and_finish_with_reviewable_proposals(): void
+    {
+        Queue::fake();
+        $this->modelFixtures();
+        foreach (['বাংলা গবেষণা English paper', 'English research with evidence', 'Научное исследование методов'] as $prompt) {
+            Cache::flush();
+            $p = $this->project(null, $prompt);
+            $run = app(Orchestrator::class)->start($p, $p->owner_id);
+            $this->runTasks($run);
+            $this->assertGreaterThanOrEqual(17, Task::where('run_id', $run->id)->count());
+            $this->assertDatabaseCount('research_sources', Project::count());
+            $this->assertSame(1, Document::where('project_id', $p->id)->value('version'));
+            $proposal = Finding::where('project_id', $p->id)->where('kind', 'manuscript')->firstOrFail()->data;
+            $this->assertSame('doc', $proposal['content']['type']);
+            $this->assertGreaterThan(10, count($proposal['content']['content']));
+            $this->assertFalse(app(IntegrityGates::class)->inspect($p->id)['passed']);
+        }
+    }
+
+    public function test_cancellation_generation_fences_old_workers_and_resume_preserves_completed_tasks(): void
+    {
+        Queue::fake();
+        $p = $this->project();
+        $r = app(Orchestrator::class)->start($p, $p->owner_id);
+        app(Orchestrator::class)->pump($r->id);
+        $t = Task::where('run_id', $r->id)->first();
+        $t->update(['status' => 'running', 'claim' => 'old']);
+        $ctx = new Context($t->fresh(), 'old');
+        app(Orchestrator::class)->control($p, 'cancel');
+        $this->expectException(StaleExecution::class);
+        $ctx->fenced(fn () => throw new \RuntimeException('must never execute'));
+    }
+
+    public function test_resume_recovery_and_graph_dependencies(): void
+    {
+        Queue::fake();
+        $p = $this->project();
+        $r = app(Orchestrator::class)->start($p, $p->owner_id);
+        app(Orchestrator::class)->pump($r->id);
+        $t = Task::where('run_id', $r->id)->first();
+        $t->update(['status' => 'running', 'claim' => 'stale', 'lease_until' => now()->subMinute()]);
+        app(Orchestrator::class)->recover();
+        $this->assertNull($t->fresh()->claim);
+        $this->assertSame(1, $t->fresh()->errors);
+        app(Orchestrator::class)->control($p, 'pause');
+        app(Orchestrator::class)->control($p, 'resume');
+        $this->assertSame('running', $r->fresh()->status);
+        $this->assertGreaterThan(0, $r->fresh()->generation);
+    }
+
+    public function test_imports_deduplicate_and_activity_is_actual_cursor_scoped_sse(): void
+    {
+        $p = $this->project();
+        $record = ['title' => 'Test paper', 'DOI' => '10.1234/paper', 'author' => [['family' => 'Author']], 'issued' => ['date-parts' => [[2025]]]];
+        foreach ([1, 2] as $i) {
+            $this->postJson("/api/v1/research/projects/$p->id/sources", ['records' => [$record]])->assertOk();
+        }$this->assertDatabaseCount('research_sources', 1);
+        $response = $this->get("/api/v1/research/projects/$p->id/events?after=0", ['Accept' => 'application/json'])->assertOk();
+        $stream = $response->streamedContent();
+        $this->assertStringContainsString('sources.imported', $stream);
+        $this->assertStringNotContainsString('NVIDIA_API_KEY', $stream);
+        $this->assertStringContainsString('event: activity', $stream);
+    }
+
+    public function test_collaboration_requires_acceptance_and_roles_are_enforced(): void
+    {
+        $owner = $this->user();
+        $member = $this->user('Reviewer');
+        $p = $this->project($owner);
+        $this->postJson("/api/v1/research/projects/$p->id/members", ['email' => $member->email, 'role' => 'reviewer', 'authorized' => true])->assertOk();
+        $invite = DB::table('research_members')->first();
+        Sanctum::actingAs($member);
+        $this->getJson("/api/v1/research/projects/$p->id")->assertNotFound();
+        $this->postJson("/api/v1/research/invitations/$invite->id/accept")->assertOk();
+        $this->getJson("/api/v1/research/projects/$p->id")->assertOk();
+        $this->putJson("/api/v1/research/projects/$p->id/document", ['version' => 1, 'content' => ['type' => 'doc']])->assertNotFound();
+        $this->postJson("/api/v1/research/projects/$p->id/comments", ['body' => 'Review recorded.'])->assertOk();
+    }
+
+    public function test_pdf_jobs_do_not_overwrite_replaced_uploads_and_private_files_are_scoped(): void
+    {
+        Queue::fake();
+        Storage::fake('local');
+        $p = $this->project();
+        $s = Source::create(['project_id' => $p->id, 'fingerprint' => str_repeat('a', 64), 'title' => 'PDF fixture', 'authors' => [], 'private_path' => 'research/new.pdf', 'metadata' => ['upload_sha256' => 'new']]);
+        $this->mock(Worker::class)->shouldNotReceive('call');
+        (new ParseSource($s->id, 'research/old.pdf', 'old'))->handle();
+        $this->assertNull($s->fresh()->text);
+        $this->postJson("/api/v1/research/projects/$p->id/uploads", ['kind' => 'pdf', 'name' => 'bad.pdf', 'data' => base64_encode('not pdf'), 'authorized' => true])->assertUnprocessable();
+    }
+
+    public function test_experiment_approval_is_exact_and_cancelled_results_cannot_promote_state(): void
+    {
+        Queue::fake();
+        $p = $this->project();
+        $x = $this->postJson("/api/v1/research/projects/$p->id/experiments", ['title' => 'Test', 'code' => 'print(1)', 'seed' => 42, 'dataset_ids' => []])->assertCreated()->json();
+        $this->postJson("/api/v1/research/projects/$p->id/experiments/{$x['id']}/execute", ['hash' => str_repeat('0', 64), 'authorized' => true])->assertConflict();
+        $this->postJson("/api/v1/research/projects/$p->id/experiments/{$x['id']}/execute", ['hash' => $x['code_hash'], 'authorized' => true])->assertOk();
+        Queue::assertPushed(ExecuteExperiment::class);
+        $this->assertDatabaseHas('research_approvals', ['gate' => 'experiment:'.$x['id'], 'content_hash' => $x['code_hash']]);
+    }
+
+    public function test_real_markdown_converter_export_after_current_review_and_human_approval(): void
+    {
+        Queue::fake();
+        Storage::fake('local');
+        $this->modelFixtures();
+        $p = $this->project();
+        $r = app(Orchestrator::class)->start($p, $p->owner_id);
+        $this->runTasks($r);
+        $proposal = Finding::where('project_id', $p->id)->where('kind', 'manuscript')->firstOrFail()->data;
+        $this->putJson("/api/v1/research/projects/$p->id/document", ['version' => 1, 'content' => $proposal['content']])->assertOk();
+        foreach (Evidence::where('project_id', $p->id)->get() as $e) {
+            $this->putJson("/api/v1/research/projects/$p->id/evidence/$e->id", ['status' => 'supported'])->assertOk();
+        }$quality = app(Orchestrator::class)->start($p, $p->owner_id, 'quality');
+        $this->runTasks($quality);
+        $hash = app(Documents::class)->hash($p->id);
+        $this->postJson("/api/v1/research/projects/$p->id/approvals", ['gate' => 'manuscript', 'hash' => $hash, 'override' => false, 'reason' => 'Reviewed current manuscript and evidence.'])->assertOk();
+        $this->assertTrue(app(IntegrityGates::class)->inspect($p->id)['passed']);
+        $this->mock(Worker::class)->shouldReceive('call')->with('export', \Mockery::type('array'))->andReturnUsing(function ($operation, $payload) {
+            $process = new Process(['python3', '-c', 'import sys,json;from runtime.research.exports import export;print(json.dumps(export(json.load(sys.stdin))))']);
+            $process->setInput(json_encode($payload));
+            $process->mustRun();
+
+            return json_decode($process->getOutput(), true, 512, JSON_THROW_ON_ERROR);
+        });
+        $out = $this->postJson("/api/v1/research/projects/$p->id/exports", ['format' => 'md', 'draft' => false])->assertCreated()->json();
+        (new ExportDocument($out['id']))->handle();
+        $this->assertSame('completed', Export::find($out['id'])->status);
+        $this->get("/api/v1/research/projects/$p->id/exports/{$out['id']}/download")->assertOk()->assertSee('Synthetic academic fixture');
+        $doc = Document::where('project_id', $p->id)->first();
+        app(Documents::class)->save($p, $p->owner_id, ['type' => 'doc', 'content' => [['type' => 'paragraph', 'content' => [['type' => 'text', 'text' => 'Changed research conclusion']]]]], $doc->version);
+        $this->assertFalse(app(IntegrityGates::class)->inspect($p->id)['passed']);
+    }
+
+    public function test_unverified_models_cannot_be_used_or_silently_enabled(): void
+    {
+        Queue::fake();
+        $p = $this->project();
+        $r = app(Orchestrator::class)->start($p, $p->owner_id);
+        $t = Task::where('run_id',$r->id)->first();
+        $t->update(['status' => 'running', 'claim' => 'test']);
+        Http::fake();
+        $this->expectException(\RuntimeException::class);
+        app(Inference::class)->json(new Context($t->fresh(),'test'),'Test',[],['answer' => 'required|string']);
+    }
 }

@@ -1,44 +1,557 @@
 "use client";
-import {useEditor,EditorContent} from '@tiptap/react';
-import StarterKit from '@tiptap/starter-kit';
-import {Table,TableRow,TableHeader,TableCell} from '@tiptap/extension-table';
-import {Node,mergeAttributes,JSONContent} from '@tiptap/core';
-import {useEffect,useRef,useState} from 'react';
-import katex from 'katex';
-import 'katex/dist/katex.min.css';
-import {api,Row,citation,bibliography,loadStyle} from '@/lib/research';
-const Citation=Node.create({name:'citation',inline:true,group:'inline',atom:true,addAttributes(){return{sourceId:{default:null}};},parseHTML(){return[{tag:'span[data-citation]'}];},renderHTML({HTMLAttributes}){return ['span',mergeAttributes(HTMLAttributes,{'data-citation':HTMLAttributes.sourceId,class:'rs-citation'}),'[source '+HTMLAttributes.sourceId+']'];}});
-const MathNode=Node.create({name:'math',inline:true,group:'inline',atom:true,addAttributes(){return{latex:{default:''}};},parseHTML(){return[{tag:'span[data-equation]'}];},renderHTML({HTMLAttributes}){return ['span',mergeAttributes(HTMLAttributes,{'data-equation':'true'}),HTMLAttributes.latex];},addNodeView(){return ({node})=>{const dom=document.createElement('span');dom.className='rs-equation';dom.innerHTML=katex.renderToString(node.attrs.latex,{throwOnError:false,trust:false,strict:'warn'});return{dom};};}});
-const Footnote=Node.create({name:'footnote',inline:true,group:'inline',atom:true,addAttributes(){return{text:{default:''}};},parseHTML(){return[{tag:'sup[data-footnote]'}];},renderHTML({HTMLAttributes}){return ['sup',mergeAttributes(HTMLAttributes,{'data-footnote':'true',title:HTMLAttributes.text}),'†'];}});
-const Figure=Node.create({name:'figure',group:'block',atom:true,addAttributes(){return{artifactId:{default:null},caption:{default:''},id:{default:''}};},parseHTML(){return[{tag:'figure[data-artifact]'}];},renderHTML({HTMLAttributes}){return ['figure',mergeAttributes(HTMLAttributes,{'data-artifact':HTMLAttributes.artifactId}),['figcaption',{},HTMLAttributes.caption||'Figure']];}});
-const CrossReference=Node.create({name:'crossReference',inline:true,group:'inline',atom:true,addAttributes(){return{target:{default:''}};},parseHTML(){return[{tag:'span[data-cross-reference]'}];},renderHTML({HTMLAttributes}){return ['span',mergeAttributes(HTMLAttributes,{'data-cross-reference':HTMLAttributes.target}),'§ '+HTMLAttributes.target];}});
-type Props={projectId:number;document:Row;sources:Row[];artifacts:Row[];style:string;readonly:boolean;onSaved:(d:Row)=>void;onDirty:(dirty:boolean)=>void;onSelection:(text:string)=>void;};
-export default function AcademicEditor({projectId,document:doc,sources,artifacts,style,readonly,onSaved,onDirty,onSelection}:Props){
- const [editTick,setEditTick]=useState(0);const [status,setStatus]=useState('Saved');const [dirty,setDirty]=useState(false);const [search,setSearch]=useState('');const [source,setSource]=useState('');const [latex,setLatex]=useState('E=mc^2');const [note,setNote]=useState('');const [caption,setCaption]=useState('');const [figure,setFigure]=useState('');const [target,setTarget]=useState('');const [bib,setBib]=useState('');const [styleReady,setStyleReady]=useState(false);const [outline,setOutline]=useState<Row[]>([]);
- const version=useRef(doc.version);const dirtyRef=useRef(false);const saving=useRef(false);const timer=useRef<ReturnType<typeof setTimeout>|null>(null);const docRef=useRef(doc);docRef.current=doc;
- const handlers=useRef({onSaved,onDirty,onSelection});handlers.current={onSaved,onDirty,onSelection};
- const editor=useEditor({immediatelyRender:false,extensions:[StarterKit,Table.configure({resizable:true}),TableRow,TableCell,TableHeader,Citation,MathNode,Footnote,Figure,CrossReference],content:doc.content as JSONContent,editable:!readonly,editorProps:{attributes:{'aria-label':'Academic manuscript','class':'rs-prose','dir':'auto'}},onUpdate:()=>{dirtyRef.current=true;setDirty(true);setEditTick(n=>n+1);setStatus('Unsaved');handlers.current.onDirty(true);},onSelectionUpdate:({editor})=>{handlers.current.onSelection(editor.state.doc.textBetween(editor.state.selection.from,editor.state.selection.to,' '));}});
- const save=async()=>{if(!editor||!dirtyRef.current||saving.current||readonly)return;saving.current=true;setStatus('Saving…');const snapshot=editor.getJSON();try{const d=await api(`projects/${projectId}/document`,'PUT',{content:snapshot,version:version.current});version.current=d.version;handlers.current.onSaved(d);if(JSON.stringify(editor.getJSON())===JSON.stringify(snapshot)){dirtyRef.current=false;setDirty(false);handlers.current.onDirty(false);setStatus('Saved');}else setStatus('Unsaved');}catch(e){setStatus((e as Error).message);}finally{saving.current=false;}};
- const saveRef=useRef(save);saveRef.current=save;
- useEffect(()=>{if(!editor)return;if(dirty){timer.current=setTimeout(()=>void saveRef.current(),1600);}return()=>{if(timer.current)clearTimeout(timer.current);};},[dirty,editor,editTick]);
- useEffect(()=>{if(!editor||doc.version===version.current)return;if(dirtyRef.current){setStatus('A newer revision exists. Your local draft is preserved. Back it up, then review History.');return;}editor.commands.setContent(doc.content,{emitUpdate:false});version.current=doc.version;},[doc.version,doc.content,editor]);
- useEffect(()=>{const warn=(e:BeforeUnloadEvent)=>{if(dirtyRef.current){e.preventDefault();}};window.addEventListener('beforeunload',warn);return()=>window.removeEventListener('beforeunload',warn);},[]);
- useEffect(()=>{if(!editor)return;const update=()=>{const out:Row[]=[];editor.state.doc.descendants((n,pos)=>{if(n.type.name==='heading')out.push({text:n.textContent,pos,level:n.attrs.level});});setOutline(out);};update();editor.on('update',update);return()=>{editor.off('update',update);};},[editor]);
- useEffect(()=>{let active=true;setStyleReady(false);loadStyle(style).then(()=>{if(active){setStyleReady(true);}}).catch(()=>{if(active)setBib('Citation style unavailable.');});return()=>{active=false;};},[style]);
- useEffect(()=>{if(!editor||!styleReady)return;const update=()=>{const ids=new Set<number>();editor.state.doc.descendants(n=>{if(n.type.name==='citation')ids.add(Number(n.attrs.sourceId));});try{setBib(ids.size?bibliography(sources.filter(s=>ids.has(s.id)),style):'Insert citations to build the bibliography.');editor.view.dom.querySelectorAll<HTMLElement>('[data-citation]').forEach(el=>{const s=sources.find(s=>String(s.id)===el.getAttribute('data-citation'));if(s)el.textContent=citation(s,style);});}catch{setBib('Bibliography requires valid source metadata.');}};update();editor.on('update',update);return()=>{editor.off('update',update);};},[sources,style,styleReady,editor]);
- const download=()=>{if(!editor)return;const blob=new Blob([JSON.stringify(editor.getJSON(),null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=window.document.createElement('a');a.href=url;a.download=`research-${projectId}-draft.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),2000);};
- if(!editor)return <div role="status">Loading academic editor…</div>;
- const button=(label:string,action:()=>void)=><button type="button" key={label} disabled={readonly} onClick={action}>{label}</button>;
- return <section className="rs-editor" aria-label="Academic editor">
- <div className="rs-toolbar">{button('Bold',()=>editor.chain().focus().toggleBold().run())}{button('Italic',()=>editor.chain().focus().toggleItalic().run())}{[1,2,3].map(level=>button('H'+level,()=>editor.chain().focus().toggleHeading({level:level as 1|2|3}).run()))}{button('List',()=>editor.chain().focus().toggleBulletList().run())}{button('Table',()=>editor.chain().focus().insertTable({rows:3,cols:3,withHeaderRow:true}).run())}{button('+ Row',()=>editor.chain().focus().addRowAfter().run())}{button('+ Column',()=>editor.chain().focus().addColumnAfter().run())}{button('Undo',()=>editor.chain().focus().undo().run())}{button('Redo',()=>editor.chain().focus().redo().run())}{button('Save',()=>void save())}<button onClick={download}>Back up local draft</button></div>
- <p className="rs-save" role="status">{status} · Version {version.current}</p>
- <details className="rs-elements"><summary>Outline, search and academic elements</summary><div className="rs-outline">{outline.map((h,i)=><button key={i} onClick={()=>editor.chain().focus().setTextSelection(h.pos+1).scrollIntoView().run()}>{h.text||'Untitled section'}</button>)}</div>
- <label>Find in document<input value={search} onChange={e=>setSearch(e.target.value)}/></label><button onClick={()=>{let found=false;editor.state.doc.descendants((n,pos)=>{if(!found&&n.isText){const i=(n.text||'').toLowerCase().indexOf(search.toLowerCase());if(search&&i>=0){found=true;editor.chain().focus().setTextSelection({from:pos+i,to:pos+i+search.length}).scrollIntoView().run();}}});}}>Find</button>
- <label>Citation<select value={source} onChange={e=>setSource(e.target.value)}><option value="">Choose reference</option>{sources.map(s=><option key={s.id} value={s.id}>{s.title}</option>)}</select></label>{button('Insert citation',()=>{if(source)editor.chain().focus().insertContent({type:'citation',attrs:{sourceId:Number(source)}}).run();})}
- <label>Equation (LaTeX)<input value={latex} onChange={e=>setLatex(e.target.value)}/></label>{button('Insert equation',()=>editor.chain().focus().insertContent({type:'math',attrs:{latex}}).run())}
- <label>Footnote<input value={note} onChange={e=>setNote(e.target.value)}/></label>{button('Insert footnote',()=>editor.chain().focus().insertContent({type:'footnote',attrs:{text:note}}).run())}
- <label>Uploaded figure<select value={figure} onChange={e=>setFigure(e.target.value)}><option value="">Choose figure</option>{artifacts.filter(a=>a.kind==='figure').map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></label><input aria-label="Figure caption" value={caption} onChange={e=>setCaption(e.target.value)}/>{button('Insert figure',()=>{if(figure)editor.chain().focus().insertContent({type:'figure',attrs:{artifactId:Number(figure),caption,id:'figure-'+figure}}).run();})}
- <label>Cross-reference target<input value={target} onChange={e=>setTarget(e.target.value)} placeholder="section-1"/></label>{button('Insert cross-reference',()=>editor.chain().focus().insertContent({type:'crossReference',attrs:{target}}).run())}</details>
- <EditorContent editor={editor}/><section className="rs-bibliography"><h3>References</h3><div style={{whiteSpace:'pre-wrap'}}>{bib}</div></section>
- </section>;
+import { useEditor, EditorContent } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
+import {
+  Table,
+  TableRow,
+  TableHeader,
+  TableCell,
+} from "@tiptap/extension-table";
+import { Node, mergeAttributes, JSONContent } from "@tiptap/core";
+import { useEffect, useRef, useState } from "react";
+import katex from "katex";
+import "katex/dist/katex.min.css";
+import { api, Row, citation, bibliography, loadStyle } from "@/lib/research";
+const Citation = Node.create({
+  name: "citation",
+  inline: true,
+  group: "inline",
+  atom: true,
+  addAttributes() {
+    return { sourceId: { default: null } };
+  },
+  parseHTML() {
+    return [{ tag: "span[data-citation]" }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return [
+      "span",
+      mergeAttributes(HTMLAttributes, {
+        "data-citation": HTMLAttributes.sourceId,
+        class: "rs-citation",
+      }),
+      "[source " + HTMLAttributes.sourceId + "]",
+    ];
+  },
+});
+const MathNode = Node.create({
+  name: "math",
+  inline: true,
+  group: "inline",
+  atom: true,
+  addAttributes() {
+    return { latex: { default: "" } };
+  },
+  parseHTML() {
+    return [{ tag: "span[data-equation]" }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return [
+      "span",
+      mergeAttributes(HTMLAttributes, { "data-equation": "true" }),
+      HTMLAttributes.latex,
+    ];
+  },
+  addNodeView() {
+    return ({ node }) => {
+      const dom = document.createElement("span");
+      dom.className = "rs-equation";
+      dom.innerHTML = katex.renderToString(node.attrs.latex, {
+        throwOnError: false,
+        trust: false,
+        strict: "warn",
+      });
+      return { dom };
+    };
+  },
+});
+const Footnote = Node.create({
+  name: "footnote",
+  inline: true,
+  group: "inline",
+  atom: true,
+  addAttributes() {
+    return { text: { default: "" } };
+  },
+  parseHTML() {
+    return [{ tag: "sup[data-footnote]" }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return [
+      "sup",
+      mergeAttributes(HTMLAttributes, {
+        "data-footnote": "true",
+        title: HTMLAttributes.text,
+      }),
+      "†",
+    ];
+  },
+});
+const Figure = Node.create({
+  name: "figure",
+  group: "block",
+  atom: true,
+  addOptions() {
+    return { projectId: 0 };
+  },
+  addAttributes() {
+    return {
+      artifactId: { default: null },
+      caption: { default: "" },
+      id: { default: "" },
+    };
+  },
+  parseHTML() {
+    return [{ tag: "figure[data-artifact]" }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return [
+      "figure",
+      mergeAttributes(HTMLAttributes, {
+        "data-artifact": HTMLAttributes.artifactId,
+      }),
+      [
+        "img",
+        {
+          src:
+            "/api/backend/research/projects/" +
+            this.options.projectId +
+            "/artifacts/" +
+            HTMLAttributes.artifactId +
+            "/download",
+          alt: HTMLAttributes.caption || "Research figure",
+        },
+      ],
+      ["figcaption", {}, HTMLAttributes.caption || "Figure"],
+    ];
+  },
+});
+const CrossReference = Node.create({
+  name: "crossReference",
+  inline: true,
+  group: "inline",
+  atom: true,
+  addAttributes() {
+    return { target: { default: "" } };
+  },
+  parseHTML() {
+    return [{ tag: "span[data-cross-reference]" }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return [
+      "span",
+      mergeAttributes(HTMLAttributes, {
+        "data-cross-reference": HTMLAttributes.target,
+      }),
+      "§ " + HTMLAttributes.target,
+    ];
+  },
+});
+type Props = {
+  projectId: number;
+  document: Row;
+  sources: Row[];
+  artifacts: Row[];
+  style: string;
+  readonly: boolean;
+  onSaved: (d: Row) => void;
+  onDirty: (dirty: boolean) => void;
+  onSelection: (text: string) => void;
+};
+export default function AcademicEditor({
+  projectId,
+  document: doc,
+  sources,
+  artifacts,
+  style,
+  readonly,
+  onSaved,
+  onDirty,
+  onSelection,
+}: Props) {
+  const [editTick, setEditTick] = useState(0);
+  const [status, setStatus] = useState("Saved");
+  const [dirty, setDirty] = useState(false);
+  const [search, setSearch] = useState("");
+  const [source, setSource] = useState("");
+  const [latex, setLatex] = useState("E=mc^2");
+  const [note, setNote] = useState("");
+  const [caption, setCaption] = useState("");
+  const [figure, setFigure] = useState("");
+  const [target, setTarget] = useState("");
+  const [bib, setBib] = useState("");
+  const [styleReady, setStyleReady] = useState(false);
+  const [outline, setOutline] = useState<Row[]>([]);
+  const version = useRef(doc.version);
+  const dirtyRef = useRef(false);
+  const saving = useRef(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const docRef = useRef(doc);
+  docRef.current = doc;
+  const handlers = useRef({ onSaved, onDirty, onSelection });
+  handlers.current = { onSaved, onDirty, onSelection };
+  const editor = useEditor({
+    immediatelyRender: false,
+    extensions: [
+      StarterKit,
+      Table.configure({ resizable: true }),
+      TableRow,
+      TableCell,
+      TableHeader,
+      Citation,
+      MathNode,
+      Footnote,
+      Figure.configure({ projectId }),
+      CrossReference,
+    ],
+    content: doc.content as JSONContent,
+    editable: !readonly,
+    editorProps: {
+      attributes: {
+        role: "textbox",
+        "aria-multiline": "true",
+        "aria-label": "Academic manuscript",
+        class: "rs-prose",
+        dir: "auto",
+      },
+    },
+    onUpdate: () => {
+      dirtyRef.current = true;
+      setDirty(true);
+      setEditTick((n) => n + 1);
+      setStatus("Unsaved");
+      handlers.current.onDirty(true);
+    },
+    onSelectionUpdate: ({ editor }) => {
+      handlers.current.onSelection(
+        editor.state.doc.textBetween(
+          editor.state.selection.from,
+          editor.state.selection.to,
+          " ",
+        ),
+      );
+    },
+  });
+  const save = async () => {
+    if (!editor || !dirtyRef.current || saving.current || readonly) return;
+    saving.current = true;
+    setStatus("Saving…");
+    const snapshot = editor.getJSON();
+    try {
+      const d = await api(`projects/${projectId}/document`, "PUT", {
+        content: snapshot,
+        version: version.current,
+      });
+      version.current = d.version;
+      handlers.current.onSaved(d);
+      if (JSON.stringify(editor.getJSON()) === JSON.stringify(snapshot)) {
+        dirtyRef.current = false;
+        setDirty(false);
+        handlers.current.onDirty(false);
+        setStatus("Saved");
+      } else setStatus("Unsaved");
+    } catch (e) {
+      setStatus((e as Error).message);
+    } finally {
+      saving.current = false;
+    }
+  };
+  const saveRef = useRef(save);
+  saveRef.current = save;
+  useEffect(() => {
+    if (!editor) return;
+    if (dirty) {
+      timer.current = setTimeout(() => void saveRef.current(), 1600);
+    }
+    return () => {
+      if (timer.current) clearTimeout(timer.current);
+    };
+  }, [dirty, editor, editTick]);
+  useEffect(() => {
+    if (!editor || doc.version === version.current) return;
+    if (dirtyRef.current) {
+      setStatus(
+        "A newer revision exists. Your local draft is preserved. Back it up, then review History.",
+      );
+      return;
+    }
+    editor.commands.setContent(doc.content, { emitUpdate: false });
+    version.current = doc.version;
+  }, [doc.version, doc.content, editor]);
+  useEffect(() => {
+    const warn = (e: BeforeUnloadEvent) => {
+      if (dirtyRef.current) {
+        e.preventDefault();
+      }
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, []);
+  useEffect(() => {
+    if (!editor) return;
+    const update = () => {
+      const out: Row[] = [];
+      editor.state.doc.descendants((n, pos) => {
+        if (n.type.name === "heading")
+          out.push({ text: n.textContent, pos, level: n.attrs.level });
+      });
+      setOutline(out);
+    };
+    update();
+    editor.on("update", update);
+    return () => {
+      editor.off("update", update);
+    };
+  }, [editor]);
+  useEffect(() => {
+    let active = true;
+    setStyleReady(false);
+    loadStyle(style)
+      .then(() => {
+        if (active) {
+          setStyleReady(true);
+        }
+      })
+      .catch(() => {
+        if (active) setBib("Citation style unavailable.");
+      });
+    return () => {
+      active = false;
+    };
+  }, [style]);
+  useEffect(() => {
+    if (!editor || !styleReady) return;
+    const update = () => {
+      const ids = new Set<number>();
+      editor.state.doc.descendants((n) => {
+        if (n.type.name === "citation") ids.add(Number(n.attrs.sourceId));
+      });
+      try {
+        const ordered = [...ids]
+          .map((id) => sources.find((s) => s.id === id))
+          .filter((s): s is Row => Boolean(s));
+        setBib(
+          ids.size
+            ? bibliography(ordered, style)
+            : "Insert citations to build the bibliography.",
+        );
+        editor.view.dom
+          .querySelectorAll<HTMLElement>("[data-citation]")
+          .forEach((el) => {
+            const s = sources.find(
+              (s) => String(s.id) === el.getAttribute("data-citation"),
+            );
+            if (s) el.textContent = citation(s, style, ordered);
+          });
+      } catch {
+        setBib("Bibliography requires valid source metadata.");
+      }
+    };
+    update();
+    editor.on("update", update);
+    return () => {
+      editor.off("update", update);
+    };
+  }, [sources, style, styleReady, editor]);
+  const download = () => {
+    if (!editor) return;
+    const blob = new Blob([JSON.stringify(editor.getJSON(), null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = window.document.createElement("a");
+    a.href = url;
+    a.download = `research-${projectId}-draft.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  };
+  if (!editor) return <div role="status">Loading academic editor…</div>;
+  const button = (label: string, action: () => void) => (
+    <button type="button" key={label} disabled={readonly} onClick={action}>
+      {label}
+    </button>
+  );
+  return (
+    <section className="rs-editor" aria-label="Academic editor">
+      <div className="rs-toolbar">
+        {button("Bold", () => editor.chain().focus().toggleBold().run())}
+        {button("Italic", () => editor.chain().focus().toggleItalic().run())}
+        {[1, 2, 3].map((level) =>
+          button("H" + level, () =>
+            editor
+              .chain()
+              .focus()
+              .toggleHeading({ level: level as 1 | 2 | 3 })
+              .run(),
+          ),
+        )}
+        {button("List", () => editor.chain().focus().toggleBulletList().run())}
+        {button("Table", () =>
+          editor
+            .chain()
+            .focus()
+            .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
+            .run(),
+        )}
+        {button("+ Row", () => editor.chain().focus().addRowAfter().run())}
+        {button("+ Column", () =>
+          editor.chain().focus().addColumnAfter().run(),
+        )}
+        {button("Undo", () => editor.chain().focus().undo().run())}
+        {button("Redo", () => editor.chain().focus().redo().run())}
+        {button("Save", () => void save())}
+        <button onClick={download}>Back up local draft</button>
+      </div>
+      <p className="rs-save" role="status">
+        {status} · Version {version.current}
+      </p>
+      <details className="rs-elements">
+        <summary>Outline, search and academic elements</summary>
+        <div className="rs-outline">
+          {outline.map((h, i) => (
+            <button
+              key={i}
+              onClick={() =>
+                editor
+                  .chain()
+                  .focus()
+                  .setTextSelection(h.pos + 1)
+                  .scrollIntoView()
+                  .run()
+              }
+            >
+              {h.text || "Untitled section"}
+            </button>
+          ))}
+        </div>
+        <label>
+          Find in document
+          <input value={search} onChange={(e) => setSearch(e.target.value)} />
+        </label>
+        <button
+          onClick={() => {
+            let found = false;
+            editor.state.doc.descendants((n, pos) => {
+              if (!found && n.isText) {
+                const i = (n.text || "")
+                  .toLowerCase()
+                  .indexOf(search.toLowerCase());
+                if (search && i >= 0) {
+                  found = true;
+                  editor
+                    .chain()
+                    .focus()
+                    .setTextSelection({
+                      from: pos + i,
+                      to: pos + i + search.length,
+                    })
+                    .scrollIntoView()
+                    .run();
+                }
+              }
+            });
+          }}
+        >
+          Find
+        </button>
+        <label>
+          Citation
+          <select value={source} onChange={(e) => setSource(e.target.value)}>
+            <option value="">Choose reference</option>
+            {sources.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.title}
+              </option>
+            ))}
+          </select>
+        </label>
+        {button("Insert citation", () => {
+          if (source)
+            editor
+              .chain()
+              .focus()
+              .insertContent({
+                type: "citation",
+                attrs: { sourceId: Number(source) },
+              })
+              .run();
+        })}
+        <label>
+          Equation (LaTeX)
+          <input value={latex} onChange={(e) => setLatex(e.target.value)} />
+        </label>
+        {button("Insert equation", () =>
+          editor
+            .chain()
+            .focus()
+            .insertContent({ type: "math", attrs: { latex } })
+            .run(),
+        )}
+        <label>
+          Footnote
+          <input value={note} onChange={(e) => setNote(e.target.value)} />
+        </label>
+        {button("Insert footnote", () =>
+          editor
+            .chain()
+            .focus()
+            .insertContent({ type: "footnote", attrs: { text: note } })
+            .run(),
+        )}
+        <label>
+          Uploaded figure
+          <select value={figure} onChange={(e) => setFigure(e.target.value)}>
+            <option value="">Choose figure</option>
+            {artifacts
+              .filter((a) => a.kind === "figure")
+              .map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+          </select>
+        </label>
+        <input
+          aria-label="Figure caption"
+          value={caption}
+          onChange={(e) => setCaption(e.target.value)}
+        />
+        {button("Insert figure", () => {
+          if (figure)
+            editor
+              .chain()
+              .focus()
+              .insertContent({
+                type: "figure",
+                attrs: {
+                  artifactId: Number(figure),
+                  caption,
+                  id: "figure-" + figure,
+                },
+              })
+              .run();
+        })}
+        <label>
+          Cross-reference target
+          <input
+            value={target}
+            onChange={(e) => setTarget(e.target.value)}
+            placeholder="section-1"
+          />
+        </label>
+        {button("Insert cross-reference", () =>
+          editor
+            .chain()
+            .focus()
+            .insertContent({ type: "crossReference", attrs: { target } })
+            .run(),
+        )}
+      </details>
+      <EditorContent editor={editor} />
+      <section className="rs-bibliography">
+        <h3>References</h3>
+        <div style={{ whiteSpace: "pre-wrap" }}>{bib}</div>
+      </section>
+    </section>
+  );
 }

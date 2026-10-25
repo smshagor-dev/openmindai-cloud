@@ -16,6 +16,6 @@ class Experiments extends BaseAgent
             return ['plans' => [], 'disclosure' => 'No experimental execution requested.'];
         }
 
-return $this->ask($ctx, 'Propose reproducible Python experiment plans (title, method, code, datasets_required) using approved user datasets only. No code is executed by this agent. Use /work/input authorized files and /work/output for artifacts. Include random seed and real baselines where feasible. Return plans[] and disclosure string. Missing datasets must be explicit, not simulated results.', ['project' => $this->project($ctx), 'findings' => $ctx->findings()]);
+        return $this->ask($ctx, 'Propose reproducible Python experiment plans (title, method, code, datasets_required) using approved user datasets only. No code is executed by this agent. Use /work/input authorized files and /work/output for artifacts. Include random seed and real baselines where feasible. Return plans[] and disclosure string. Missing datasets must be explicit, not simulated results.', ['project' => $this->project($ctx), 'findings' => $ctx->findings()]);
     }
 }

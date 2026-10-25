@@ -21,7 +21,7 @@ class Orchestrator
             DB::table('research_dependencies')->insertOrIgnore(['task_id' => $t->id, 'depends_on' => $id, 'created_at' => now(), 'updated_at' => now()]);
         }
 
-return $t;
+        return $t;
     }
 
     public function start(Project $project, int $actor, ?string $component = null, array $input = []): Run
@@ -158,9 +158,9 @@ return $t;
                     return;
                 }$errors = $t->errors + 1;
                 $t->update(['status' => $errors >= config('research.attempts') ? 'failed' : 'pending', 'errors' => $errors, 'claim' => null, 'lease_until' => null, 'error_code' => 'worker_interrupted']);
-                Events::add($t->project_id,'task.recovered',['task_id' => $t->id, 'status' => $t->status, 'error_code' => 'worker_interrupted']);
+                Events::add($t->project_id, 'task.recovered', ['task_id' => $t->id, 'status' => $t->status, 'error_code' => 'worker_interrupted']);
             });
         });
-        Run::where('status','running')->pluck('id')->each(fn ($id) => $this->pump($id));
+        Run::where('status', 'running')->pluck('id')->each(fn ($id) => $this->pump($id));
     }
 }

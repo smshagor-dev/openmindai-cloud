@@ -27,6 +27,6 @@ class Registry
             return $row->id;
         }
 
-return DB::table('research_agent_definitions')->insertGetId(['key' => $key, 'version' => $version, 'definition' => json_encode($definition), 'created_at' => now(), 'updated_at' => now()]);
+        return DB::table('research_agent_definitions')->insertGetId(['key' => $key, 'version' => $version, 'definition' => json_encode($definition), 'created_at' => now(), 'updated_at' => now()]);
     }
 }

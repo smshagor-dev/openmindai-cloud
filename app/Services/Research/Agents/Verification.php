@@ -26,6 +26,6 @@ class Verification extends BaseAgent
             }
         }
 
-return ['references' => $results];
+        return ['references' => $results];
     }
 }

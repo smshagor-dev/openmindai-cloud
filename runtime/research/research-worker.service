@@ -10,8 +10,10 @@ ExecStart=/srv/openmind/.venv/bin/uvicorn runtime.research.server:app --host 127
 Restart=on-failure
 NoNewPrivileges=true
 PrivateTmp=true
+StateDirectory=openmind-research
+Environment=RESEARCH_CANCEL_DIR=/var/lib/openmind-research
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/tmp
+ReadWritePaths=/tmp /var/lib/openmind-research
 [Install]
 WantedBy=multi-user.target

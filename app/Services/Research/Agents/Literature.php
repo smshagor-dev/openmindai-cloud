@@ -26,6 +26,7 @@ class Literature extends BaseAgent
         $analyses = $state['analyses'] ?? [];
         if (isset($chunks[$index])) {
             $chunk = $chunks[$index];
+            $ctx->event('literature.reading', ['source_id' => $chunk['source_id'], 'status' => 'analyzing', 'completed' => $index, 'total' => count($chunks)]);
             $out = $this->ask($ctx, 'Analyze this source excerpt only. Extract objectives/methods/datasets/findings/limitations into analyses[]. Every evidence item must have source_id, claim and a VERBATIM contiguous quote from this excerpt. Distinguish author findings from interpretations. Never claim access to pages not supplied. Return analyses[], evidence[].', ['project' => $this->project($ctx), 'source' => $chunk]);
             foreach ($out['evidence'] as $e) {
                 abort_unless($e['source_id'] === $chunk['source_id'] && str_contains($chunk['text'], $e['quote']) && mb_strlen($e['quote']) >= 12, 422, 'Evidence quote is not in the source excerpt.');

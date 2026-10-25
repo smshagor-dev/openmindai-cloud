@@ -38,7 +38,7 @@ class Embeddings
                 }
             }
 
-return $v;
+            return $v;
         };
         $q = $vector($query, 'query');
         foreach ($chunks as &$c) {

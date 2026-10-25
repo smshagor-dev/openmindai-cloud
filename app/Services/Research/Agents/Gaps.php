@@ -17,6 +17,6 @@ class Gaps extends BaseAgent
             $ctx->assertSources($g['source_ids']);
         }
 
-return $o;
+        return $o;
     }
 }

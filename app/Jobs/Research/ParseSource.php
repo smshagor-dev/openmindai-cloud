@@ -2,8 +2,10 @@
 
 namespace App\Jobs\Research;
 
+use App\Models\Research\Project;
 use App\Models\Research\Source;
 use App\Services\Research\Events;
+use App\Services\Research\Transactions;
 use App\Services\Research\Worker;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -29,16 +31,19 @@ class ParseSource implements ShouldQueue
             $bytes = Storage::disk('local')->get($this->path);
             if (! hash_equals($this->hash, hash('sha256', $bytes))) {
                 throw new \RuntimeException('checksum_mismatch');
-            }$s->update(['metadata' => array_merge($s->metadata, ['parse_status' => 'running'])]);
+            }$s->update(['metadata' => array_merge($s->metadata, ['parse_status' => 'running', 'parse_started_at' => now()->toIso8601String()])]);
             $out = app(Worker::class)->call('extract', ['data' => base64_encode($bytes)]);
             $text = $out['text'] ?? null;
             if (! is_string($text) || strlen($text) > 2000000) {
                 throw new \RuntimeException('invalid_pdf_text');
-            }$s->refresh();
-            if ($s->private_path !== $this->path || ($s->metadata['upload_sha256'] ?? '') !== $this->hash) {
-                return;
-            }$s->update(['text' => $text, 'metadata' => array_merge($s->metadata, ['parse_status' => 'completed', 'pages' => $out['pages'] ?? null])]);
-            Events::add($s->project_id, 'pdf.parsed', ['source_id' => $s->id, 'status' => 'completed']);
+            }Transactions::run(function () use ($s, $text, $out) {
+                Project::whereKey($s->project_id)->lockForUpdate()->firstOrFail();
+                $s->refresh();
+                if ($s->private_path !== $this->path || ($s->metadata['upload_sha256'] ?? '') !== $this->hash) {
+                    return;
+                }$s->update(['text' => $text, 'metadata' => array_merge($s->metadata, ['parse_status' => 'completed', 'pages' => $out['pages'] ?? null])]);
+                Events::add($s->project_id, 'pdf.parsed', ['source_id' => $s->id, 'status' => 'completed']);
+            });
         } catch (\Throwable) {
             $s->refresh();
             if ($s->private_path === $this->path && ($s->metadata['upload_sha256'] ?? '') === $this->hash) {

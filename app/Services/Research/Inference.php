@@ -64,6 +64,6 @@ class Inference
                 $ctx->event('model.failed', ['model' => $slug, 'error_code' => 'provider_or_schema_error']);
             }
         }
-        throw new \RuntimeException('verified_model_required_or_provider_failed',0,$last);
+        throw new \RuntimeException('verified_model_required_or_provider_failed', 0, $last);
     }
 }

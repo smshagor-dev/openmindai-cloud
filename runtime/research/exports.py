@@ -4,6 +4,7 @@ from xml.etree import ElementTree
 from pypdf import PdfReader
 from docx import Document
 from citeproc_styles import get_style_filepath
+from .unicode_fonts import prepare
 
 STYLES={'apa':'apa','ieee':'ieee','acm':'association-for-computing-machinery','vancouver':'vancouver-nlm','chicago':'chicago-author-date','harvard':'harvard-cite-them-right'}
 
@@ -24,7 +25,12 @@ def csl(source):
         elif a.get('literal'):authors.append({'literal':a['literal']})
     v={'id':'s'+str(source['id']),'type':'article-journal','title':source['title'],'author':authors}
     for src,dst in [('doi','DOI'),('venue','container-title'),('url','URL')]:
-        if source.get(src):v[dst]=source[src]
+        if source.get(src):
+            if src=='url':
+                from urllib.parse import urlparse
+                parsed=urlparse(source[src])
+                if parsed.scheme not in ['https','http']or parsed.username or parsed.password:continue
+            v[dst]=source[src]
     if source.get('year'):v['issued']={'date-parts':[[int(source['year'])]]}
     return v
 
@@ -106,9 +112,13 @@ def export(payload):
             variables=['-V',f'fontsize={font}pt','-V',f'geometry:margin={margin}mm','-V','mainfont=DejaVu Serif']
             if columns==2:variables+=['-V','classoption=twocolumn']
             if fmt=='pdf':
-                run(common+variables+['--pdf-engine=xelatex','-o','out.pdf']);raw=(root/'out.pdf').read_bytes();reader=PdfReader(io.BytesIO(raw));assert len(reader.pages)>0
+                run(common+variables+['--standalone','-t','latex','-o','manuscript.tex']);tex=prepare((root/'manuscript.tex').read_text());(root/'manuscript.tex').write_text(tex)
+                result=subprocess.run(['xelatex','-no-shell-escape','-interaction=nonstopmode','-halt-on-error','manuscript.tex'],cwd=root,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=100)
+                log=result.stdout.decode(errors='replace')
+                if result.returncode or 'Missing character:' in log:raise ValueError('unicode_pdf_conversion_failed: '+log[-500:])
+                raw=(root/'manuscript.pdf').read_bytes();reader=PdfReader(io.BytesIO(raw));assert len(reader.pages)>0
             else:
-                run(common+variables+['--standalone','-t','latex','-o','manuscript.tex']);tex=(root/'manuscript.tex').read_text()
+                run(common+variables+['--standalone','-t','latex','-o','manuscript.tex']);tex=prepare((root/'manuscript.tex').read_text(),portable=True);(root/'manuscript.tex').write_text(tex)
                 if '\\begin{document}' not in tex:raise ValueError('invalid_latex')
                 bib=run(['references.json','-f','csljson','-t','bibtex']);(root/'references.bib').write_bytes(bib)
                 (root/'README.txt').write_text('Compile manuscript.tex with XeLaTeX. Independent formatting preset; check target journal requirements. References are citeproc-formatted in the source. Figures are bundled. AI assistance and unresolved checks require review.')

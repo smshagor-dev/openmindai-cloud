@@ -11,11 +11,18 @@ def command(args,timeout=10):
 
 def attached(name,payload,timeout,limit=26_000_000):
     p=subprocess.Popen(['docker','start','--attach','--interactive',name],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-    data=json.dumps(payload).encode();p.stdin.write(data);p.stdin.close();sel=selectors.DefaultSelector();sel.register(p.stdout,selectors.EVENT_READ);sel.register(p.stderr,selectors.EVENT_READ);out=bytearray();err=bytearray();start=time.monotonic()
+    data=json.dumps(payload).encode();offset=0;sel=selectors.DefaultSelector()
+    for stream in [p.stdin,p.stdout,p.stderr]:os.set_blocking(stream.fileno(),False)
+    sel.register(p.stdin,selectors.EVENT_WRITE);sel.register(p.stdout,selectors.EVENT_READ);sel.register(p.stderr,selectors.EVENT_READ);out=bytearray();err=bytearray();start=time.monotonic()
     try:
         while sel.get_map():
             if time.monotonic()-start>timeout:raise TimeoutError('container_timeout')
             for key,_ in sel.select(.2):
+                if key.fileobj is p.stdin:
+                    try:offset+=os.write(p.stdin.fileno(),data[offset:offset+65536])
+                    except BrokenPipeError:offset=len(data)
+                    if offset>=len(data):sel.unregister(p.stdin);p.stdin.close()
+                    continue
                 chunk=os.read(key.fileobj.fileno(),65536)
                 if not chunk:sel.unregister(key.fileobj);continue
                 (out if key.fileobj is p.stdout else err).extend(chunk)

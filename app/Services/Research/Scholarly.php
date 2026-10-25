@@ -35,7 +35,7 @@ class Scholarly
                 $stream->close();
             }
 
-return json_decode($body, true, 128, JSON_THROW_ON_ERROR);
+            return json_decode($body, true, 128, JSON_THROW_ON_ERROR);
         });
     }
 
@@ -59,7 +59,7 @@ return json_decode($body, true, 128, JSON_THROW_ON_ERROR);
             $ctx->event('browsing.discovered', ['source_id' => $s->id, 'title' => $s->title, 'url' => $s->url, 'provider' => $provider, 'status' => 'completed']);
         }
 
-return $ids;
+        return $ids;
     }
 
     public function normalize(array $v, string $provider): array
