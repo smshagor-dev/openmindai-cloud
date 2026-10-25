@@ -1,7 +1,9 @@
 <?php
 
+use App\Jobs\Research\ParseSource;
 use App\Models\Research\Project;
 use App\Models\Research\Run;
+use App\Models\Research\Source;
 use App\Models\Research\Task;
 use App\Models\User;
 use App\Services\Research\Context;
@@ -26,6 +28,20 @@ if ($argv[1] === 'init') {
         $ids[] = $t->id;
     }
     echo json_encode(['project' => $p->id, 'tasks' => $ids]);
+
+    return;
+}
+if ($argv[1] === 'queue') {
+    $source = Source::firstOrFail();
+    $source->update(['private_path' => 'research/cron-current.pdf', 'metadata' => ['parse_status' => 'pending', 'upload_sha256' => 'current']]);
+    ParseSource::dispatch($source->id, 'research/cron-obsolete.pdf', 'obsolete')->onConnection('database')->onQueue('research');
+    echo json_encode(['queued' => DB::table('jobs')->where('queue', 'research')->count()]);
+
+    return;
+}
+if ($argv[1] === 'check-queue') {
+    $source = Source::firstOrFail();
+    echo json_encode(['queued' => DB::table('jobs')->where('queue', 'research')->count(), 'failed' => DB::table('failed_jobs')->count(), 'preserved' => $source->private_path === 'research/cron-current.pdf' && $source->metadata['upload_sha256'] === 'current']);
 
     return;
 }
