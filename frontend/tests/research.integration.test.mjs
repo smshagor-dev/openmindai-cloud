@@ -88,6 +88,7 @@ test("provider length boundary continues and saves a single complete answer", as
   const text = await response.text();
   assert.equal(generated, 2);
   assert.equal(saved.content, "First part. Final part.");
+  assert.equal(saved.research_metadata, undefined);
   assert.equal(saved.status, "complete");
   assert.match(text, /"saved":true/);
 });

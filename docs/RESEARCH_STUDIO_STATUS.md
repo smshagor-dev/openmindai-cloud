@@ -203,3 +203,7 @@ Fresh live browser checks on the final release confirm both provider-backed resp
 Added a six-minute limit and bounded APT retries/timeouts to the browser document-dependency setup step so future stalled setup attempts terminate. Workflow YAML parses and the new configuration was inspected locally; this operational change does not change the deployed application release or remove any check. Its own new CI invocation is separate from the fully passing release checks above.
 
 The conversation-first design implementation and available-component deployment are complete. The broader platform's private processing runtime, production PDF/experiment/export acceptance and completion PR/merge remain outstanding as already documented. No processing gate was weakened and no unsupported operation was reported as available.
+
+## 2026-10-26 — Cloud chat advanced web research branch
+
+`feature/advanced-web-research` extends the conversation-first release's Web Search/Deep Research using the inspected desktop OpenMindAI reference (`7e3f11b`). It adds adaptive objective coverage, bounded hosted pause/resume, real browsing events, selected passages/PDF page provenance, duplicate-excerpt warnings and hosted citation/numeric review. See `docs/ADVANCED_WEB_RESEARCH.md` for exact path differences, tests and release gates. This is not twelve-agent Research Studio acceptance, an Admin Dashboard completion claim or a production deployment. Public search/read live smoke was unavailable from the implementation environment; real provider/deployed acceptance remains outstanding.

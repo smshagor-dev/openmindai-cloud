@@ -32,10 +32,6 @@ import { effectiveLanguage, languageCode } from "@/lib/research-language";
 import TaskGraph from "./task-graph";
 import ResearchReadiness from "./readiness";
 import type { JSONContent } from "@tiptap/core";
-import "@fontsource/noto-serif-bengali";
-import "@fontsource/noto-naskh-arabic";
-import "@fontsource/noto-serif-devanagari";
-import "@fontsource/noto-serif-sc";
 const readable = (x: unknown) => (typeof x === "string" ? x : pretty(x));
 const statusLabels: Record<string, Record<string, string>> = Object.fromEntries(
   Object.entries({

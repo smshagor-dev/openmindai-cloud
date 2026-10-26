@@ -132,7 +132,9 @@ test("Next server connects directly to NVIDIA and persists only final answer to 
   );
   assert.ok(provider.body.messages[0].content.includes("PRIVATE CONTEXT"));
   const done = f.calls.find((x) => x.url.endsWith("/finish"));
-  assert.equal(done.body.content, "Hello");
+  assert.ok(done.body.content.startsWith("Hello\n\nSources"));
+  assert.match(done.body.content,/Evidence coverage: 0 sources/);
+  assert.equal(done.body.research_metadata.status,"partial");
   assert.equal(done.body.status, "complete");
   assert.equal(done.options.headers.Authorization, "Bearer user-token");
   assert.equal(done.options.headers["X-Chat-Bridge-Key"], config.bridgeKey);

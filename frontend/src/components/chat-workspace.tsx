@@ -1,4 +1,6 @@
 "use client";
+import ResearchActivity from "./research-activity";
+import type {ResearchMetadata} from "@/lib/research-status";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   ArrowUp,
@@ -849,6 +851,7 @@ export default function ChatWorkspace() {
               `Saved ${Number(data.saved)} new memory. Manage it in Memory settings.`,
             );
           if (event === "research") {
+            if(data.metadata)setMessages(previous=>previous.map((m,i)=>i===previous.length-1?{...m,research_metadata:data.metadata as ResearchMetadata}:m));
             setResearchProgress(String(data.label));
             if (Array.isArray(data.sources))
               setMessages((previous) =>
@@ -1783,13 +1786,14 @@ export default function ChatWorkspace() {
                         />
                         {message.status &&
                           message.status !== "complete" &&
-                          message.status !== "generating" && (
+                          message.status !== "generating" && message.research_metadata?.status !== "paused" && (
                             <small className="muted">
                               {message.status === "cancelled"
                                 ? "Stopped"
                                 : "Response interrupted"}
                             </small>
                           )}
+                        <ResearchActivity metadata={message.research_metadata} sources={message.sources} messageStatus={message.status}/>
                         {!!message.sources?.length && (
                           <div className="source-links">
                             {message.sources.map((source, sourceIndex) => (
@@ -1811,6 +1815,9 @@ export default function ChatWorkspace() {
                                   {source.url}
                                 </a>
                                 {source.snippet && <p>{source.snippet}</p>}
+                                {source.duplicate_of&&<p className="source-evidence-note">Similar extracted text to another source; independent corroboration is not established.</p>}
+                                {source.pdf&&<p className="source-evidence-note">PDF: {source.pdf.sampled_pages.join(', ')} of {source.pdf.total_pages} pages sampled. {source.pdf.partial?'The full document was not read.':''}</p>}
+                                {source.passages?.map(p=><blockquote className="web-source-passage" key={p.id}><small>Passage {p.id}{p.page?` · PDF page ${p.page}`:''}</small><p dir="auto">{p.text}</p>{p.page&&<a target="_blank" rel="noopener noreferrer" href={source.url+'#page='+p.page}>Open PDF page {p.page}</a>}</blockquote>)}
                               </details>
                             ))}
                           </div>
@@ -2263,7 +2270,7 @@ ${source.read_status === "read" ? "Page read" : "Snippet only"}`,
           onResearch={() => {
             if (!searchAvailable) {
               setError(
-                "Web research needs a configured search service. Ask your administrator to enable SearXNG.",
+                "Web research needs an available search provider. Retry or ask your administrator to check search configuration.",
               );
               setToolsOpen(null);
               return;

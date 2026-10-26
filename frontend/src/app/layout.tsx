@@ -1,6 +1,10 @@
 import type { Metadata } from "next";
 import "@fontsource-variable/dm-sans";
 import "@fontsource-variable/manrope";
+import "@fontsource/noto-serif-bengali";
+import "@fontsource/noto-naskh-arabic";
+import "@fontsource/noto-serif-devanagari";
+import "@fontsource/noto-serif-sc";
 import "./globals.css";
 import "./chat-theme.css";
 import "./motion.css";

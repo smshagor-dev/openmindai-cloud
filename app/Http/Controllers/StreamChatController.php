@@ -10,6 +10,7 @@ use App\Models\Project;
 use App\Services\ChatContext;
 use App\Services\HostedChatActivity;
 use App\Services\ResearchCompletion;
+use App\Services\WebEvidence;
 use App\Services\WebResearch;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -40,7 +41,7 @@ class StreamChatController
         $research = app(WebResearch::class);
         $deep = ! empty($d['deep_research']);
         $options = ['time_range' => $d['search_time_range'] ?? null];
-        $evidence = $deep ? $research->collect($d['message'], $options) : (! empty($d['web_search']) ? $research->quick($d['message'], $options) : []);
+        $evidence = $deep ? [] : (! empty($d['web_search']) ? $research->quick($d['message'], $options) : []);
         $sources = $research->summaries($evidence);
         $messages = $context->build($r->user(), $c, $d['message'], $d['attachment_ids'] ?? [], $temporary);
         if ($evidence || ! empty($d['web_search'])) {
@@ -90,6 +91,7 @@ class StreamChatController
             set_time_limit(0);
             $text = '';
             $status = 'complete';
+            $metadata = ['version' => 1, 'status' => 'running', 'plan' => [], 'activity' => []];
             $finished = false;
             $body = null;
             $emit = function ($event, $data) {
@@ -103,15 +105,22 @@ class StreamChatController
             try {
                 $emit('meta', ['conversation_id' => $temporary ? null : $c->id, 'user_message_id' => $userMessage?->id, 'message_id' => $saved?->id, 'sources' => $sources]);
                 if ($deep) {
-                    $coverage = app(ResearchCompletion::class)->run($d['message'], $evidence, $model->runtime_model, function ($label, $found) use (&$sources, $saved, $emit, $r, $lock) {
+                    $coverage = app(ResearchCompletion::class)->run($d['message'], $evidence, $model->runtime_model, function ($label, $found, $event = null) use (&$metadata, &$sources, $saved, $emit, $r, $lock) {
                         $sources = app(WebResearch::class)->summaries($found);
+                        if ($event) {
+                            $metadata['activity'][] = $event;
+                            $metadata['activity'] = array_slice($metadata['activity'], -100);
+                        }
                         if ($saved) {
-                            Message::whereKey($saved->id)->where('status', 'generating')->update(['sources' => $sources, 'updated_at' => now()]);
+                            Message::whereKey($saved->id)->where('status', 'generating')->update(['sources' => $sources, 'research_metadata' => $metadata, 'updated_at' => now()]);
                         }
                         app(HostedChatActivity::class)->heartbeat($r->user()->id, $lock->owner());
-                        $emit('research', ['label' => $label, 'sources' => $sources]);
+                        $emit('research', ['label' => $label, 'sources' => $sources, 'metadata' => $metadata]);
                     }, fn () => connection_aborted() || ($saved && Cache::get('stop-message:'.$saved->id)));
                     $sources = app(WebResearch::class)->summaries($coverage['sources']);
+                    $metadata['limitations'] = empty($coverage['complete']) ? [$coverage['conclusion'], 'Coverage is partial; inspect the evidence and ask a focused follow-up for unresolved questions.'] : [];
+                    $metadata['stop_reason'] = $coverage['stop_reason'] ?? null;
+                    $metadata['plan'] = array_map(fn ($text, $i) => ['id' => 'o'.($i + 1), 'text' => $text, 'status' => 'unresolved', 'source_ids' => []], $coverage['plan'] ?? [], array_keys($coverage['plan'] ?? []));
                     $messages[0]['content'] .= app(WebResearch::class)->prompt($coverage['sources']).'\nCoverage review: '.$coverage['conclusion'];
                 }
                 $previousPart = '';
@@ -188,8 +197,17 @@ class StreamChatController
                 $emit('error', ['message' => 'The model response was interrupted. Your saved chat contains the partial result.']);
             } finally {
                 $body?->close();
+                if ($status === 'complete' && ($sources || $deep)) {
+                    $grounded = app(WebEvidence::class)->ground($text, $sources);
+                    $text = $grounded['text'];
+                    $emit('answer', ['content' => $text]);
+                }
+                $metadata['status'] = $status === 'complete' ? ((! empty($metadata['limitations']) || ! empty($metadata['plan'])) ? 'partial' : 'complete') : $status;
+                if ($sources || $deep) {
+                    $emit('research', ['label' => 'Research '.$metadata['status'], 'sources' => $sources, 'metadata' => $metadata]);
+                }
                 if ($saved) {
-                    Message::whereKey($saved->id)->update(['content' => $text, 'status' => $status, 'sources' => $sources]);
+                    Message::whereKey($saved->id)->update(['content' => $text, 'status' => $status, 'sources' => $sources, 'research_metadata' => $sources || $deep ? $metadata : null]);
                     $c->touch();
                     if ($status === 'complete' && $r->user()->automatic_memory && $r->user()->memory_enabled) {
                         try {
