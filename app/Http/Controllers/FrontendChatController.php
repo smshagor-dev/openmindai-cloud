@@ -220,7 +220,30 @@ class FrontendChatController
     public function finish(Request $r)
     {
         [$key] = $this->lease($r);
-        $d = $r->validate(['content' => 'present|nullable|string', 'sources' => 'sometimes|array', 'sources.*.url' => 'required|string|max:2000', 'sources.*.title' => 'present|nullable|string|max:200', 'sources.*.snippet' => 'sometimes|nullable|string|max:2000', 'sources.*.read_status' => 'sometimes|in:read,unavailable,snippet_only', 'sources.*.citation' => 'sometimes|integer|min:1', 'research_metadata' => 'sometimes|array', 'status' => 'required|in:complete,failed,cancelled', 'provider_model' => 'sometimes|string|max:190']);
+        $d = $r->validate([
+            'content' => 'present|nullable|string', 'sources' => 'sometimes|array',
+            'sources.*.url' => 'required|string|max:2000', 'sources.*.title' => 'present|nullable|string|max:200',
+            'sources.*.snippet' => 'sometimes|nullable|string|max:2000', 'sources.*.read_status' => 'sometimes|in:read,unavailable,snippet_only',
+            'sources.*.citation' => 'sometimes|integer|min:1',
+            'sources.*.provider' => 'sometimes|nullable|string|max:40',
+            'sources.*.retrieved_at' => 'sometimes|nullable|string|max:80',
+            'sources.*.mime' => 'sometimes|nullable|in:text/html,text/plain,application/pdf',
+            'sources.*.final_url' => 'sometimes|nullable|string|max:2000',
+            'sources.*.duplicate_of' => 'sometimes|nullable|string|max:2000',
+            'sources.*.passages' => 'sometimes|array|max:8',
+            'sources.*.passages.*' => 'array:id,text,page',
+            'sources.*.passages.*.id' => 'sometimes|string|max:20',
+            'sources.*.passages.*.text' => 'required|string|max:1000',
+            'sources.*.passages.*.page' => 'sometimes|nullable|integer|min:1|max:5000',
+            'sources.*.pdf' => 'sometimes|nullable|array:total_pages,sampled_pages,partial,ocr',
+            'sources.*.pdf.total_pages' => 'sometimes|integer|min:1|max:5000',
+            'sources.*.pdf.sampled_pages' => 'sometimes|array|max:8',
+            'sources.*.pdf.sampled_pages.*' => 'integer|min:1|max:5000',
+            'sources.*.pdf.partial' => 'sometimes|boolean',
+            'sources.*.pdf.ocr' => 'sometimes|boolean',
+            'research_metadata' => 'sometimes|array', 'status' => 'required|in:complete,failed,cancelled',
+            'provider_model' => 'sometimes|string|max:190',
+        ]);
         // Preserve provider whitespace after validating the submitted field type.
         $d['content'] = json_decode($r->getContent(), true)['content'] ?? '';
         if (! is_string($d['content'])) {
