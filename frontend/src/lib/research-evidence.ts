@@ -148,13 +148,33 @@ function numbers(text: string) {
       .replace(/milliseconds?/g, "ms"),
   );
 }
+export function normalizePassageCitations(answer: string, sources: Source[]) {
+  const known = new Map(sources.filter(source => evidenceUrl(source.url)).map((source, index) => [source.citation || index + 1, source]));
+  let removed = 0;
+  const text = answer.split(/(```[\s\S]*?```|`[^`\n]+`)/g).map((chunk, index) => index % 2 ? chunk : chunk.replace(
+    /\[(\d+),\s*p(\d+)(?:\s*[-–]\s*p?(\d+))?\](?!\()/gi,
+    (_mark, citation, first, last) => {
+      const source = known.get(Number(citation)), start = Number(first), end = Number(last || first);
+      if (!source || source.read_status !== "read" || start < 1 || end < start || end > 8 ||
+          !Array.from({length:end-start+1}, (_, i) => `p${start+i}`).every(id => source.passages?.some(passage => passage.id === id))) {
+        removed++;
+        return "[unverified citation omitted]";
+      }
+      const passage = start === end ? `passage p${start}` : `passages p${start}–p${end}`;
+      return `[${citation}](${source.url.replace(/\(/g, "%28").replace(/\)/g, "%29")}) (${passage})`;
+    },
+  )).join("");
+  return {text, removed};
+}
+
 export function groundResearchAnswer(answer: string, sources: Source[]) {
   const valid = sources.filter((s) => evidenceUrl(s.url));
   const byUrl = new Map(valid.map((s) => [evidenceUrl(s.url), s]));
   const byNumber = new Map(valid.map((s, i) => [s.citation || i + 1, s]));
-  let removed = 0;
+  const normalized = normalizePassageCitations(answer, sources);
+  let removed = normalized.removed;
   // Code examples are not citation prose and must remain intact.
-  const text = answer
+  const text = normalized.text
     .split(/(```[\s\S]*?```|`[^`\n]+`)/g)
     .map((chunk, i) =>
       i % 2

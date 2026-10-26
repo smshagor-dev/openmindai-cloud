@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   groundResearchAnswer,
+  normalizePassageCitations,
   selectPassages,
   duplicateOf,
 } from "../src/lib/research-evidence.ts";
@@ -20,6 +21,17 @@ const source = {
     },
   ],
 };
+
+test("live compound passage citations become inspectable source links only for actually retrieved passages", () => {
+  const paper={...source,passages:[...source.passages,{id:"p2",text:"A second actual passage.",page:null}]};
+  const result=groundResearchAnswer("Evidence [1, p1] and [1, p1-p2]. Unknown [1, p3] [99, p1]. `literal [99, p1]`",[paper]);
+  assert.equal(result.removed,2);
+  assert.match(result.text,/\[1\]\(https:\/\/primary.example\/paper\) \(passage p1\)/);
+  assert.match(result.text,/passages p1–p2/);
+  assert.match(result.text,/`literal \[99, p1\]`/);
+  assert.equal(normalizePassageCitations("[1, p1]",[{...paper,read_status:"snippet_only"}]).removed,1);
+  assert.equal(normalizePassageCitations("[1, p2-p1] [1, p1-p99999]",[paper]).removed,2);
+});
 
 test("grounding removes invented named citations but preserves fenced code and normalizes retrieved citations", () => {
   const result = groundResearchAnswer(

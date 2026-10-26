@@ -7,6 +7,7 @@ import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Source } from "@/lib/research-loop";
 import { sourceForCitation, sourceDomain } from "@/lib/research-sources";
+import { normalizePassageCitations } from "@/lib/research-evidence";
 // Stable renderers preserve code blocks while streamed text grows.
 const markdownComponents: Components = {
   a: ({ children, ...props }) => (
@@ -78,7 +79,8 @@ export default function ResponseMarkdown({
           },
     [sources, onSourceOpen],
   );
-  const { text, pending } = useAnimatedText(content, animate, reducedMotion);
+  const displayContent = useMemo(() => sources?.length ? normalizePassageCitations(content, sources).text : content, [content, sources]);
+  const { text, pending } = useAnimatedText(displayContent, animate, reducedMotion);
   const typing = streaming || pending;
   useEffect(() => {
     onRendered?.();

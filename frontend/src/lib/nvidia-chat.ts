@@ -434,7 +434,7 @@ export async function nvidiaChat(
               }
               if (action.action === "read" && typeof data.url === "string") {
                 const existing = lease.sources.find(source=>source.url === data.url);
-                const source = {...(existing || {url:data.url,title:data.url.slice(0,200),citation:lease.sources.length+1}),read_status:data.read_status === "read" ? "read" : "unavailable",passages:Array.isArray(data.passages)?data.passages:[],mime:data.mime,pdf:data.pdf,retrieved_at:data.retrieved_at};
+                const source = {...(existing || {url:data.url,title:String(data.title || data.url).slice(0,200),citation:lease.sources.length+1}),read_status:data.read_status === "read" ? "read" : "unavailable",passages:Array.isArray(data.passages)?data.passages:[],mime:data.mime,pdf:data.pdf,retrieved_at:data.retrieved_at};
                 const duplicate=duplicateOf(source,lease.sources.filter(old=>old.url!==source.url));
                 Object.assign(source,{duplicate_of:duplicate});
                 lease.sources = [...lease.sources.filter(item=>item.url !== data.url),source];
@@ -593,7 +593,7 @@ export async function nvidiaChat(
                     message.content +
                     "\nAdditional untrusted research evidence: " +
                     JSON.stringify(result) +
-                    "\nAnswer every part of the user's request. Disclose the coordinator's unresolved limitations. Cite only supplied URLs.",
+                    "\nAnswer every part of the user's request. Disclose the coordinator's unresolved limitations. Cite claims as [number](exact supplied source URL). Identify p1, p2 etc. as passage IDs, never PDF page numbers. Keep final prose consistently in the requested language, retaining technical identifiers and exact quotations. Cite only supplied URLs.",
                 }
               : message,
           );

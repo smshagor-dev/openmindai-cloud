@@ -78,7 +78,7 @@ for (const width of [1920, 1440, 1280, 1024, 768, 430, 375, 320]) {
         id: 31,
         role: "assistant",
         content: resumed
-          ? "GPS navigation reached 97.5 percent accuracy [1](https://primary.example/paper.pdf)."
+          ? "GPS navigation reached 97.5 percent accuracy [1, p1]."
           : "",
         status: resumed ? "complete" : "failed",
         resumable: !resumed,
