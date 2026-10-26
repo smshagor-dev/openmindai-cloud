@@ -98,6 +98,7 @@ export async function researchLoop(options: {
     initialActions = actions.size;
   let readsThisRun = 0;
   let iterations = 0;
+  let repeatedSteps = 0;
   const state = (): ResearchState => ({
     sources: [...sources.values()],
     evidence,
@@ -379,6 +380,7 @@ export async function researchLoop(options: {
               actions: [...actions],
               evidence,
               plan,
+              ...(repeatedSteps ? {next_step_guidance: "The last proposed action was already completed. Choose a different source relevant to an unresolved objective, or finish with explicit evidence gaps. Do not read unrelated results merely to increase source counts."} : {}),
             }),
             async () => {
               emit("planning", "failed", "Planning provider unavailable; retrying once");
@@ -494,7 +496,8 @@ export async function researchLoop(options: {
       (request) => !actions.has(JSON.stringify(request)),
     );
     if (!fresh.length) {
-      const unread = [...sources.values()].find(
+      const hasReadPage = [...sources.values()].some(source => source.read_status === "read");
+      const unread = !hasReadPage && [...sources.values()].find(
         (source) =>
           source.read_status !== "read" &&
           !actions.has(JSON.stringify({ action: "read", url: source.url })),
@@ -505,12 +508,18 @@ export async function researchLoop(options: {
         await save();
         continue;
       }
+      if (repeatedSteps++ === 0) {
+        emit("planning", "failed", "Repeated action rejected; reassessing evidence gaps");
+        await save();
+        continue;
+      }
       return report(
         "No new evidence was found after a repeated action. Review unresolved questions.",
         false,
         "repeated_action",
       );
     }
+    repeatedSteps = 0;
     pending = null;
     pendingBatch = fresh;
     const remainingActions = limits.actions - (actions.size - initialActions);

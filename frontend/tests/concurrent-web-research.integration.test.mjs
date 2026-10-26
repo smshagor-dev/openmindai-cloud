@@ -197,6 +197,24 @@ test("cancellation preserves completed sibling evidence without reporting a comp
   assert.equal(saved.actions.length, 1);
   assert.equal(saved.pending_batch[0].query, "cancelled");
 });
+test("repeated planner actions cannot drain unrelated unread results and receive one bounded correction", async () => {
+  const inspected={...source(1),read_status:"read",passages:[{id:"p1",text:"Original evidence supports the question.",page:null}]};
+  const request={action:"read",url:source(1).url};
+  const contexts=[];
+  const result=await researchLoop({
+    sources:[],state:{sources:[inspected,source(2)],evidence:[],actions:[JSON.stringify(request)]},
+    signal:signal(),progress(){},
+    decide:async context=>{contexts.push(JSON.parse(context));return JSON.stringify(request);},
+    tool:async()=>{throw Error("An unrelated page must not be fetched to fill a source count");},
+  });
+  assert.equal(contexts.length,2);
+  assert.match(contexts[1].next_step_guidance,/explicit evidence gaps/);
+  assert.equal(result.stop_reason,"repeated_action");
+  assert.equal(result.complete,false);
+  assert.equal(result.sources[1].read_status,"snippet_only");
+  assert.ok(result.activity.some(event=>event.status==="failed"&&event.label.includes("Repeated action rejected")));
+});
+
 test("citation inspection only opens the exact retrieved numeric citation and never an invented link", () => {
   const sources = [source(1), source(2)];
   assert.equal(sourceForCitation(sources[0].url, ["1"], sources), sources[0]);
