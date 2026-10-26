@@ -144,6 +144,24 @@ test("Next server connects directly to NVIDIA and persists only final answer to 
     true,
   );
 });
+test("research coordinator bounds provider output and limits thinking controls to verified models", async () => {
+  for (const [model_id, thinking] of [[-3, false], [-1, false], [-2, undefined]]) {
+    const f = fixture();
+    const response = await nvidiaChat(
+      JSON.stringify({message: "Investigate evidence", deep_research: true, model_id}),
+      "user-token", "https://backend/api/v1", new AbortController().signal,
+      {...f, config},
+    );
+    await response.text();
+    const planning = f.calls.filter(call => call.url.includes("nvidia.com") && call.body.stream === false);
+    assert.ok(planning.length > 0);
+    for (const call of planning) {
+      assert.equal(call.body.max_tokens, 2048);
+      assert.equal(call.body.chat_template_kwargs?.enable_thinking, thinking);
+    }
+  }
+});
+
 test("truncated provider response saves partial answer with failed status", async () => {
   const f = fixture({ truncated: true });
   const r = await nvidiaChat(

@@ -52,7 +52,7 @@ Set `WEB_RESEARCH_PYTHON_BINARY` privately to that environment's `bin/python`. c
 
 Optional backend-only settings: `BRAVE_SEARCH_API_KEY`, `GOOGLE_SEARCH_API_KEY`, `GOOGLE_SEARCH_ENGINE_ID`. Existing `SEARXNG_SEARCH_URL` and `PUBLIC_SEARCH_FALLBACK` remain compatible. Never put keys in `NEXT_PUBLIC_*` or source control.
 
-Run the additive migration with the normal release process, clear/cache Laravel configuration and build/deploy the existing Next frontend. Preserve production `.env`, uploads and server changes. Verify search/read/inference/stream/cancel/resume through the deployed app before release acceptance. No production deployment was performed for this branch during this implementation.
+Run the additive migration with the normal release process, clear/cache Laravel configuration and build/deploy the existing Next frontend. Preserve production `.env`, uploads and server changes. Verify search/read/inference/stream/cancel/resume through the deployed app before release acceptance. Actual release progress is recorded below and in `RESEARCH_STUDIO_STATUS.md`.
 
 ## Verification, 2026-10-26
 
@@ -72,3 +72,27 @@ Commands and final results: Automated providers are deterministic fixtures, not 
 - Direct application live smoke: public search and `https://sqlite.org/wal.html` retrieval were unavailable from this restricted environment. No real inference smoke test was performed with production credentials. These remain release gates; mocked tests do not establish live availability.
 
 The full twelve-agent Research Studio, its isolated execution worker and the earlier Admin/Developer Dashboard work are separate objectives. This search change does not certify or reimplement those systems.
+
+## Production release verification — 2026-10-26
+
+Backend release `026987b6c18508500d763a7b3c24ca183eea5f43` was deployed to the existing cPanel project after checking its Git state and upstream ancestry. The custom local Nemotron seeder, server files and uploads were preserved. A private configuration/Git backup and transaction-consistent compressed database dump were created outside the webroot; gzip integrity passed. No database restore test is claimed. Composer production installation, the single additive research metadata migration (batch 15), framework cache clearing/optimization and return from maintenance mode completed. No reset, unrelated migration, seeder overwrite, cron change or unrelated service modification occurred.
+
+Installed the fixed public PDF reader in a dedicated private Python 3.11 environment with pinned `pypdf==6.10.0`. Backed up `.env` before adding only `WEB_RESEARCH_PYTHON_BINARY`; rebuilt Laravel caches. This reader is distinct from the still-unprovisioned Research Studio experiment/export processing worker.
+
+Actual production backend checks, with credentials retained server-side:
+
+- Configuration: NVIDIA and bridge key presence passed; selected inference route is `backend`.
+- Live search: five results through `bing_rss`, including official SQLite documentation. This establishes the fallback provider, not availability of every optional search provider.
+- HTML: official SQLite WAL page read successfully, yielding eight selected passages.
+- PDF: arXiv `1301.3781` read successfully, with eight passages and actual page provenance. Twelve-page document sampled pages 1, 2, 4, 5, 7, 8, 10 and 12; explicitly partial, no OCR. Both parser regressions passed on production in 0.480 seconds.
+- Ultra model audit: success, HTTP 200, runtime configured, no missing settings. The existing verified enabled state was preserved.
+- Existing provider bridge controller/service: JSON HTTP 200 with nonempty content; SSE HTTP 200, three data events, delta and `[DONE]`. These direct service invocations do not independently test HTTP authentication middleware or browser streaming.
+- Negative retrieval checks: obsolete RFC PDF URL was unavailable; a larger arXiv PDF was rejected by the 2 MB cap. Neither was passed off as successfully read. A first CLI configuration probe incorrectly called an instance method statically; corrected probe passed. No application source change was required by these probe errors.
+
+Frontend production deployment `dpl_AX9gDLv4JJ35NkyvWjwSEV4CurKp` reached READY for that exact code SHA in existing Vercel project `openmind-ai`, with `chat.openmindai.org` assigned and no alias error. Previous READY production `dpl_CNyUKhAq6GAWYdFvV1hDg8TBayAS` is retained as a code rollback candidate. An earlier browser usage-limit interruption and expired cPanel tab delayed completion; secure sign-in subsequently succeeded.
+
+Authenticated live Web Search retrieved six sources, read the official PHP page and exposed eight actual passages in the source drawer. The Pages read filter and original link worked. The Auto model's Bengali prose was visibly poor and its report had four flagged checks; this is not a language-quality pass. Ultra Deep Research emitted three actual concurrent searches, persisted twenty sources and three subsequently read pages. Its provider planner timed out twice; refresh/resume retained progress without inventing a completed report. A follow-up bounds each coordinator response to 2048 tokens and disables extended thinking only for the two known Nemotron planner models (Ultra's non-thinking request passed the live JSON probe). Ordinary report reasoning remains unchanged. Retesting and release of this follow-up are pending at this checkpoint.
+
+Production preservation check confirmed every other `.env` entry unchanged. Inspected Laravel error headings on this date were the two failed CLI probes described above, not successful live workflow checks. The new Vercel release's grouped error/fatal log query returned no groups in its first thirty-minute window. This is a bounded inspection, not a guarantee of absence of all errors.
+
+Coordinator follow-up local validation: 220 Node integration tests passed, TypeScript passed, production build passed and all ten browser workflows passed (17.8 seconds). First running the proxy tests while its required production build was still being generated failed on a missing build; rerunning after the completed build passed. PHP code and schema were unchanged by this follow-up; the existing 349-test backend result belongs to the preceding release, with new CI still required for the new commit.

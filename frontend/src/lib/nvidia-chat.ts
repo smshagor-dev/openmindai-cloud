@@ -530,6 +530,8 @@ export async function nvidiaChat(
                   model: activeModel,
                   stream: false,
                   temperature: 0.2,
+                  // Coordinator output is one small action, not a manuscript.
+                  max_tokens: 2048,
                   messages: [
                     {
                       role: "system",
@@ -544,7 +546,7 @@ export async function nvidiaChat(
                         context,
                     },
                   ],
-                  ...(activeModel === "nvidia/nemotron-3.5-lightning-30b-a3b"
+                  ...(["nvidia/nemotron-3.5-lightning-30b-a3b", "nvidia/nemotron-3-ultra-550b-a55b"].includes(activeModel)
                     ? { chat_template_kwargs: { enable_thinking: false } }
                     : {}),
                 }),
