@@ -91,7 +91,7 @@ class StreamChatController
             set_time_limit(0);
             $text = '';
             $status = 'complete';
-            $metadata = ['version' => 1, 'status' => 'running', 'plan' => [], 'activity' => []];
+            $metadata = ['version' => 1, 'mode' => $deep ? 'deep_research' : 'web_search', 'status' => 'running', 'plan' => [], 'activity' => []];
             $finished = false;
             $body = null;
             $emit = function ($event, $data) {

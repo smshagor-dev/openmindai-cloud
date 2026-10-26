@@ -2,6 +2,8 @@ import type { Objective, ResearchEvent } from "./research-loop";
 import type { ClaimAudit } from "./research-evidence";
 export type ResearchMetadata = {
   version: 1;
+  mode?: "web_search" | "deep_research";
+  answer_body_length?: number;
   status:
     | "running"
     | "writing"
@@ -29,14 +31,12 @@ export function compactResearchMetadata(
 ): ResearchMetadata {
   const value = {
     ...meta,
-    activity: meta.activity
-      .slice(-100)
-      .map((e) => ({
-        ...e,
-        label: e.label.slice(0, 320),
-        ...(e.query ? { query: e.query.slice(0, 500) } : {}),
-        ...(e.url ? { url: e.url.slice(0, 2000) } : {}),
-      })),
+    activity: meta.activity.slice(-100).map((e) => ({
+      ...e,
+      label: e.label.slice(0, 320),
+      ...(e.query ? { query: e.query.slice(0, 500) } : {}),
+      ...(e.url ? { url: e.url.slice(0, 2000) } : {}),
+    })),
     audit: meta.audit?.slice(0, 100),
   };
   while (

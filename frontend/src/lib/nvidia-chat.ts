@@ -319,7 +319,7 @@ export async function nvidiaChat(
       let checkpoint: Checkpoint = lease.checkpoint || {
         stage: deep ? "research" : "writing",
       };
-      let researchMetadata:ResearchMetadata=checkpoint.metadata||{version:1,status:'running',plan:[],activity:[]};
+      let researchMetadata:ResearchMetadata=checkpoint.metadata||{version:1,mode:deep?'deep_research':'web_search',status:'running',plan:[],activity:[]};
       let generationMessages = checkpoint.messages || lease.messages;
       // Send multimodal content to NVIDIA, but never checkpoint or persist the image.
       const imageIndex = generationMessages.length - 1;
@@ -569,7 +569,7 @@ export async function nvidiaChat(
             },
           });
           lease.sources = result.sources;
-          researchMetadata={version:1,status:result.complete?'writing':result.stop_reason==='budget'?'paused':'partial',plan:result.plan,activity:result.activity,coverage:result.coverage,limitations:result.limitations,stop_reason:result.stop_reason};
+          researchMetadata={version:1,mode:'deep_research',status:result.complete?'writing':result.stop_reason==='budget'?'paused':'partial',plan:result.plan,activity:result.activity,coverage:result.coverage,limitations:result.limitations,stop_reason:result.stop_reason};
           checkpoint={...checkpoint,research:result.state,metadata:researchMetadata};
           await saveCheckpoint();
           if(result.stop_reason==='budget')throw new Error('Research paused at its execution budget. Resume the saved response to continue the investigation.');
@@ -764,6 +764,7 @@ export async function nvidiaChat(
           activity("verifying","running","Checking citations and numerical evidence");
           const grounded = groundResearchAnswer(content, lease.sources);
           researchMetadata.audit=grounded.audit;
+          researchMetadata.answer_body_length=grounded.text.length;
           activity("verifying","completed","Citation and passage checks recorded; review flagged claims");
           content = grounded.text + grounded.footer;
           emit("answer", {content});

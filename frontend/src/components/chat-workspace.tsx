@@ -1,5 +1,4 @@
 "use client";
-import ResearchActivity from "./research-activity";
 import type {ResearchMetadata} from "@/lib/research-status";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
@@ -59,7 +58,7 @@ const MediaDialog = dynamic(() => import("./media-dialog"));
 const CanvasDialog = dynamic(() => import("./canvas-dialog"));
 const WorkspaceDialog = dynamic(() => import("./workspace-dialog"));
 const ConversationDialog = dynamic(() => import("./conversation-dialog"));
-const ResponseMarkdown = dynamic(() => import("./response-markdown"));
+const ResearchResponse = dynamic(() => import("./research-response"));
 import {
   api,
   streamChat,
@@ -1773,7 +1772,10 @@ export default function ChatWorkspace() {
                       )
                     ) : (
                       <>
-                        <ResponseMarkdown
+                        <ResearchResponse
+                          sources={message.sources}
+                          metadata={message.research_metadata}
+                          status={message.status}
                           content={message.content}
                           animate={Boolean(message.animate) && index === messages.length - 1}
                           streaming={message.status === "generating" && busy && index === messages.length - 1}
@@ -1793,35 +1795,6 @@ export default function ChatWorkspace() {
                                 : "Response interrupted"}
                             </small>
                           )}
-                        <ResearchActivity metadata={message.research_metadata} sources={message.sources} messageStatus={message.status}/>
-                        {!!message.sources?.length && (
-                          <div className="source-links">
-                            {message.sources.map((source, sourceIndex) => (
-                              <details key={source.url}>
-                                <summary>
-                                  {source.citation || sourceIndex + 1}.{" "}
-                                  {source.title} ·{" "}
-                                  {source.read_status === "read"
-                                    ? "Page read"
-                                    : source.read_status === "unavailable"
-                                      ? "Page unavailable · snippet only"
-                                      : "Search snippet"}
-                                </summary>
-                                <a
-                                  href={source.url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                >
-                                  {source.url}
-                                </a>
-                                {source.snippet && <p>{source.snippet}</p>}
-                                {source.duplicate_of&&<p className="source-evidence-note">Similar extracted text to another source; independent corroboration is not established.</p>}
-                                {source.pdf&&<p className="source-evidence-note">PDF: {source.pdf.sampled_pages.join(', ')} of {source.pdf.total_pages} pages sampled. {source.pdf.partial?'The full document was not read.':''}</p>}
-                                {source.passages?.map(p=><blockquote className="web-source-passage" key={p.id}><small>Passage {p.id}{p.page?` · PDF page ${p.page}`:''}</small><p dir="auto">{p.text}</p>{p.page&&<a target="_blank" rel="noopener noreferrer" href={source.url+'#page='+p.page}>Open PDF page {p.page}</a>}</blockquote>)}
-                              </details>
-                            ))}
-                          </div>
-                        )}
                         {message.resumable &&
                           message.id &&
                           message.status !== "complete" &&

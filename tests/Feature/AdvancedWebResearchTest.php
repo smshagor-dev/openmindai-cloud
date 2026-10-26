@@ -130,4 +130,22 @@ class AdvancedWebResearchTest extends TestCase
         $this->postJson('/api/v1/chat/frontend/resume', ['message_id' => $message->id], $headers)->assertOk()->assertJsonPath('checkpoint.metadata.status', 'paused')->assertJsonPath('message_id', $message->id);
         $this->assertDatabaseCount('messages', 2);
     }
+
+    public function test_multilingual_research_metadata_and_bounded_long_checkpoints_survive_without_ascii_escape_false_limits(): void
+    {
+        config(['models.frontend_chat_key' => str_repeat('b', 32)]);
+        Sanctum::actingAs(User::create(['name' => 'Unicode research', 'email' => 'unicode-research@example.org', 'password' => 'Password123!']));
+        $headers = ['X-Chat-Bridge-Key' => str_repeat('b', 32)];
+        $begin = $this->postJson('/api/v1/chat/frontend/begin', ['message' => 'বাংলা গবেষণা', 'deep_research' => true, 'conversation_tools' => true], $headers)->assertOk();
+        $metadata = ['version' => 1, 'mode' => 'deep_research', 'status' => 'running', 'plan' => [], 'activity' => []];
+        for ($i = 0; $i < 100; $i++) {
+            $metadata['activity'][] = ['id' => $i, 'label' => str_repeat('অ', 320), 'query' => str_repeat('ব', 200), 'phase' => 'searching', 'status' => 'completed', 'at' => now()->toIso8601String()];
+        }
+        $this->assertLessThan(200000, strlen(json_encode($metadata, JSON_UNESCAPED_UNICODE)));
+        $this->assertGreaterThan(200000, strlen(json_encode($metadata)));
+        $this->postJson('/api/v1/chat/frontend/checkpoint', ['ticket' => $begin->json('ticket'), 'state' => ['metadata' => $metadata, 'private_context' => str_repeat('x', 1600000)]], $headers)->assertOk();
+        $this->assertSame('deep_research', Message::findOrFail($begin->json('message_id'))->research_metadata['mode']);
+        $this->postJson('/api/v1/chat/frontend/checkpoint', ['ticket' => $begin->json('ticket'), 'state' => ['private_context' => str_repeat('x', 4000001)]], $headers)->assertStatus(413);
+        $this->assertSame(1600000, strlen(Message::findOrFail($begin->json('message_id'))->inference_checkpoint['progress']['private_context']));
+    }
 }

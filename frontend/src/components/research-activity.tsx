@@ -12,6 +12,10 @@ import {
 import type { ResearchMetadata } from "@/lib/research-status";
 import type { Source } from "@/lib/research-loop";
 import { evidenceUrl } from "@/lib/research-evidence";
+import {
+  activeResearchOperations,
+  evidenceCount,
+} from "@/lib/research-sources";
 import "./research-activity.css";
 const stages = [
   ["planning", "Plan"],
@@ -42,6 +46,8 @@ export default function ResearchActivity({
     };
   const running = ["running", "writing"].includes(metadata.status);
   const latest = metadata.activity.at(-1);
+  const active = running ? activeResearchOperations(metadata.activity) : [];
+  const web = metadata.mode === "web_search";
   const checked =
     metadata.audit?.filter((a) => a.status !== "passage_match") || [];
   return (
@@ -64,45 +70,77 @@ export default function ResearchActivity({
           )}
         </span>
         <span>
+          <span className="web-research-mode">
+            {web
+              ? "Web search"
+              : metadata.mode === "deep_research"
+                ? "Deep research"
+                : "Research"}
+          </span>
           <strong>
-            {metadata.status === "complete"
-              ? "Research report ready"
-              : metadata.status === "paused"
-                ? "Research paused · resume available"
-                : metadata.status === "partial"
-                  ? "Report ready · evidence gaps remain"
-                  : metadata.status === "failed"
-                    ? "Research interrupted"
-                    : metadata.status === "cancelled"
-                      ? "Research stopped"
-                      : "Researching your question"}
+            {web
+              ? metadata.status === "complete"
+                ? "Searched the web"
+                : metadata.status === "failed"
+                  ? "Web search interrupted"
+                  : metadata.status === "cancelled"
+                    ? "Web search stopped"
+                    : metadata.status === "partial"
+                      ? "Search complete · limited evidence"
+                      : "Searching the web"
+              : metadata.status === "complete"
+                ? "Research report ready"
+                : metadata.status === "paused"
+                  ? "Research paused · resume available"
+                  : metadata.status === "partial"
+                    ? "Report ready · evidence gaps remain"
+                    : metadata.status === "failed"
+                      ? "Research interrupted"
+                      : metadata.status === "cancelled"
+                        ? "Research stopped"
+                        : "Researching your question"}
           </strong>
           <small>
             {running
-              ? latest?.label || "Preparing the investigation"
-              : `${sources.length} sources · ${sources.filter((s) => s.read_status === "read").length} pages read${checked.length ? ` · ${checked.length} checks need review` : ""}`}
+              ? `${evidenceCount(sources.length, "source")} collected · ${evidenceCount(sources.filter((source) => source.read_status === "read").length, "page")} read`
+              : `${evidenceCount(sources.length, "source")} · ${evidenceCount(sources.filter((s) => s.read_status === "read").length, "page")} read${checked.length ? ` · ${checked.length} checks need review` : ""}`}
           </small>
         </span>
         <ChevronDown size={15} className={expanded ? "rotated" : ""} />
       </button>
-      <div
-        className="web-research-stages"
-        aria-label="Observed research stages"
-      >
-        {stages.map(([phase, label]) => {
-          const observed = metadata.activity.some((e) => e.phase === phase);
-          const active = running && latest?.phase === phase;
-          return (
-            <span
-              key={phase}
-              className={active ? "active" : observed ? "observed" : ""}
-              aria-current={active ? "step" : undefined}
-            >
-              {label}
-            </span>
-          );
-        })}
-      </div>
+      {running && (
+        <div className="web-research-current" aria-live="polite">
+          <span className="web-research-live-dot" />
+          {active.length > 1
+            ? `${active.length} requests running in parallel`
+            : latest?.label || "Preparing research"}
+          {active.slice(-3).map((event) => (
+            <p key={event.operation_id} dir="auto">
+              {event.query || event.url}
+            </p>
+          ))}
+        </div>
+      )}
+      {expanded && (
+        <div
+          className="web-research-stages"
+          aria-label="Observed research stages"
+        >
+          {stages.map(([phase, label]) => {
+            const observed = metadata.activity.some((e) => e.phase === phase);
+            const active = running && latest?.phase === phase;
+            return (
+              <span
+                key={phase}
+                className={active ? "active" : observed ? "observed" : ""}
+                aria-current={active ? "step" : undefined}
+              >
+                {label}
+              </span>
+            );
+          })}
+        </div>
+      )}
       {expanded && (
         <div className="web-research-details">
           {metadata.plan.length > 0 && (

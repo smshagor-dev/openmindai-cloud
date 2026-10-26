@@ -94,7 +94,7 @@ class FrontendChatController
         [, $lease] = $this->lease($r);
         abort_if($lease['done'], 409);
         $d = $r->validate(['state' => 'required|array']);
-        abort_if(! empty($lease['deep_research']) && strlen($r->getContent()) > 1500000, 413, 'Research checkpoint is too large.');
+        abort_if(! empty($lease['deep_research']) && strlen($r->getContent()) > 4000000, 413, 'Research checkpoint is too large.');
         if (! $lease['message_id']) {
             return ['stored' => false];
         }
@@ -106,7 +106,7 @@ class FrontendChatController
             $state['progress'] = $d['state'];
             $updates = ['inference_checkpoint' => $state];
             if (is_array($d['state']['metadata'] ?? null)) {
-                abort_if(strlen(json_encode($d['state']['metadata'])) > 200000, 413, 'Research metadata is too large.');
+                abort_if(strlen(json_encode($d['state']['metadata'], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE)) > 200000, 413, 'Research metadata is too large.');
                 $updates['research_metadata'] = $d['state']['metadata'];
                 $updates['sources'] = array_values(array_filter(array_map(fn ($source) => app(WebEvidence::class)->summary($source), array_slice($d['state']['sources'] ?? [], 0, 60))));
             }
@@ -246,7 +246,7 @@ class FrontendChatController
                         $updates['sources'] = array_values(array_filter(array_map(fn ($source) => app(WebEvidence::class)->summary($source), array_slice($d['sources'], 0, 60))));
                     }
                     if (isset($d['research_metadata'])) {
-                        abort_if(strlen(json_encode($d['research_metadata'])) > 200000, 413, 'Research metadata is too large.');
+                        abort_if(strlen(json_encode($d['research_metadata'], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE)) > 200000, 413, 'Research metadata is too large.');
                         $updates['research_metadata'] = $d['research_metadata'];
                     }
                     $m->fill($updates);
