@@ -94,7 +94,7 @@ export async function runConversationTools(options: ConversationToolOptions) {
   };
   const context = withPromptUnderstanding(options.messages).filter(m=>m.role === "system").map(m=>m.content).join("\n");
   const agent = new ToolLoopAgent({model:provider.chatModel(options.model), tools, stopWhen:[isStepCount(8), () => Boolean(options.webSearchSelected && searched && !hasSearchResults && !searchDeclined)], maxOutputTokens:16384, maxRetries:0,
-    ...(options.model === "nvidia/nemotron-3.5-lightning-30b-a3b" ? {providerOptions:{openmindai:{chat_template_kwargs:{enable_thinking:false}}}} : {}),
+    ...(["nvidia/nemotron-3.5-lightning-30b-a3b", "nvidia/nemotron-3-ultra-550b-a55b"].includes(options.model) ? {providerOptions:{openmindai:{chat_template_kwargs:{enable_thinking:false}}}} : {}),
     prepareStep: () => options.webSearchSelected && !searched && !searchDeclined
       ? {toolChoice:"required",activeTools:["web_search","decline_web_search"]}
       : options.webSearchSelected && hasSearchResults && !readAttempted

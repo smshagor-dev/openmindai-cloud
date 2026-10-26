@@ -34,3 +34,44 @@ test('selected web search uses focused native tools, reads the source and saves 
   assert.equal(finish.status,'complete');
   assert.equal(finish.sources[0].read_status,'read');
 });
+
+test('verified Auto Web Search uses Ultra native tools through the authenticated backend bridge', async () => {
+  const previous=process.env.FRONTEND_CHAT_BRIDGE_KEY;
+  process.env.FRONTEND_CHAT_BRIDGE_KEY='k'.repeat(32);
+  try {
+    const source='https://www.php.net/manual/en/function.array-map.php';
+    const replies=[call('web_search',{query:'PHP array_map official documentation'},'s'),call('read_page',{url:source},'r'),sse({content:`এটি প্রতিটি উপাদানে callback প্রয়োগ করে [1](${source})।`},'stop')];
+    const providerRequests=[];
+    let finish;
+    const response=await nvidiaChat(JSON.stringify({message:'বাংলায় array_map বোঝাও',web_search:true}),
+      'user-session','https://backend/api/v1',new AbortController().signal,{
+        pollMs:100000,
+        fetcher:async(url,init)=>{
+          if(url.endsWith('/public-config')) return Response.json({frontend_inference_route:'backend'});
+          if(url.endsWith('/chat/hosted-models')) return Response.json({data:[{id:'openmindai-lite',last_test_status:'success'},{id:'openmindai-ultra',last_test_status:'success'}]});
+          const body=JSON.parse(init.body);
+          if(url.endsWith('/begin')) return Response.json({ticket:'a'.repeat(64),messages:[{role:'user',content:'বাংলায় array_map বোঝাও'}],message_id:3,sources:[]});
+          if(url.endsWith('/tool')) return Response.json(body.action==='search'?{sources:[{url:source,title:'PHP array_map'}]}:{url:source,read_status:'read',page_text:'array_map applies the callback to array elements.'});
+          if(url.endsWith('/chat/provider')) {
+            assert.equal(init.headers.Authorization,'Bearer user-session');
+            assert.equal(init.headers['X-Chat-Bridge-Key'],'k'.repeat(32));
+            providerRequests.push(body);
+            return replies.shift();
+          }
+          if(url.endsWith('/finish')) {finish=body;return Response.json({stored:true});}
+          if(url.endsWith('/checkpoint')||url.endsWith('/status')) return Response.json({stored:true,cancelled:false});
+          throw Error('Unexpected request');
+        },
+      });
+    const output=await response.text();
+    assert.match(output,/প্রতিটি উপাদানে/);
+    assert.equal(providerRequests.length,3);
+    assert.ok(providerRequests.every(body=>body.model==='nvidia/nemotron-3-ultra-550b-a55b'&&body.chat_template_kwargs?.enable_thinking===false));
+    assert.equal(finish.status,'complete');
+    assert.equal(finish.sources[0].read_status,'read');
+    assert.ok(!output.includes('k'.repeat(32)));
+  } finally {
+    if(previous===undefined) delete process.env.FRONTEND_CHAT_BRIDGE_KEY;
+    else process.env.FRONTEND_CHAT_BRIDGE_KEY=previous;
+  }
+});

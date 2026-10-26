@@ -1,4 +1,4 @@
-import { automaticModels, automaticCoordinator, automaticReasoner, automaticSpecialists } from "./auto-models.ts";
+import { automaticModels, automaticCoordinator, automaticWebCoordinator, automaticReasoner, automaticSpecialists } from "./auto-models.ts";
 import {compactResearchMetadata,type ResearchMetadata} from "./research-status.ts";
 import { duplicateOf, evidenceUrl, groundResearchAnswer } from "./research-evidence.ts";
 import { withPromptUnderstanding } from "./prompt-understanding.ts";
@@ -177,7 +177,8 @@ export async function nvidiaChat(
   if (!selected && !isAuto && !input.resume_message_id && !options.config)
     return Response.json({message: "Unknown hosted model."}, {status: 404});
   const eligibleModels = automaticModels(catalog);
-  const coordinator = automaticCoordinator(eligibleModels);
+  const coordinator = input.web_search && !input.deep_research
+    ? automaticWebCoordinator(eligibleModels) : automaticCoordinator(eligibleModels);
   if (isAuto && !input.resume_message_id && !coordinator)
     return Response.json({message:"No healthy automatic model is available. Retest or configure a chat model."}, {status:503});
   const visionModel = selectVisionModel(isAuto ? eligibleModels : (selected && selectVisionModel([selected]) ? [selected] : catalog));
@@ -516,8 +517,12 @@ export async function nvidiaChat(
               }
               return r.json();
             },
-            decide: async (context) => {
-              const r = await fetcher(endpoint, {
+            decide: async (context, recordRetry) => {
+              // Both attempts share one deadline and cancellation signal.
+              const planningSignal = AbortSignal.any([
+                upstreamAbort.signal, AbortSignal.timeout(110000),
+              ]);
+              const requestDecision = () => fetcher(endpoint, {
                 method: "POST",
                 redirect: "error",
                 cache: "no-store",
@@ -550,11 +555,16 @@ export async function nvidiaChat(
                     ? { chat_template_kwargs: { enable_thinking: false } }
                     : {}),
                 }),
-                signal: AbortSignal.any([
-                  upstreamAbort.signal,
-                  AbortSignal.timeout(110000),
-                ]),
+                signal: planningSignal,
               });
+              let r = await requestDecision();
+              if ([502, 503, 504].includes(r.status)) {
+                await r.body?.cancel();
+                await recordRetry();
+                await new Promise(resolve => setTimeout(resolve, 300));
+                planningSignal.throwIfAborted();
+                r = await requestDecision();
+              }
               if (r.status !== 200)
                 throw new Error(
                   r.status === 429
