@@ -1,3 +1,4 @@
+import {researchRoute,researchDownload} from '@/lib/research-proxy';
 import { createHmac } from "node:crypto";
 import {
   nvidiaChat,
@@ -43,7 +44,7 @@ async function proxy(
 ) {
   const { path } = await context.params;
   const endpoint = path.join("/");
-  if (!routes[request.method]?.test(endpoint))
+  if (!routes[request.method]?.test(endpoint) && !researchRoute(request.method, endpoint))
     return NextResponse.json({ message: "Not found." }, { status: 404 });
   if (!["GET", "HEAD"].includes(request.method)) {
     // Each Vercel preview has its own origin. A production-only FRONTEND_URL
@@ -91,7 +92,9 @@ async function proxy(
         size += value.byteLength;
         if (
           size >
-          (endpoint === "media" || endpoint === "media/image" || endpoint === "live/input" || endpoint === "media/transcription"
+          (endpoint.startsWith("research/")
+            ? 12_000_000
+            : endpoint === "media" || endpoint === "media/image" || endpoint === "live/input" || endpoint === "media/transcription"
             ? 11_000_000
             : endpoint === "chat/stream" && nvidiaEnabled()
               ? 6_000_000 // one 4 MB image plus conversation metadata
@@ -187,6 +190,9 @@ async function proxy(
   try {
     const url = new URL(`${base.replace(/\/$/, "")}/${endpoint}`);
     // Only a numeric page parameter reaches Laravel; clients cannot choose an upstream URL.
+    const before=request.nextUrl.searchParams.get('before');if(researchRoute(request.method,endpoint)&&before&&/^\d{1,15}$/.test(before))url.searchParams.set('before',before);
+    const after = request.nextUrl.searchParams.get("after");
+    if (researchRoute(request.method, endpoint) && after && /^\d{1,15}$/.test(after)) url.searchParams.set("after",after);
     const page = request.nextUrl.searchParams.get("page");
     if (page && /^\d{1,6}$/.test(page)) url.searchParams.set("page", page);
     for (const key of ["q", "project_id", "archived", "kind"]) {
@@ -229,6 +235,12 @@ async function proxy(
           "X-Accel-Buffering": "no",
         },
       });
+    }
+    if (upstream.ok && researchDownload(endpoint)) {
+      const mime = upstream.headers.get('content-type')?.split(';')[0] || '';
+      const formats:Record<string,string>={'application/pdf':'pdf','application/zip':'zip','application/vnd.openxmlformats-officedocument.wordprocessingml.document':'docx','text/plain':'txt','text/markdown':'md','text/csv':'csv','image/png':'png','image/jpeg':'jpg','application/octet-stream':'bin'};
+      if (!formats[mime]) return NextResponse.json({message:'Invalid research download format.'},{status:502});
+      return new NextResponse(upstream.body,{headers:{'Content-Type':mime,'Content-Disposition':`attachment; filename="research-${endpoint.split('/').at(-2)}.${formats[mime]}"`,'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}});
     }
     if (upstream.ok && /^media\/\d+\/output$/.test(endpoint)) {
       const mime = upstream.headers.get("content-type")?.split(";")[0];

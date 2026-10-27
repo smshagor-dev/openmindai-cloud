@@ -1,4 +1,5 @@
 "use client";
+import type {ResearchMetadata} from "@/lib/research-status";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   ArrowUp,
@@ -57,7 +58,7 @@ const MediaDialog = dynamic(() => import("./media-dialog"));
 const CanvasDialog = dynamic(() => import("./canvas-dialog"));
 const WorkspaceDialog = dynamic(() => import("./workspace-dialog"));
 const ConversationDialog = dynamic(() => import("./conversation-dialog"));
-const ResponseMarkdown = dynamic(() => import("./response-markdown"));
+const ResearchResponse = dynamic(() => import("./research-response"));
 import {
   api,
   streamChat,
@@ -849,6 +850,7 @@ export default function ChatWorkspace() {
               `Saved ${Number(data.saved)} new memory. Manage it in Memory settings.`,
             );
           if (event === "research") {
+            if(data.metadata)setMessages(previous=>previous.map((m,i)=>i===previous.length-1?{...m,research_metadata:data.metadata as ResearchMetadata}:m));
             setResearchProgress(String(data.label));
             if (Array.isArray(data.sources))
               setMessages((previous) =>
@@ -1278,6 +1280,7 @@ export default function ChatWorkspace() {
             )}
             {user && (
               <>
+                <a className="sidebar-action" href="/research-studio"><BookOpen size={19} /><span>AI Research Studio</span></a>
                 <button
                   className="sidebar-action"
                   disabled={busy}
@@ -1769,7 +1772,10 @@ export default function ChatWorkspace() {
                       )
                     ) : (
                       <>
-                        <ResponseMarkdown
+                        <ResearchResponse
+                          sources={message.sources}
+                          metadata={message.research_metadata}
+                          status={message.status}
                           content={message.content}
                           animate={Boolean(message.animate) && index === messages.length - 1}
                           streaming={message.status === "generating" && busy && index === messages.length - 1}
@@ -1782,38 +1788,13 @@ export default function ChatWorkspace() {
                         />
                         {message.status &&
                           message.status !== "complete" &&
-                          message.status !== "generating" && (
+                          message.status !== "generating" && message.research_metadata?.status !== "paused" && (
                             <small className="muted">
                               {message.status === "cancelled"
                                 ? "Stopped"
                                 : "Response interrupted"}
                             </small>
                           )}
-                        {!!message.sources?.length && (
-                          <div className="source-links">
-                            {message.sources.map((source, sourceIndex) => (
-                              <details key={source.url}>
-                                <summary>
-                                  {source.citation || sourceIndex + 1}.{" "}
-                                  {source.title} ·{" "}
-                                  {source.read_status === "read"
-                                    ? "Page read"
-                                    : source.read_status === "unavailable"
-                                      ? "Page unavailable · snippet only"
-                                      : "Search snippet"}
-                                </summary>
-                                <a
-                                  href={source.url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                >
-                                  {source.url}
-                                </a>
-                                {source.snippet && <p>{source.snippet}</p>}
-                              </details>
-                            ))}
-                          </div>
-                        )}
                         {message.resumable &&
                           message.id &&
                           message.status !== "complete" &&
@@ -2262,7 +2243,7 @@ ${source.read_status === "read" ? "Page read" : "Snippet only"}`,
           onResearch={() => {
             if (!searchAvailable) {
               setError(
-                "Web research needs a configured search service. Ask your administrator to enable SearXNG.",
+                "Web research needs an available search provider. Retry or ask your administrator to check search configuration.",
               );
               setToolsOpen(null);
               return;

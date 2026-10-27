@@ -132,7 +132,9 @@ test("Next server connects directly to NVIDIA and persists only final answer to 
   );
   assert.ok(provider.body.messages[0].content.includes("PRIVATE CONTEXT"));
   const done = f.calls.find((x) => x.url.endsWith("/finish"));
-  assert.equal(done.body.content, "Hello");
+  assert.ok(done.body.content.startsWith("Hello\n\nSources"));
+  assert.match(done.body.content,/Evidence coverage: 0 sources/);
+  assert.equal(done.body.research_metadata.status,"partial");
   assert.equal(done.body.status, "complete");
   assert.equal(done.options.headers.Authorization, "Bearer user-token");
   assert.equal(done.options.headers["X-Chat-Bridge-Key"], config.bridgeKey);
@@ -142,6 +144,50 @@ test("Next server connects directly to NVIDIA and persists only final answer to 
     true,
   );
 });
+test("research coordinator bounds provider output and limits thinking controls to verified models", async () => {
+  for (const [model_id, thinking] of [[-3, false], [-1, false], [-2, undefined]]) {
+    const f = fixture();
+    const response = await nvidiaChat(
+      JSON.stringify({message: "Investigate evidence", deep_research: true, model_id}),
+      "user-token", "https://backend/api/v1", new AbortController().signal,
+      {...f, config},
+    );
+    await response.text();
+    const planning = f.calls.filter(call => call.url.includes("nvidia.com") && call.body.stream === false);
+    assert.ok(planning.length > 0);
+    for (const call of planning) {
+      assert.equal(call.body.max_tokens, 2048);
+      assert.equal(call.body.chat_template_kwargs?.enable_thinking, thinking);
+    }
+  }
+});
+
+test("temporary planner errors retry once with the same deadline and retain an auditable failure when both attempts fail", async () => {
+  for (const failures of [1, 2]) {
+    const f = fixture();
+    let attempts = 0;
+    const signals = [];
+    const response = await nvidiaChat(
+      JSON.stringify({message:"Investigate evidence",deep_research:true,model_id:-3}),
+      "user-token","https://backend/api/v1",new AbortController().signal,
+      {config,fetcher:async(url,init)=>{
+        if(url.includes("nvidia.com") && JSON.parse(init.body).stream===false){
+          attempts++;signals.push(init.signal);
+          if(attempts<=failures) return new Response("unavailable",{status:503});
+        }
+        return f.fetcher(url,init);
+      }},
+    );
+    await response.text();
+    assert.equal(attempts,2);
+    assert.equal(signals[0],signals[1]);
+    const saved=f.calls.find(call=>call.url.endsWith("/finish")).body;
+    assert.equal(saved.status,failures===1?"complete":"failed");
+    assert.ok(saved.research_metadata.activity.some(event=>event.status==="failed"&&event.label.includes("retrying once")));
+    assert.ok(f.calls.some(call=>call.url.endsWith("/checkpoint")&&call.body.state.research?.activity?.some(event=>event.label.includes("retrying once"))));
+  }
+});
+
 test("truncated provider response saves partial answer with failed status", async () => {
   const f = fixture({ truncated: true });
   const r = await nvidiaChat(
