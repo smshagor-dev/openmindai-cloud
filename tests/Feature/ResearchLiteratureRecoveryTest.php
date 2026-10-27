@@ -180,7 +180,12 @@ class ResearchLiteratureRecoveryTest extends TestCase
         $this->drain($run);
         $data = Finding::where('project_id', $source->project_id)->sole()->data;
         $this->assertSame('completed', $run->fresh()->status);
-        $this->assertSame($legacy, $data['analyses'][0]);
+        $retained = $data['analyses'][0];
+        // JSON object key order is not preserved by MySQL. Keep value types
+        // and nested analysis/list order strict when checking preservation.
+        ksort($legacy);
+        ksort($retained);
+        $this->assertSame($legacy, $retained);
         $this->assertCount(2, $data['analyses']);
         $this->assertSame(1, $data['coverage']['quote_tracked_chunks']);
         $this->assertSame(0, Task::where('run_id', $run->id)->sole()->errors);
