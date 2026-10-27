@@ -43,15 +43,16 @@ const codeIntent = /(?:\b(?:html|css|javascript|typescript|python|laravel|react|
 const question = /^(?:how|why|what|when|where|explain|tell me about|show me how|tell me how)\b|^(?:কিভাবে|কীভাবে|কেন|কি ভাবে|kivabe|kibhabe)/iu;
 const textTask = /^(?:(?:please|can you|could you)\s+)?(?:summari[sz]e|rewrite|translate|classify|review|analy[sz]e|describe|explain|compare|write (?:a|an|the) (?:script|prompt|guide|speech))\b|^(?:অনুবাদ|ব্যাখ্যা|সারসংক্ষেপ)/iu;
 const noMedia = /(?:\b(?:do not|don't|never|without|no need to)\s+(?:(?:generate|create|make|draw|produce|render)\s+)?(?:an?\s+)?(?:image|picture|video|audio|pdf|file)|(?:ছবি|ভিডিও|অডিও|ফাইল).{0,24}(?:করো না|বানিও না|বানাবে না|লাগবে না)|(?:image|chobi|video|audio|file).{0,20}(?:korba na|koro na|lagbe na))/iu;
-function certainMedia(text: string): {kind: RouteKind; format?: "pdf" | "docx"} | null {
+export function generationIntent(text: string): {kind: Exclude<RouteKind, "chat">; format?: "pdf" | "docx"} | null {
   const p = text.toLowerCase().trim().replace(/\s+/g, " ");
   if (question.test(p) || textTask.test(p) || noMedia.test(p)) return null;
-  const make = /(?:\b(?:generate|create|make|draw|produce|render|design|synthesize|convert|export|save)\b|বানাও|তৈরি|আঁকো|জেনারেট|banao|banaw|toiri koro|tori koro|make koro|generate koro)/iu;
-  const file = /(?:\b(?:pdf|docx|word document|downloadable document|document file)\b|পিডিএফ|ডকুমেন্ট)/iu;
+  const make = /(?:\b(?:generate|create|make|draw|produce|render|design|synthesize|convert|export|save)\b|বানাও|বানিয়ে|বানিয়ে|তৈরি|আঁকো|জেনারেট|banao|banaw|toiri koro|tori koro|make koro|generate koro)/iu;
+  const file = /(?:\b(?:pdf|docx?|word document|downloadable document|document(?: file)?)\b|পিডিএফ|ডকুমেন্ট)/iu;
   if (codeIntent.test(p) && !(file.test(p) && !/\b(?:api|function|script|source code|code to|code for|endpoint|library)\b/iu.test(p))) return null;
   if (/\b(?:read (?:this|it|the text) aloud|say (?:this|it) aloud)\b|পড়ে শোনাও|পড়ে শোনাও/iu.test(p)) return {kind: "speech"};
   const give = /(?:\b(?:give|provide|download)\b|দাও|দিন|\bdaw\b|\bdao\b)/iu;
-  if (!(make.test(p) || (file.test(p) && give.test(p)))) return null;
+  const visual = /(?:\b(?:image|picture|photo|logo|poster)\b|ছবি|চিত্র|ফটো|লোগো|chobi)/iu;
+  if (!(make.test(p) || ((file.test(p) || visual.test(p)) && give.test(p)))) return null;
   if (/\b(?:video|audio|image)\s+(?:script|prompt|guide|tutorial|description|generation|processing|pipeline|workflow|system)\b|\b(?:transcription|speech.to.text|audio.to.text)\b/iu.test(p)) return null;
   if (file.test(p)) return {kind: "document_create", format: /(?:\bpdf\b|পিডিএফ)/iu.test(p) ? "pdf" : "docx"};
   if (/(?:\b(?:video|movie clip|animated clip|animation)\b|ভিডিও|অ্যানিমেশন)/iu.test(p)) return {kind: "video"};
@@ -91,7 +92,7 @@ export async function routePrompt(prompt: string, cfg: RouterConfig, opt: Option
   if (opt.hasImage) return {kind: "chat", model: cfg.visionModel || VISION};
   if (!text) return defaultRoute;
   if (opt.allowTools !== false && !opt.hasAttachments && !defaultRoute.deepResearch && !defaultRoute.webSearch) {
-    const media = certainMedia(text);
+    const media = generationIntent(text);
     if (media) return {...defaultRoute, ...media};
   }
   return defaultRoute;

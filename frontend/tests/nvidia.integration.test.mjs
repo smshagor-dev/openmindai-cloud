@@ -485,7 +485,7 @@ test("missing model selection defaults to Auto, while explicit choices suppress 
       {message:"Debug my app", expected:"nvidia/nemotron-3.5-lightning-30b-a3b", tools:true},
       {message:"latest news", expected:"nvidia/nemotron-3.5-lightning-30b-a3b", tools:true},
       {message:"deep research on UAV security", expected:"nvidia/nemotron-3.5-lightning-30b-a3b", tools:true},
-      {message:"Create a photo", model_id:-1, expected:config.model},
+      {message:"Explain photo composition", model_id:-1, expected:config.model},
     ]) {
       const f = fixture({providerUrl:"https://backend/api/v1/chat/provider", providerAuthorization:"Bearer user-token"});
       const fetcher = async (url, init) => {
@@ -509,7 +509,7 @@ test("missing model selection defaults to Auto, while explicit choices suppress 
 });
 
 
-test("Auto displays an accepted image task and tells the model it is queued, not failed", async () => {
+test("a clear image request executes once without relying on a text model and persists its queued task", async () => {
   const previous = process.env.FRONTEND_CHAT_BRIDGE_KEY;
   process.env.FRONTEND_CHAT_BRIDGE_KEY = "k".repeat(32);
   const f = fixture();
@@ -534,13 +534,70 @@ test("Auto displays an accepted image task and tells the model it is queued, not
     const body = await response.text();
     assert.match(body,/event: artifact/);
     assert.match(body,/"id":74/);
-    assert.equal(streams,2);
-    const toolResult = JSON.stringify(generation[1].messages.filter(message=>message.role==="tool"));
-    assert.match(toolResult,/queued/);
-    assert.match(toolResult,/Do not retry generation/);
-    assert.doesNotMatch(toolResult,/"ok":false/);
+    assert.equal(streams,0);
+    assert.match(body,/request was accepted/);
+    assert.doesNotMatch(body,/Created\. Preview/);
+    const finish = f.calls.find(call => call.url.endsWith("/finish"));
+    assert.match(finish.body.content, /\[View generated image\]\(\/api\/backend\/media\/74\/output\)/);
+    const checkpoint = f.calls.find(call => call.url.endsWith("/checkpoint") && call.body.state.content?.includes("/media/74/output"));
+    assert.ok(checkpoint, "accepted task is checkpointed before returning its ID");
   } finally {
     if (previous === undefined) delete process.env.FRONTEND_CHAT_BRIDGE_KEY;
     else process.env.FRONTEND_CHAT_BRIDGE_KEY = previous;
   }
+});
+
+test("manual tools and typed generation work with an explicitly selected text model without a refusal or duplicate request", async () => {
+  for (const scenario of [
+    {message:"একটি সুন্দর ছবি বানিয়ে দাও",model_id:-3},
+    {message:"A lake at sunrise",model_id:-1,generation_kind:"image"},
+  ]) {
+    const f = fixture(); let created = 0;
+    const response = await nvidiaChat(JSON.stringify(scenario),"user-token","https://backend/api/v1",new AbortController().signal,{
+      config,pollMs:100000,fetcher:async(url,init) => {
+        if (url.endsWith("/media/cloud-image")) {created++;assert.equal(init.headers.Authorization,"Bearer user-token");return Response.json({id:91,ids:[91],status:"queued"},{status:202});}
+        return f.fetcher(url,init);
+      },
+    });
+    const stream = await response.text();
+    assert.equal(created,1);
+    assert.match(stream,/event: artifact/);
+    assert.doesNotMatch(stream,/Sorry|cannot generate|Created\. Preview/);
+    assert.match(f.calls.find(call=>call.url.endsWith("/finish")).body.content,/\/media\/91\/output/);
+    assert.equal(f.calls.some(call=>call.url.includes("nvidia.com")),false);
+  }
+});
+
+test("document creation in chat renders real PDF and DOCX bytes and persists its preview link", async () => {
+  for (const format of ["pdf","docx"]) {
+    const f=fixture(); let output;
+    const response=await nvidiaChat(JSON.stringify({model_id:-3,message:`Create a ${format} document about trees`,generation_kind:"document_create"}),"token","https://backend/api/v1",new AbortController().signal,{
+      config,pollMs:100000,fetcher:async(url,init)=>{
+        if(url.endsWith("/media/hosted/task/begin"))return Response.json({id:92});
+        if(url.endsWith("/chat/completions"))return Response.json({choices:[{message:{content:"Tree report\n\nTrees absorb carbon dioxide."}}]});
+        if(url.endsWith("/media/92/hosted/task/complete")){output=JSON.parse(init.body);return Response.json({id:92,status:"complete"});}
+        return f.fetcher(url,init);
+      },
+    });
+    const stream=await response.text();
+    assert.ok(output,stream);
+    const bytes=Buffer.from(output.data,"base64");
+    assert.equal(bytes.subarray(0,format==="pdf"?5:2).toString(),format==="pdf"?"%PDF-":"PK");
+    assert.match(f.calls.find(call=>call.url.endsWith("/finish")).body.content,/View generated document.*\/media\/92\/output/);
+    assert.match(stream,/Created\. Preview/);
+  }
+});
+
+test("generation errors never fabricate an artifact and invalid tool selections create no tasks", async () => {
+  const f=fixture(); let creates=0;
+  const fetcher=async(url,init)=>{
+    if(url.endsWith("/media/cloud-image")){creates++;return Response.json({message:"Unavailable"},{status:503});}
+    return f.fetcher(url,init);
+  };
+  const response=await nvidiaChat(JSON.stringify({message:"Generate an image",model_id:-1}),"token","https://backend/api/v1",new AbortController().signal,{config,fetcher,pollMs:100000});
+  const stream=await response.text();
+  assert.equal(creates,1);assert.match(stream,/event: error/);assert.doesNotMatch(stream,/event: artifact/);
+  assert.equal(f.calls.find(call=>call.url.endsWith("/finish")).body.status,"failed");
+  const invalid=await nvidiaChat(JSON.stringify({message:"A tree",generation_kind:"http://internal"}),"token","https://backend/api/v1",new AbortController().signal,{config,fetcher});
+  assert.equal(invalid.status,422);assert.equal(creates,1);
 });
