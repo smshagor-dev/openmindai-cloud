@@ -1,4 +1,71 @@
 import { test, expect } from "@playwright/test";
+import { renderDocx } from "../src/lib/document-files";
+
+for (const width of [1440, 768, 375, 320]) {
+  for (const kind of ["image", "document_create"] as const) {
+    test(`chat creation, reload and Library preview: ${kind} at ${width}px`, async ({page}) => {
+      await page.setViewportSize({width,height:1000});
+      const mime = kind === "image" ? "image/png" : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+      const bytes = kind === "image" ? Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/ZxoAAAAASUVORK5CYII=", "base64") : renderDocx("Tree report\n\nTrees absorb carbon dioxide.");
+      const conversation = {id:44,title:"Creation browser fixture",updated_at:"2026-10-27T12:00:00Z"};
+      let saved=false, submits=0, polls=0;
+      const content=`Your request was accepted.\n\n[View generated ${kind === "image" ? "image" : "document"}](/api/backend/media/91/output)`;
+      const prompt=kind === "image" ? "A forest at sunrise" : "Create a Word document about trees";
+      await page.route("**/api/backend/**", async route => {
+        const path=new URL(route.request().url()).pathname.replace("/api/backend/", "");
+        const json=(value:unknown)=>route.fulfill({json:value});
+        if(path==="me")return json({id:1,name:"Generation tester",email:"fixture@example.test",email_verified_at:"2026-10-27"});
+        if(path==="models")return json([{id:-3,name:"OpenMindAI Ultra",family:"Chat"}]);
+        if(path==="preferences")return json({theme:"dark",reduced_motion:true,send_on_enter:true});
+        if(path==="capabilities")return json({media:["image","document_create"],image_generation:true});
+        if(path==="media/91/output")return route.fulfill({contentType:mime,body:bytes});
+        if(path==="media/91")return json({id:91,kind,status:++polls===1?"queued":"complete",progress_stage:polls===1?"queued":"complete",output_mime:polls===1?null:mime,result_text:null,error:null});
+        if(path==="media")return json({data:[{id:91,kind,status:"complete",output_mime:mime,prompt,result_text:null}],last_page:1,current_page:1});
+        if(path==="attachments")return json({data:[],last_page:1,current_page:1});
+        if(path.startsWith("conversations/44"))return json({conversation,messages:{data:[{id:90,role:"user",content:prompt},{id:92,role:"assistant",content,status:"complete"}],current_page:1,last_page:1}});
+        if(path==="conversations")return json({data:saved?[conversation]:[],current_page:1,last_page:1});
+        if(path==="chat/stream") {
+          submits++; saved=true;
+          const payload=route.request().postDataJSON();
+          if(kind==="image")expect(payload.generation_kind).toBe("image");
+          else expect(payload.generation_kind).toBeUndefined();
+          expect(payload.model_id).toBe(-3);
+          const events=[["meta",{conversation_id:44,user_message_id:90,message_id:92,sources:[]}],["artifact",{id:91,kind,status:"queued"}],["delta",{content}],["done",{status:"complete",saved:true}]];
+          return route.fulfill({contentType:"text/event-stream",body:events.map(([event,data])=>`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`).join("")});
+        }
+        return json([]);
+      });
+      await page.goto("/");
+      const input=page.getByRole("textbox",{name:"Message",exact:true});
+      await expect(page.getByRole("button",{name:"Send message",exact:true})).toBeDisabled();
+      if(kind==="image") {
+        await page.locator(".composer-tools summary").click();
+        await page.getByRole("button",{name:/^Create image/}).click();
+        await expect(page.getByRole("dialog")).toHaveCount(0);
+        await expect(input).toBeFocused();
+      }
+      await input.fill(prompt);
+      await page.getByRole("button",{name:"Send message",exact:true}).click();
+      await expect(page.locator(".user-bubble")).toContainText(prompt);
+      await expect(page.getByRole("region",{name:kind==="image"?"Creating image":"Creating document",exact:true})).toBeVisible();
+      if(kind==="image")await expect(page.getByRole("img",{name:"Generated image; open full size"})).toBeVisible();
+      else await expect(page.locator(".document-preview .file-text-preview")).toContainText("Trees absorb carbon dioxide.");
+      await page.reload();
+      if(kind==="image")await expect(page.getByRole("img",{name:"Generated image; open full size"})).toBeVisible();
+      else await expect(page.locator(".document-preview .file-text-preview")).toContainText("Tree report");
+      expect(submits).toBe(1);
+      expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+      await page.screenshot({path:`test-results/chat-generation-${kind}-${width}.png`,fullPage:true});
+      await page.locator(".composer-tools summary").click();
+      await page.getByRole("button",{name:/^Add from library/}).click();
+      const thumbnail=page.locator(".library-media-thumbnail");
+      await expect(thumbnail).toBeVisible();
+      if(kind==="image")await expect(thumbnail.locator("img")).toBeVisible();
+      else await expect(thumbnail.locator(".file-text-preview")).toContainText("Trees absorb carbon dioxide.");
+      expect(await thumbnail.evaluate(el=>el.getBoundingClientRect().height)).toBeLessThanOrEqual(160);
+    });
+  }
+}
 // Browser fixtures exercise the production React UI and SSE parser. Provider and
 // database boundaries are tested separately; these are not live-provider tests.
 for (const width of [1920, 1440, 1280, 1024, 768, 430, 375, 320]) {

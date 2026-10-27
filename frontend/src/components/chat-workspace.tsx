@@ -43,6 +43,7 @@ import {
 import dynamic from "next/dynamic";
 import Image from "next/image";
 import CreationProgress from "./creation-progress";
+import { generatedMediaIds } from "@/lib/chat-artifacts";
 import TypingIndicator from "./typing-indicator";
 import ModelPicker from "./model-picker";
 import Dialog from "./dialog";
@@ -54,7 +55,6 @@ const FilePreview = dynamic(() => import("./file-preview"));
 const InlineMedia = dynamic(() => import("./inline-media"));
 const AuthDialog = dynamic(() => import("./auth-dialog"));
 const AccountDialog = dynamic(() => import("./account-dialog"));
-const MediaDialog = dynamic(() => import("./media-dialog"));
 const CanvasDialog = dynamic(() => import("./canvas-dialog"));
 const WorkspaceDialog = dynamic(() => import("./workspace-dialog"));
 const ConversationDialog = dynamic(() => import("./conversation-dialog"));
@@ -155,7 +155,6 @@ export default function ChatWorkspace() {
   const [memoryNotice, setMemoryNotice] = useState("");
   const [searchTimeRange, setSearchTimeRange] = useState("");
   const [canvasInitial, setCanvasInitial] = useState<string | null>(null);
-  const [mediaOpen, setMediaOpen] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [projectToolOpen, setProjectToolOpen] = useState(false);
   const [browserTabLinksOpen, setBrowserTabLinksOpen] = useState(false);
@@ -236,7 +235,6 @@ export default function ChatWorkspace() {
     setWorkspaceOpen(false);
     setProjectToolOpen(false);
     setBrowserTabLinksOpen(false);
-    setMediaOpen(false);
     setToolsOpen(null);
     setFilePreview(null);
     setInlineImage(null);
@@ -709,34 +707,8 @@ export default function ChatWorkspace() {
       }
       return;
     }
-    if (mediaMode !== "chat" && !override && !inlineImage) {
-      if (!mediaKinds.includes(mediaMode))
-        return setError("This media engine is not configured.");
-      if (text.length > 4000)
-        return setError("Media prompts must be at most 4000 characters.");
-      const controller = new AbortController();
-      generationRef.current = controller;
-      setBusy(true);
-      setPendingCreation(mediaMode);
-      setError("");
-      try {
-        const task = await api<{ id: number }>(
-          ["image", "speech", "video", "document_create"].includes(mediaMode) ? "media/" + mediaMode : "media",
-          "POST",
-          { kind: mediaMode, prompt: text, ...(mediaMode === "document_create" ? { format: "docx" } : {}) },
-          controller.signal,
-        );
-        if (!controller.signal.aborted) {
-          setInlineMedia((ids) => [...ids, task.id]);
-          setDraft("");
-        }
-      } catch (e) {
-        report(e);
-      } finally {
-        if (generationRef.current === controller) {setBusy(false); setPendingCreation(null); generationRef.current = null;}
-      }
-      return;
-    }
+    if (mediaMode !== "chat" && !override && !inlineImage && !mediaKinds.includes(mediaMode))
+      return setError("This media engine is not configured.");
     if (inlineImage && !models.some((m) => m.id === -2)) {
       setError("Image chat requires OpenMindAI hosted vision to be enabled.");
       return;
@@ -772,6 +744,7 @@ export default function ChatWorkspace() {
             : {}),
           ...(assistant ? { assistant_id: assistant.id } : {}),
           message: text,
+          ...(!override && mediaMode !== "chat" ? {generation_kind: mediaMode} : {}),
           ...(!override && inlineImage ? {image: {mime: inlineImage.mime, data: inlineImage.data}} : {}),
           ...(id ? { conversation_id: id } : {}),
           ...(projectId ? { project_id: projectId } : {}),
@@ -795,13 +768,13 @@ export default function ChatWorkspace() {
           if (event === "creation") setPendingCreation(data.status === "running" ? String(data.kind) : null);
           if (event === "artifact" && Number.isSafeInteger(data.id) && Number(data.id) > 0) {
             setPendingCreation(null);
-            setInlineMedia((ids) => ids.includes(Number(data.id)) ? ids : [...ids, Number(data.id)]);
+            // The next delta contains the persisted task link, rendered in its
+            // assistant turn rather than a transient workspace-only list.
           }
           if (event === "media" && Number.isSafeInteger(data.id) && Number(data.id) > 0) {
-            // A media task is stored in the existing private Library, not as a text chat turn.
+            // Compatibility with older media events: preserve the submitted turn.
             autoMedia = true;
             setInlineMedia((ids) => [...ids, Number(data.id)]);
-            setMessages(history);
           }
           if (event === "meta") {
             receivedMeta = true;
@@ -1027,6 +1000,15 @@ export default function ChatWorkspace() {
       report(e);
     }
   }
+  function selectGenerationTool(kind: string) {
+    composerToolsRef.current?.removeAttribute("open");
+    setToolMenuOpen(false);
+    if (!user) {setAuthOpen(true); return;}
+    if (kind !== "chat" && !mediaKinds.includes(kind)) {setError("This generation tool is unavailable."); return;}
+    setMediaMode(kind);
+    setWebSearch(false); setDeepResearch(false);
+    inputRef.current?.focus();
+  }
   function selectWelcomeTool(action: WelcomeToolAction) {
     composerToolsRef.current?.removeAttribute("open");
     if (action === "tabs") {
@@ -1039,9 +1021,8 @@ export default function ChatWorkspace() {
     }
     if (action === "files") fileRef.current?.click();
     if (action === "library") setToolsOpen("library");
-    if (action === "image") {
-      if (mediaKinds.includes("image")) setMediaOpen(true);
-      else setError("Image generation needs a configured image runtime.");
+    if (action === "image" || action === "document") {
+      selectGenerationTool(action === "image" ? "image" : "document_create");
     }
     if (action === "project") {
       setProjectToolOpen(true);
@@ -1296,7 +1277,7 @@ export default function ChatWorkspace() {
                   className="sidebar-action"
                   disabled={busy}
                   onClick={() => {
-                    setMediaOpen(true);
+                    selectGenerationTool("image");
                     setSidebarOpen(false);
                   }}
                 >
@@ -1786,6 +1767,11 @@ export default function ChatWorkspace() {
                               : undefined
                           }
                         />
+                        {generatedMediaIds(message.content).map(id => (
+                          <div className="generated-media-content" key={id}>
+                            <InlineMedia id={id} onText={setDraft} />
+                          </div>
+                        ))}
                         {message.status &&
                           message.status !== "complete" &&
                           message.status !== "generating" && message.research_metadata?.status !== "paused" && (
@@ -1977,8 +1963,8 @@ ${source.read_status === "read" ? "Page read" : "Snippet only"}`,
           )}
           {mediaMode !== "chat" && (
             <p className="muted">
-              Media tasks are saved separately in Library. They are not
-              temporary chat messages.
+              {mediaMode === "document_create" ? "Document creation" : `Create ${mediaMode}`} selected. Describe it below; the result appears in this chat and Library.
+              <button type="button" onClick={() => selectGenerationTool("chat")}>Clear tool</button>
             </p>
           )}
           <form
@@ -2104,7 +2090,7 @@ ${source.read_status === "read" ? "Page read" : "Snippet only"}`,
                   imageAvailable={mediaKinds.includes("image")}
                   mediaKinds={mediaKinds}
                   mediaMode={mediaMode}
-                  onMediaMode={setMediaMode}
+                  onMediaMode={selectGenerationTool}
                   webSearch={webSearch}
                   deepResearch={deepResearch}
                   searchTimeRange={searchTimeRange}
@@ -2300,21 +2286,6 @@ ${source.read_status === "read" ? "Page read" : "Snippet only"}`,
             </button>
           ))}
         </Dialog>
-      )}
-      {mediaOpen && (
-        <MediaDialog
-          initialKind="image"
-          onClose={() => setMediaOpen(false)}
-          onUse={(text) => {
-            setDraft(text);
-            setMediaOpen(false);
-            setToolsOpen(null);
-            setFilePreview(null);
-            setInlineMedia([]); setPendingCreation(null);
-            setAssistant(null);
-            setBranches(null);
-          }}
-        />
       )}
       {workspaceOpen && (
         <WorkspaceDialog

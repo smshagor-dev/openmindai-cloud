@@ -5,6 +5,7 @@ import { withPromptUnderstanding } from "./prompt-understanding.ts";
 import { runConversationTools } from "./conversation-tools.ts";
 import { generateHostedImage } from "./hosted-image.ts";
 import { hostedMediaRequest } from "./hosted-media.ts";
+import { generationIntent, generationNeedsContext } from "./prompt-router.ts";
 import { parseInlineImage, imageMessage } from "./vision-input.ts";
 import {
   ResearchToolUnavailableError,
@@ -146,6 +147,11 @@ export async function nvidiaChat(
     return rawFetch(url, init);
   };
   const input = JSON.parse(body);
+  const generationKinds = ["image", "speech", "video", "document_create"] as const;
+  if (input.generation_kind !== undefined && !generationKinds.includes(input.generation_kind))
+    return Response.json({message:"Unknown generation tool."}, {status:422});
+  if (input.generation_format !== undefined && !["pdf", "docx"].includes(input.generation_format))
+    return Response.json({message:"Unsupported document format."}, {status:422});
   let inlineImage: ReturnType<typeof parseInlineImage>;
   try {
     inlineImage = parseInlineImage(input.image);
@@ -155,8 +161,18 @@ export async function nvidiaChat(
     return Response.json({message: (error as Error).message}, {status: 422});
   }
   // Only text and metadata are sent to Laravel. Image bytes stay inside Next.js.
-  const {image: _discardImage, ...backendInput} = input;
+  const {image: _discardImage, generation_kind: _generationKind, generation_format: _generationFormat, ...backendInput} = input;
   void _discardImage;
+  void _generationKind; void _generationFormat;
+  const requestedGeneration = !inlineImage && !input.resume_message_id
+    ? input.generation_kind
+      ? {kind:input.generation_kind as typeof generationKinds[number], format:input.generation_format || generationIntent(typeof input.message === "string" ? input.message : "")?.format || "docx"}
+      : generationIntent(typeof input.message === "string" ? input.message : "")
+    : null;
+  const generation = requestedGeneration && !input.deep_research && !input.web_search && !input.attachment_ids?.length && !generationNeedsContext(typeof input.message === "string" ? input.message : "")
+    ? requestedGeneration : null;
+  if (generation && (typeof input.message !== "string" || !input.message.trim() || input.message.length > 4000))
+    return Response.json({message:"Describe what to create in up to 4000 characters."}, {status:422});
   let catalog: HostedModel[] = [...NVIDIA_HOSTED_MODELS];
   if (!options.config) {
     try {
@@ -209,13 +225,13 @@ export async function nvidiaChat(
   if (selected && !inlineImage) { routedModel = selected.provider; fallbackModel = selected.provider; }
   if (inlineImage) routedModel = visionModel?.provider || NVIDIA_HOSTED_MODELS[0].provider;
   if (input.deep_research && !input.resume_message_id) backendInput.conversation_tools = true;
-  const conversationTools = isAuto && !input.resume_message_id && !inlineImage && !input.deep_research;
+  const conversationTools = (isAuto || Boolean(requestedGeneration)) && !input.resume_message_id && !inlineImage && !input.deep_research;
   if (conversationTools) {
     backendInput.conversation_tools = true;
     // The native search tool forms a focused query from the full request.
     // Avoid the legacy quick-search path searching the entire instruction.
     backendInput.web_search = false;
-    routedModel = coordinator?.provider || config.model;
+    if (isAuto || !generation) routedModel = coordinator?.provider || config.model;
   }
   const backend = async (
     path: string,
@@ -410,9 +426,46 @@ export async function nvidiaChat(
         if (conversationTools && !checkpoint.finished) {
           checkpoint.toolRunStarted = true;
           await saveCheckpoint();
-          const generatedFiles: {id:number;kind:string}[] = [];
-          await runConversationTools({
-            model:activeModel, apiKey:config.apiKey, fetcher, messages:generationMessages, webSearchSelected:Boolean(input.web_search),
+          const artifact = async (work: {kind:"image"|"speech"|"video"|"document_create";prompt:string;format?:"pdf"|"docx"}) => {
+            if (!config.apiKey && !["document_create", "image"].includes(work.kind)) return {ok:false,message:"This media service has not been configured on the server."};
+            emit("creation", {kind:work.kind,status:"running"});
+            try {
+              const response = await (work.kind === "image"
+                ? generateHostedImage(JSON.stringify({prompt:work.prompt}),token,base,upstreamAbort.signal,{fetcher})
+                : hostedMediaRequest(JSON.stringify({...work,...(work.kind === "document_create" ? {format:work.format || requestedGeneration?.format || "docx"} : {})}),token,base,upstreamAbort.signal,{fetcher,config:{apiKey:config.apiKey,bridgeKey:config.bridgeKey,chatModel:activeModel}}));
+              if (!response.ok) return {ok:false,message:work.kind === "image"
+                ? "The image request could not be confirmed. Check Library before trying again; the service may have accepted it."
+                : "The requested file could not be generated. Check Library before trying again."};
+              const saved = await response.json();
+              if (!Number.isSafeInteger(saved.id) || saved.id < 1 || !["queued","running","complete"].includes(saved.status))
+                return {ok:false,message:"The generated task was not saved."};
+              // Persist the accepted ID immediately, including queued tasks, so
+              // reload/disconnect never loses it or requires a duplicate request.
+              const link = `\n\n[View generated ${work.kind === "document_create" ? "document" : work.kind}](/api/backend/media/${saved.id}/output)`;
+              content += link;
+              await saveCheckpoint();
+              emit("artifact", {id:saved.id,kind:work.kind,status:saved.status});
+              emit("delta", {content:link});
+              return {ok:true,id:saved.id,kind:work.kind,status:saved.status,message:saved.status === "complete"
+                ? "The saved file is displayed in this chat. Do not invent a download URL."
+                : "The request was accepted and is processing. The task in this chat updates when ready. Do not retry generation or claim the file is complete."};
+            } finally { emit("creation", {kind:work.kind,status:"finished"}); }
+          };
+          if (generation) {
+            // A clear creation request or explicit composer tool is an execution
+            // request, independent of the selected text model's willingness to
+            // call a function. Reuse the same authenticated artifact service.
+            const result = await artifact({...generation,prompt:input.message});
+            const bangla = /[\u0980-\u09ff]|\b(?:bangla|bengali|koro|daw|dao)\b/i.test(input.message);
+            const text = !result.ok ? result.message : result.status === "complete"
+              ? bangla ? "\n\nতৈরি হয়েছে। নিচের preview থেকে দেখতে ও download করতে পারবেন।" : "\n\nCreated. Preview or download your file below."
+              : bangla ? "\n\nআপনার অনুরোধ গ্রহণ করা হয়েছে। তৈরি হলে এখানেই দেখা যাবে; Library-তেও সংরক্ষিত আছে।" : "\n\nYour request was accepted. The result will appear here when ready and is saved in Library.";
+            content += text; emit("delta", {content:text});
+            if (!result.ok) {status="failed"; emit("error", {message:result.message});}
+          } else await runConversationTools({
+            model:activeModel, apiKey:config.apiKey, fetcher, messages:requestedGeneration
+              ? [...generationMessages,{role:"system",content:`The user requested a generated ${requestedGeneration.kind}, format ${requestedGeneration.format || "docx"}. Use the conversation and attached evidence, perform requested research before creating the file, and use create_artifact. Never claim the file exists without a successful tool result.`}]
+              : generationMessages, webSearchSelected:Boolean(input.web_search),
             signal:AbortSignal.any([upstreamAbort.signal, AbortSignal.timeout(240000)]), specialists:automaticSpecialists(eligibleModels, activeModel),
             progress: label => emit("research", {label, sources:lease.sources}),
             delta: text => {content += text; emit("delta", {content:text});},
@@ -461,37 +514,8 @@ export async function nvidiaChat(
               // to invent numbering or infer a URL from a domain label.
               return {...data,...citationFor(data.url),...(Array.isArray(data.sources) ? {sources:data.sources.map((source: {url?: string}) => ({...source,...citationFor(source.url)}))} : {})};
             },
-            artifact: async work => {
-              if (!config.apiKey && !["document_create", "image"].includes(work.kind)) return {ok:false,message:"This media service has not been configured on the server."};
-              emit("creation", {kind:work.kind,status:"running"});
-              try {
-              const request = work.kind === "image"
-                ? generateHostedImage(JSON.stringify({prompt:work.prompt}),token,base,upstreamAbort.signal,{fetcher})
-                : hostedMediaRequest(JSON.stringify(work),token,base,upstreamAbort.signal,{fetcher,config:{apiKey:config.apiKey || "backend-managed",bridgeKey:config.bridgeKey,chatModel:activeModel}});
-              const response = await request;
-              if (!response.ok) {
-                return {ok:false,message:work.kind === "image" && [502, 503, 504].includes(response.status)
-                  ? "The image service is unavailable (HTTP " + response.status + "). The request may have been accepted. Check Library before trying again."
-                  : "The requested file could not be generated."};
-              }
-              const saved = await response.json();
-              if (!Number.isSafeInteger(saved.id) || saved.id < 1) return {ok:false,message:"The generated task was not saved."};
-              if (saved.status === "queued" || saved.status === "running" || response.status === 202) {
-                emit("artifact", {id:saved.id,kind:work.kind});
-                return {ok:true,id:saved.id,kind:work.kind,status:"queued",message:"The request was accepted and the displayed task is processing. This is not a failure or a completed image. Do not retry generation. Tell the user the task will update when ready; do not claim the output already exists."};
-              }
-              if (!Number.isSafeInteger(saved.id) || saved.id < 1 || saved.status !== "complete") return {ok:false,message:"The generated output was not saved."};
-              generatedFiles.push({id:saved.id,kind:work.kind});
-              emit("artifact", {id:saved.id,kind:work.kind});
-              return {ok:true,id:saved.id,kind:work.kind,status:"complete",message:"The saved file is displayed in this chat. Refer to it without inventing a download URL."};
-              } finally { emit("creation", {kind:work.kind,status:"finished"}); }
-            },
+            artifact,
           });
-          for (const file of generatedFiles) {
-            const link = `\n\n[Download generated ${file.kind === "document_create" ? "document" : file.kind}](/api/backend/media/${file.id}/output)`;
-            content += link;
-            emit("delta", {content:link});
-          }
           checkpoint.finished = true;
           await saveCheckpoint();
         }

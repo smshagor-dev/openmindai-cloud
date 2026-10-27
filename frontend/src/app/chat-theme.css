@@ -1297,3 +1297,18 @@ html .dialog .settings-nav button.selected {
   .workspace .topbar-brand > span { display: none; }
   .workspace .topbar-right { flex-shrink: 0; gap: 3px; }
 }
+.library-media-thumbnail {
+  height: 150px;
+  overflow: hidden;
+  border: 1px solid var(--border, #303038);
+  border-radius: 10px;
+  margin-bottom: 12px;
+  background: var(--surface, #18181b);
+  display: grid;
+  place-items: center;
+}
+.library-media-thumbnail > img { width: 100%; height: 150px; object-fit: cover; }
+.library-media-thumbnail > span { font-size: 12px; padding: 12px; }
+.document-preview-compact { width: 100%; min-height: 150px; padding: 14px; background: #fafafa; color: #27272a; }
+.document-preview-compact .file-text-preview { white-space: pre-wrap; font: 10px/1.6 Georgia, serif; max-height: 130px; overflow: hidden; margin: 0; padding: 0; background: transparent; color: inherit; }
+.generated-media-content { min-width: 0; max-width: 100%; }
