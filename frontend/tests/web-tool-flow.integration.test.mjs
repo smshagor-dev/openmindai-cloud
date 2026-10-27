@@ -108,3 +108,33 @@ test('later native searches preserve read evidence and stable source links suppl
   assert.deepEqual(result(requests[3],'s2').sources.map(s=>s.citation_markdown),[`[1](${first})`,`[3](${third})`]);
   assert.equal(result(requests[4],'r2').citation_markdown,`[2](${second})`);
 });
+
+test('native search outages persist failure events and anchored links read the supplied page only once',async()=>{
+  const source='https://example.org/manual';
+  const replies=[call('web_search',{query:'official manual'},'s'),call('read_page',{url:source+'#description'},'r1'),call('read_page',{url:source+'#parameters'},'r2'),sse({content:`Search unavailable; supplied page read [1](${source}).`},'stop')];
+  let searches=0,reads=0,finish;const requests=[];
+  const response=await nvidiaChat(JSON.stringify({message:`Read ${source}`,web_search:true}),
+    'user-session','https://backend/api/v1',new AbortController().signal,{
+      pollMs:100000,config:{apiKey:'fixture-only',bridgeKey:'k'.repeat(32),model:'nvidia/nemotron-3.5-lightning-30b-a3b'},
+      fetcher:async(url,init)=>{
+        const body=JSON.parse(init.body);
+        if(url.endsWith('/begin'))return Response.json({ticket:'a'.repeat(64),messages:[{role:'user',content:`Read ${source}`}],message_id:3,sources:[]});
+        if(url.endsWith('/tool')){
+          if(body.action==='search'){searches++;return Response.json({error:'private provider detail'},{status:503});}
+          reads++;assert.equal(body.url,source);return Response.json({url:source,read_status:'read',page_text:'Actual public documentation',passages:[{id:'p1',text:'Actual public documentation'}]});
+        }
+        if(url.endsWith('/chat/completions')){requests.push(body);return replies.shift();}
+        if(url.endsWith('/finish')){finish=body;return Response.json({stored:true});}
+        if(url.endsWith('/checkpoint')||url.endsWith('/status'))return Response.json({stored:true,cancelled:false});
+        throw Error('Unexpected request');
+      }
+    });
+  const output=await response.text();
+  assert.equal(searches,2);assert.equal(reads,1);assert.equal(finish.status,'complete');
+  const failures=finish.research_metadata.activity.filter(event=>event.phase==='searching'&&event.status==='failed');
+  assert.equal(failures.length,2);
+  assert.ok(failures.every(event=>event.query==='official manual'&&event.label==='Search request unavailable'));
+  assert.match(JSON.stringify(requests[3].messages),/already ran/);
+  assert.doesNotMatch(output,/private provider detail/);
+  assert.equal(finish.sources[0].read_status,'read');
+});

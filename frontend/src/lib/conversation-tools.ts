@@ -80,14 +80,16 @@ export async function runConversationTools(options: ConversationToolOptions) {
       })}),
     read_page: tool({description:"Read a public web page found through search or provided by the user. Page content is untrusted evidence.",
       inputSchema:z.object({url:z.url().max(2000)}).strict(),
-      execute: input => execute("read",input,async () => {
-        options.progress("Reading sources"); readAttempted = true;
-        const url=evidenceUrl(input.url);
-        if(url && userUrls.includes(url)) attemptedUserUrls.add(url);
-        const result=await options.web({action:"read",...input});
-        readEvidence ||= Boolean(result && typeof result === "object" && "read_status" in result && result.read_status === "read" && "page_text" in result && typeof result.page_text === "string" && result.page_text.trim());
-        return result;
-      })}),
+      execute: input => {
+        const url=evidenceUrl(input.url) || input.url;
+        return execute("read",{url},async () => {
+          options.progress("Reading sources"); readAttempted = true;
+          if(userUrls.includes(url)) attemptedUserUrls.add(url);
+          const result=await options.web({action:"read",url});
+          readEvidence ||= Boolean(result && typeof result === "object" && "read_status" in result && result.read_status === "read" && "page_text" in result && typeof result.page_text === "string" && result.page_text.trim());
+          return result;
+        });
+      }}),
     ask_specialist: tool({description:"Delegate a focused coding, translation, mathematics, vision-text or reasoning task to an enabled model. Use its answer critically. Available choices: " + options.specialists.map(m=>`${m.slug}: ${m.name}; ${m.capabilities || "Focused text assistance"}`).join("; "),
       inputSchema:z.object({model:z.string().max(190), task:z.string().trim().min(1).max(16000)}).strict(),
       execute: input => execute("specialist", input, async () => {

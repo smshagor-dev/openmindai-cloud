@@ -422,9 +422,15 @@ export async function nvidiaChat(
                 return {read_status:'unavailable'};
               }
               activity(action.action === "search" ? "searching" : "reading","running",action.action === "search" ? "Searching the web" : "Reading source passages",action.query?{query:action.query}:{url:action.url||""});
-              const response = await backend("tool", {ticket:lease.ticket, ...action, question:input.message||""}, 30000, upstreamAbort.signal);
-              if (!response.ok) throw new Error("Tool unavailable");
-              const data = await response.json();
+              let data;
+              try {
+                const response = await backend("tool", {ticket:lease.ticket, ...action, question:input.message||""}, 30000, upstreamAbort.signal);
+                if (!response.ok) throw new Error("Tool unavailable");
+                data = await response.json();
+              } catch {
+                activity(action.action === "search" ? "searching" : "reading","failed",action.action === "search" ? "Search request unavailable" : "Source request unavailable",action.query?{query:action.query}:{url:action.url||""});
+                throw new Error("Tool unavailable");
+              }
               if (Array.isArray(data.sources)) {
                 const sources = new Map(lease.sources.map(source=>[source.url,source]));
                 for (const source of data.sources) {
