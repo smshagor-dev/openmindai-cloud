@@ -574,7 +574,7 @@ test("document creation in chat renders real PDF and DOCX bytes and persists its
     const response=await nvidiaChat(JSON.stringify({model_id:-3,message:`Create a ${format} document about trees`,generation_kind:"document_create"}),"token","https://backend/api/v1",new AbortController().signal,{
       config,pollMs:100000,fetcher:async(url,init)=>{
         if(url.endsWith("/media/hosted/task/begin"))return Response.json({id:92});
-        if(url.endsWith("/chat/completions"))return Response.json({choices:[{message:{content:"Tree report\n\nTrees absorb carbon dioxide."}}]});
+        if(url.endsWith("/chat/completions")){assert.equal(JSON.parse(init.body).model,"nvidia/nemotron-3-ultra-550b-a55b");return Response.json({choices:[{message:{content:"Tree report\n\nTrees absorb carbon dioxide."}}]});}
         if(url.endsWith("/media/92/hosted/task/complete")){output=JSON.parse(init.body);return Response.json({id:92,status:"complete"});}
         return f.fetcher(url,init);
       },
@@ -600,4 +600,6 @@ test("generation errors never fabricate an artifact and invalid tool selections 
   assert.equal(f.calls.find(call=>call.url.endsWith("/finish")).body.status,"failed");
   const invalid=await nvidiaChat(JSON.stringify({message:"A tree",generation_kind:"http://internal"}),"token","https://backend/api/v1",new AbortController().signal,{config,fetcher});
   assert.equal(invalid.status,422);assert.equal(creates,1);
+  const invalidPrompt=await nvidiaChat(JSON.stringify({message:{text:"A tree"},generation_kind:"document_create"}),"token","https://backend/api/v1",new AbortController().signal,{config,fetcher});
+  assert.equal(invalidPrompt.status,422);assert.equal(creates,1);
 });

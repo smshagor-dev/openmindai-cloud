@@ -166,7 +166,7 @@ export async function nvidiaChat(
   void _generationKind; void _generationFormat;
   const generation = !inlineImage && !input.resume_message_id && !input.deep_research && !input.web_search && !input.attachment_ids?.length
     ? input.generation_kind
-      ? {kind:input.generation_kind as typeof generationKinds[number], format:input.generation_format || generationIntent(input.message || "")?.format || "docx"}
+      ? {kind:input.generation_kind as typeof generationKinds[number], format:input.generation_format || generationIntent(typeof input.message === "string" ? input.message : "")?.format || "docx"}
       : generationIntent(typeof input.message === "string" ? input.message : "")
     : null;
   if (generation && (typeof input.message !== "string" || !input.message.trim() || input.message.length > 4000))
@@ -229,7 +229,7 @@ export async function nvidiaChat(
     // The native search tool forms a focused query from the full request.
     // Avoid the legacy quick-search path searching the entire instruction.
     backendInput.web_search = false;
-    routedModel = coordinator?.provider || config.model;
+    if (isAuto) routedModel = coordinator?.provider || config.model;
   }
   const backend = async (
     path: string,

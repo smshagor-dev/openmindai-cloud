@@ -71,7 +71,7 @@ export default function DocumentPreview({ file, onAttach, compact = false }: { f
             throw new Error(result.message || "Unable to preview document.");
           content = result.text;
         }
-        if (!cancelled) setText(content.slice(0, 250000));
+        if (!cancelled) setText(content.slice(0, compact ? 1200 : 250000));
       } catch (e) {
         if (!cancelled) setError((e as Error).message);
       } finally {
@@ -84,7 +84,7 @@ export default function DocumentPreview({ file, onAttach, compact = false }: { f
       controller.abort();
       URL.revokeObjectURL(objectUrl);
     };
-  }, [file, extension]);
+  }, [file, extension, compact]);
   return (
     <section className={"document-preview" + (compact ? " document-preview-compact" : "")} aria-label={file.name + " preview"}>
       {loading && <p role="status">Preparing preview…</p>}
