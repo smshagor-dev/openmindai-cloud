@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Services\ApiCreditUsage;
 use App\Services\FirstPartySignature;
 use App\Services\HostedCodeAgents;
+use App\Services\MobileVisionPayload;
 use App\Services\MultilingualPrompt;
 use App\Services\NvidiaModelProbe;
 use Illuminate\Http\Request;
@@ -226,7 +227,13 @@ class OpenMindAiGatewayController
             'model' => 'required|string|max:60',
             'messages' => 'required|array|min:1|max:40',
             'messages.*.role' => 'required|in:system,user,assistant,tool',
-            'messages.*.content' => 'sometimes|nullable|string|max:16000',
+            'messages.*.content' => $mobile
+                ? ['sometimes', 'nullable', function ($attribute, $value, $fail) {
+                    if (! is_array($value) && (! is_string($value) || mb_strlen($value) > 16000)) {
+                        $fail('Message content must be text or image content parts.');
+                    }
+                }]
+                : 'sometimes|nullable|string|max:16000',
             'messages.*.tool_call_id' => 'sometimes|string|max:120',
             'messages.*.tool_calls' => 'sometimes|array|max:64',
             'messages.*.tool_calls.*.id' => 'required|string|max:120',
@@ -242,8 +249,12 @@ class OpenMindAiGatewayController
             'max_tokens' => 'sometimes|integer|min:1|max:8192',
             'temperature' => 'sometimes|numeric|min:0|max:1',
         ]);
+        $hasImages = $mobile && MobileVisionPayload::validate($data['messages']);
         foreach ($data['messages'] as $message) {
             $hasText = is_string($message['content'] ?? null) && trim($message['content']) !== '';
+            if ($mobile && $message['role'] === 'user' && is_array($message['content'] ?? null)) {
+                $hasText = count($message['content']) > 0;
+            }
             if (in_array($message['role'], ['system', 'user'], true) && ! $hasText) {
                 abort(422, 'User and system messages require content.');
             }
@@ -256,6 +267,7 @@ class OpenMindAiGatewayController
         }
         $agent = $agents->find($data['model']);
         abort_unless($agent && $agent->api_protocol === 'chat', 404, 'This chat model is not enabled.');
+        abort_if($hasImages && ! MobileVisionPayload::supports($agent), 422, 'Select a vision-capable model to read images.');
         $key = (string) config('models.nvidia_key');
         abort_unless(strlen($key) >= 12, 503, 'NVIDIA_API_KEY is not configured on the Laravel server.');
         $lock = Cache::lock('openmindai:gateway:'.$user->id, 240);
@@ -274,7 +286,8 @@ class OpenMindAiGatewayController
             $stream = (bool) ($data['stream'] ?? false);
             $payload = [
                 'model' => $agent->provider_model,
-                'messages' => ($mobile || $firstParty) ? MultilingualPrompt::apply($data['messages']) : $data['messages'],
+                'messages' => $hasImages ? MobileVisionPayload::providerMessages($data['messages'])
+                    : (($mobile || $firstParty) ? MultilingualPrompt::apply($data['messages']) : $data['messages']),
                 'max_tokens' => $data['max_tokens'] ?? 2048,
                 'stream' => $stream,
             ];
