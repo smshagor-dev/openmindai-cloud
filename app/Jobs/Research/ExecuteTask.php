@@ -15,6 +15,8 @@ use App\Services\Research\Transactions;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
 class ExecuteTask implements ShouldQueue
 {
@@ -54,7 +56,7 @@ class ExecuteTask implements ShouldQueue
             $out = $agent->execute($ctx);
             $ctx->fenced(function ($t) use ($ctx, $out, $agent) {
                 if ($out['_continue'] ?? false) {
-                    $t->update(['status' => 'pending', 'claim' => null, 'lease_until' => null]);
+                    $t->update(['status' => 'pending', 'claim' => null, 'lease_until' => null, 'errors' => 0, 'error_code' => null, 'available_at' => null]);
 
                     return;
                 }Validator::make($out, $agent->definition()['output_schema'])->validate();
@@ -66,11 +68,18 @@ class ExecuteTask implements ShouldQueue
             });
         } catch (StaleExecution) {
         } catch (\Throwable $e) {
+            $code = match (true) {
+                $e instanceof ValidationException => 'structured_output_validation_failed',
+                $e instanceof HttpExceptionInterface && $e->getStatusCode() === 422 && $e->getMessage() === 'Evidence quote or source could not be verified.' => 'evidence_quote_not_in_source',
+                $e instanceof HttpExceptionInterface && $e->getStatusCode() === 409 => 'agent_implementation_changed',
+                $e instanceof HttpExceptionInterface && $e->getStatusCode() === 429 => 'research_budget_exhausted',
+                default => 'execution_or_validation_failed',
+            };
             try {
-                $ctx->fenced(function ($t) {
+                $ctx->fenced(function ($t) use ($code) {
                     $errors = $t->errors + 1;
-                    $t->update(['status' => $errors >= config('research.attempts') ? 'failed' : 'pending', 'errors' => $errors, 'available_at' => now()->addSeconds(min(60, 5 * (2 ** $errors))), 'claim' => null, 'lease_until' => null, 'error_code' => 'execution_or_validation_failed']);
-                    Events::add($t->project_id, 'task.error', ['agent' => $t->agent, 'status' => $t->status, 'error_code' => 'execution_or_validation_failed'], $t->id);
+                    $t->update(['status' => $errors >= config('research.attempts') ? 'failed' : 'pending', 'errors' => $errors, 'available_at' => now()->addSeconds(min(60, 5 * (2 ** $errors))), 'claim' => null, 'lease_until' => null, 'error_code' => $code]);
+                    Events::add($t->project_id, 'task.error', ['agent' => $t->agent, 'status' => $t->status, 'error_code' => $code], $t->id);
                 });
             } catch (StaleExecution) {
             }

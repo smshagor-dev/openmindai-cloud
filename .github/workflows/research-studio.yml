@@ -56,7 +56,7 @@ jobs:
       - run: pip install -r runtime/research/requirements.txt reportlab
       - run: composer install --no-interaction --prefer-dist
       - run: cp .env.example .env
-      - run: php artisan test --filter=ResearchStudioTest
+      - run: php artisan test --filter='ResearchStudioTest|ResearchLiteratureRecoveryTest'
   browser:
     runs-on: ubuntu-latest
     steps:

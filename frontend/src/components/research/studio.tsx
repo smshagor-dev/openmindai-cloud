@@ -957,7 +957,7 @@ export default function ResearchStudio() {
                               )}
                               {t.error_code && (
                                 <p className="rs-error-text">
-                                  {t.error_code} · {t.errors} failed attempts
+                                  {t.error_code} · {t.errors} consecutive failed attempts
                                 </p>
                               )}
                               <details>
