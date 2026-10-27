@@ -299,3 +299,11 @@ Work remains on dedicated feature/research-studio, fast-forwarding from the depl
 Local Research Studio browser verification completed: all four browser workflows passed (26.6s), covering desktop/mobile document persistence, chat-based research start and unauthenticated proxy rejection. Corrected only the isolated test environment PATH/dependencies; no app security gate was changed. Exact-commit CI and production recovery remain pending.
 
 Initial recovery CI (`4445cdf`) exposed a MySQL-only test assertion mismatch: native JSON reordered object keys while preserving the legacy checkpoint values/types. Corrected only that test to sort the outer object keys before strict comparison; nested analysis/list ordering and types remain strict. All eight local recovery tests (49 assertions) and Pint passed again. No application validation was weakened. Fresh exact-commit CI, including MySQL, and deployment remain pending.
+
+## Vercel processing worker implementation — 2026-10-27
+
+The owner requested resolution and deployment of the missing private processing worker. An actual disposable VM was created in the existing Vercel chat project; Python 3.14 executed as UID 1000 and an outbound TCP probe was blocked by deny-all networking. A separate trusted runtime build has installed the document/experiment dependencies and Python 3.12.15. These are infrastructure probes, not full application acceptance.
+
+Implemented an opt-in Vercel transport, a private short-lived transfer protocol for large PDFs/results, an authenticated Next.js broker, per-job offline disposable microVMs, cancellation fencing after VM creation, immutable-snapshot provenance, runtime build instructions and seven broker/five backend regression tests. The original Docker transport remains supported. No production configuration has changed at this checkpoint.
+
+Seven new broker tests and TypeScript passed. Initial all-frontend invocation ran before a production build existed and its proxy fixtures failed startup; the production build and proper full rerun are underway. Backend tests, actual runtime export/experiment/cancellation checks, exact-commit CI and production deployment remain pending. This checkpoint is not a completion claim.

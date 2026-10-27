@@ -34,6 +34,7 @@ use App\Services\HostedCodeAgents;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->middleware('verified-mobile-ip')->group(function () {
+    Route::match(['get', 'post'], 'internal/research-worker/transfers/{id}/{action}', [\App\Http\Controllers\ResearchWorkerTransferController::class, 'transfer'])->middleware('throttle:120,1')->where('id', '[a-f0-9]{64}')->where('action', 'input|authorize|result');
     // Server-to-server ticket callbacks, protected by a dedicated worker secret.
     Route::post('voicechat/worker/claim', [NvidiaVoiceChatController::class, 'claim'])->middleware('throttle:60,1');
     Route::post('voicechat/worker/finish', [NvidiaVoiceChatController::class, 'finish'])->middleware('throttle:60,1');

@@ -215,6 +215,7 @@ Artisan::command('research:recover', function () {
     $this->info('Research leases checked.');
 });
 Schedule::command('research:recover')->everyMinute()->withoutOverlapping();
+Schedule::call(fn () => app(\App\Services\Research\WorkerTransfers::class)->prune())->everyTenMinutes()->name('research-transfer-cleanup')->withoutOverlapping();
 
 Artisan::command('research:preflight {--fresh : Recheck worker instead of using the short health cache}', function () {
     $status = app(Readiness::class)->inspect((bool) $this->option('fresh'));
