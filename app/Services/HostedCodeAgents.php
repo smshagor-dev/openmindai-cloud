@@ -42,6 +42,7 @@ class HostedCodeAgents
             'owned_by' => 'openmindai',
             'name' => $model->name,
             'type' => $model->category,
+            'supports_vision' => MobileVisionPayload::supports($model),
             'active' => (bool) $model->enabled,
             'available' => (bool) ($model->enabled && $model->api_ready && (int) $model->last_test_http_status !== 410 && app(HostedModelRuntime::class)->configured($model->slug)),
             'inference_status' => ! $model->enabled ? 'disabled' : ((int) $model->last_test_http_status === 410 ? 'retired' : ($model->api_ready && app(HostedModelRuntime::class)->configured($model->slug) ? 'configured' : 'setup_required')),
