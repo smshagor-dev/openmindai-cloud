@@ -7,6 +7,7 @@
 - Generation stays in a saved conversation. Accepted task links are checkpointed immediately, including queued images, and become inline preview cards in the assistant turn after refresh. A queued task is never presented as a completed file or automatically regenerated.
 - Library displays lazy image thumbnails and small previews extracted from the actual generated PDF/DOCX. Status and output requests retain their existing ownership checks and cookie-based authentication.
 - No database migration, provider secret, new billing flow or worker configuration is introduced.
+- Source-dependent requests and requests referring to earlier conversation turns retain the native context/tool workflow; the standalone creation shortcut does not discard their context or skip requested research.
 
 ## Validation checkpoint
 

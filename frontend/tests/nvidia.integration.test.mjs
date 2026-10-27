@@ -603,3 +603,20 @@ test("generation errors never fabricate an artifact and invalid tool selections 
   const invalidPrompt=await nvidiaChat(JSON.stringify({message:{text:"A tree"},generation_kind:"document_create"}),"token","https://backend/api/v1",new AbortController().signal,{config,fetcher});
   assert.equal(invalidPrompt.status,422);assert.equal(creates,1);
 });
+
+test("context dependent documents retain native tools even with an explicit text model",async()=>{
+  const f=fixture();
+  const response=await nvidiaChat(JSON.stringify({message:"Create a document using the previous answer",model_id:-3}),"token","https://backend/api/v1",new AbortController().signal,{config,fetcher:async(url,init)=>{
+    if(url.includes("nvidia.com")) {
+      assert.equal(new Headers(init.headers).get("authorization"),"Bearer "+config.apiKey);
+      f.calls.push({url,body:JSON.parse(init.body)});
+      return new Response(`data: ${JSON.stringify({choices:[{delta:{content:"Hello"},finish_reason:"stop"}]})}\n\ndata: [DONE]\n\n`,{headers:{"Content-Type":"text/event-stream"}});
+    }
+    return f.fetcher(url,init);
+  },pollMs:100000});
+  assert.match(await response.text(),/Hello/);
+  const provider=f.calls.find(call=>call.url.includes("nvidia.com"));
+  assert.ok(provider.body.tools.some(tool=>tool.function.name==="create_artifact"));
+  assert.ok(JSON.stringify(provider.body.messages).includes("PRIVATE CONTEXT"));
+  assert.equal(f.calls.some(call=>call.url.includes("/media/")),false);
+});

@@ -5,7 +5,7 @@ import { withPromptUnderstanding } from "./prompt-understanding.ts";
 import { runConversationTools } from "./conversation-tools.ts";
 import { generateHostedImage } from "./hosted-image.ts";
 import { hostedMediaRequest } from "./hosted-media.ts";
-import { generationIntent } from "./prompt-router.ts";
+import { generationIntent, generationNeedsContext } from "./prompt-router.ts";
 import { parseInlineImage, imageMessage } from "./vision-input.ts";
 import {
   ResearchToolUnavailableError,
@@ -164,11 +164,13 @@ export async function nvidiaChat(
   const {image: _discardImage, generation_kind: _generationKind, generation_format: _generationFormat, ...backendInput} = input;
   void _discardImage;
   void _generationKind; void _generationFormat;
-  const generation = !inlineImage && !input.resume_message_id && !input.deep_research && !input.web_search && !input.attachment_ids?.length
+  const requestedGeneration = !inlineImage && !input.resume_message_id
     ? input.generation_kind
       ? {kind:input.generation_kind as typeof generationKinds[number], format:input.generation_format || generationIntent(typeof input.message === "string" ? input.message : "")?.format || "docx"}
       : generationIntent(typeof input.message === "string" ? input.message : "")
     : null;
+  const generation = requestedGeneration && !input.deep_research && !input.web_search && !input.attachment_ids?.length && !generationNeedsContext(typeof input.message === "string" ? input.message : "")
+    ? requestedGeneration : null;
   if (generation && (typeof input.message !== "string" || !input.message.trim() || input.message.length > 4000))
     return Response.json({message:"Describe what to create in up to 4000 characters."}, {status:422});
   let catalog: HostedModel[] = [...NVIDIA_HOSTED_MODELS];
@@ -223,13 +225,13 @@ export async function nvidiaChat(
   if (selected && !inlineImage) { routedModel = selected.provider; fallbackModel = selected.provider; }
   if (inlineImage) routedModel = visionModel?.provider || NVIDIA_HOSTED_MODELS[0].provider;
   if (input.deep_research && !input.resume_message_id) backendInput.conversation_tools = true;
-  const conversationTools = (isAuto || Boolean(generation)) && !input.resume_message_id && !inlineImage && !input.deep_research;
+  const conversationTools = (isAuto || Boolean(requestedGeneration)) && !input.resume_message_id && !inlineImage && !input.deep_research;
   if (conversationTools) {
     backendInput.conversation_tools = true;
     // The native search tool forms a focused query from the full request.
     // Avoid the legacy quick-search path searching the entire instruction.
     backendInput.web_search = false;
-    if (isAuto) routedModel = coordinator?.provider || config.model;
+    if (isAuto || !generation) routedModel = coordinator?.provider || config.model;
   }
   const backend = async (
     path: string,
@@ -430,7 +432,7 @@ export async function nvidiaChat(
             try {
               const response = await (work.kind === "image"
                 ? generateHostedImage(JSON.stringify({prompt:work.prompt}),token,base,upstreamAbort.signal,{fetcher})
-                : hostedMediaRequest(JSON.stringify(work),token,base,upstreamAbort.signal,{fetcher,config:{apiKey:config.apiKey,bridgeKey:config.bridgeKey,chatModel:activeModel}}));
+                : hostedMediaRequest(JSON.stringify({...work,...(work.kind === "document_create" ? {format:work.format || requestedGeneration?.format || "docx"} : {})}),token,base,upstreamAbort.signal,{fetcher,config:{apiKey:config.apiKey,bridgeKey:config.bridgeKey,chatModel:activeModel}}));
               if (!response.ok) return {ok:false,message:work.kind === "image"
                 ? "The image request could not be confirmed. Check Library before trying again; the service may have accepted it."
                 : "The requested file could not be generated. Check Library before trying again."};
@@ -461,7 +463,9 @@ export async function nvidiaChat(
             content += text; emit("delta", {content:text});
             if (!result.ok) {status="failed"; emit("error", {message:result.message});}
           } else await runConversationTools({
-            model:activeModel, apiKey:config.apiKey, fetcher, messages:generationMessages, webSearchSelected:Boolean(input.web_search),
+            model:activeModel, apiKey:config.apiKey, fetcher, messages:requestedGeneration
+              ? [...generationMessages,{role:"system",content:`The user requested a generated ${requestedGeneration.kind}, format ${requestedGeneration.format || "docx"}. Use the conversation and attached evidence, perform requested research before creating the file, and use create_artifact. Never claim the file exists without a successful tool result.`}]
+              : generationMessages, webSearchSelected:Boolean(input.web_search),
             signal:AbortSignal.any([upstreamAbort.signal, AbortSignal.timeout(240000)]), specialists:automaticSpecialists(eligibleModels, activeModel),
             progress: label => emit("research", {label, sources:lease.sources}),
             delta: text => {content += text; emit("delta", {content:text});},

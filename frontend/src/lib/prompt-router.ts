@@ -43,6 +43,9 @@ const codeIntent = /(?:\b(?:html|css|javascript|typescript|python|laravel|react|
 const question = /^(?:how|why|what|when|where|explain|tell me about|show me how|tell me how)\b|^(?:কিভাবে|কীভাবে|কেন|কি ভাবে|kivabe|kibhabe)/iu;
 const textTask = /^(?:(?:please|can you|could you)\s+)?(?:summari[sz]e|rewrite|translate|classify|review|analy[sz]e|describe|explain|compare|write (?:a|an|the) (?:script|prompt|guide|speech))\b|^(?:অনুবাদ|ব্যাখ্যা|সারসংক্ষেপ)/iu;
 const noMedia = /(?:\b(?:do not|don't|never|without|no need to)\s+(?:(?:generate|create|make|draw|produce|render)\s+)?(?:an?\s+)?(?:image|picture|video|audio|pdf|file)|(?:ছবি|ভিডিও|অডিও|ফাইল).{0,24}(?:করো না|বানিও না|বানাবে না|লাগবে না)|(?:image|chobi|video|audio|file).{0,20}(?:korba na|koro na|lagbe na))/iu;
+export function generationNeedsContext(text: string): boolean {
+  return /\b(?:search|browse|research|verify|sources|references|citations|previous|earlier|above|attached|our conversation)\b|গবেষণা|সার্চ|যাচাই|তথ্যসূত্র|রেফারেন্স|আগের|উপরের|প্রদত্ত/iu.test(text);
+}
 export function generationIntent(text: string): {kind: Exclude<RouteKind, "chat">; format?: "pdf" | "docx"} | null {
   const p = text.toLowerCase().trim().replace(/\s+/g, " ");
   if (question.test(p) || textTask.test(p) || noMedia.test(p)) return null;

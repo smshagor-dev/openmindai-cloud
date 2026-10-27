@@ -1,12 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {generatedMediaIds} from "../src/lib/chat-artifacts.ts";
-import {generationIntent} from "../src/lib/prompt-router.ts";
+import {generationIntent,generationNeedsContext} from "../src/lib/prompt-router.ts";
 
 test("inline media restores accepted and legacy saved artifacts without duplicate or unsafe URLs", () => {
   assert.deepEqual(generatedMediaIds("[View generated image](/api/backend/media/42/output)\n[Download generated document](/api/backend/media/53/output)\n[View generated image](/api/backend/media/42/output)"), [42,53]);
   for (const content of ["[View generated image](https://evil.example/api/backend/media/42/output)", "[View generated image](/api/backend/media/0/output)", "[View generated image](/api/backend/media/9007199254740999/output)", "[Other](/api/backend/media/42/output)"])
     assert.deepEqual(generatedMediaIds(content), []);
+});
+
+test("context and evidence dependent files retain the conversation/tool workflow", () => {
+  for(const prompt of ["Search official sources and create a PDF", "Create a document using the previous answer", "আগের তথ্যসূত্র থেকে ডকুমেন্ট তৈরি করো"])
+    assert.equal(generationNeedsContext(prompt),true,prompt);
+  assert.equal(generationNeedsContext("Generate an image of a forest"),false);
+  assert.equal(generationNeedsContext("Create a Word document about trees"),false);
 });
 
 test("creation intent recognizes Bengali, Banglish and documents while rejecting negation and code requests", () => {
