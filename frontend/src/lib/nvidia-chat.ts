@@ -428,7 +428,9 @@ export async function nvidiaChat(
               if (Array.isArray(data.sources)) {
                 const sources = new Map(lease.sources.map(source=>[source.url,source]));
                 for (const source of data.sources) {
-                  if (evidenceUrl(source.url)) sources.set(source.url, {url:source.url,title:String(source.title || source.url).slice(0,200),snippet:String(source.snippet || "").slice(0,2000),provider:source.provider,retrieved_at:source.retrieved_at,read_status:"snippet_only"});
+                  // A later search must not downgrade an already inspected page
+                  // or replace its retrieval timestamp/passages with a snippet.
+                  if (evidenceUrl(source.url) && !sources.has(source.url)) sources.set(source.url, {url:source.url,title:String(source.title || source.url).slice(0,200),snippet:String(source.snippet || "").slice(0,2000),provider:source.provider,retrieved_at:source.retrieved_at,read_status:"snippet_only"});
                 }
                 lease.sources = [...sources.values()].slice(0,40).map((source,index)=>({...source,citation:index+1}));
               }
@@ -437,13 +439,21 @@ export async function nvidiaChat(
                 const source = {...(existing || {url:data.url,title:String(data.title || data.url).slice(0,200),citation:lease.sources.length+1}),read_status:data.read_status === "read" ? "read" : "unavailable",passages:Array.isArray(data.passages)?data.passages:[],mime:data.mime,pdf:data.pdf,retrieved_at:data.retrieved_at};
                 const duplicate=duplicateOf(source,lease.sources.filter(old=>old.url!==source.url));
                 Object.assign(source,{duplicate_of:duplicate});
-                lease.sources = [...lease.sources.filter(item=>item.url !== data.url),source];
+                lease.sources = existing
+                  ? lease.sources.map(item => item.url === data.url ? source : item)
+                  : [...lease.sources,source];
               }
               for(const attempt of (data.sources?.[0]?.provider_events||[]).slice(0,12)) {
                 if(['failed','unavailable','cooldown'].includes(attempt.status))activity('searching','failed','Search provider unavailable; fallback attempted',{provider:String(attempt.provider)});
               }
               activity(action.action === "search" ? "searching" : "reading",data.read_status === "unavailable"?"failed":"completed",action.action === "search" ? "Search results collected" : "Source reading finished",data.sources?.[0]?.provider?{provider:String(data.sources[0].provider)}:{});
-              return data;
+              const citationFor = (url: unknown) => {
+                const source = lease.sources.find(item => item.url === url);
+                return source ? {citation:source.citation,citation_markdown:`[${source.citation}](${source.url.replace(/\(/g, "%28").replace(/\)/g, "%29")})`} : {};
+              };
+              // Give the model the exact persisted source mapping; do not ask it
+              // to invent numbering or infer a URL from a domain label.
+              return {...data,...citationFor(data.url),...(Array.isArray(data.sources) ? {sources:data.sources.map((source: {url?: string}) => ({...source,...citationFor(source.url)}))} : {})};
             },
             artifact: async work => {
               if (!config.apiKey && !["document_create", "image"].includes(work.kind)) return {ok:false,message:"This media service has not been configured on the server."};

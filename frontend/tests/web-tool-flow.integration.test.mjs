@@ -75,3 +75,36 @@ test('verified Auto Web Search uses Ultra native tools through the authenticated
     else process.env.FRONTEND_CHAT_BRIDGE_KEY=previous;
   }
 });
+
+test('later native searches preserve read evidence and stable source links supplied to the model', async () => {
+  const first='https://example.org/first', second='https://example.org/second', third='https://example.org/third';
+  const replies=[call('web_search',{query:'original evidence'},'s1'),call('read_page',{url:first},'r1'),call('web_search',{query:'follow-up evidence'},'s2'),call('read_page',{url:second},'r2'),sse({content:`Finding [1](${first}) and comparison [2](${second}).`},'stop')];
+  const requests=[];let searches=0,finish;
+  const response=await nvidiaChat(JSON.stringify({message:'Search and compare the original evidence.',web_search:true}),
+    'user-session','https://backend/api/v1',new AbortController().signal,{
+      pollMs:100000,
+      config:{apiKey:'fixture-only',bridgeKey:'k'.repeat(32),model:'nvidia/nemotron-3.5-lightning-30b-a3b'},
+      fetcher:async(url,init)=>{
+        const body=JSON.parse(init.body);
+        if(url.endsWith('/begin'))return Response.json({ticket:'a'.repeat(64),messages:[{role:'user',content:'Search and compare.'}],message_id:3,sources:[]});
+        if(url.endsWith('/tool')) {
+          if(body.action==='search')return Response.json({sources:++searches===1?[{url:first,title:'First'},{url:second,title:'Second'}]:[{url:first,title:'Later snippet',retrieved_at:'search-time'},{url:third,title:'Third'}]});
+          return Response.json({url:body.url,read_status:'read',page_text:'Actual retrieved page evidence',retrieved_at:'page-time',passages:[{id:'p1',text:'Actual retrieved page evidence'}]});
+        }
+        if(url.endsWith('/chat/completions')) {requests.push(body);return replies.shift();}
+        if(url.endsWith('/finish')) {finish=body;return Response.json({stored:true});}
+        if(url.endsWith('/checkpoint')||url.endsWith('/status'))return Response.json({stored:true,cancelled:false});
+        throw Error('Unexpected request');
+      }
+    });
+  await response.text();
+  assert.equal(finish.status,'complete');
+  assert.deepEqual(finish.sources.map(s=>[s.url,s.citation,s.read_status]),[[first,1,'read'],[second,2,'read'],[third,3,'snippet_only']]);
+  assert.equal(finish.sources[0].retrieved_at,'page-time');
+  assert.equal(finish.sources[0].title,'First');
+  assert.deepEqual(finish.sources[0].passages,[{id:'p1',text:'Actual retrieved page evidence'}]);
+  const result=(request,id)=>JSON.parse(request.messages.find(m=>m.role==='tool'&&m.tool_call_id===id).content);
+  assert.equal(result(requests[2],'r1').citation_markdown,`[1](${first})`);
+  assert.deepEqual(result(requests[3],'s2').sources.map(s=>s.citation_markdown),[`[1](${first})`,`[3](${third})`]);
+  assert.equal(result(requests[4],'r2').citation_markdown,`[2](${second})`);
+});
