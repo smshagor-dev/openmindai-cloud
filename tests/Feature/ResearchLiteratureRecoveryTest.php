@@ -1,0 +1,203 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Jobs\Research\ExecuteTask;
+use App\Models\Research\Evidence;
+use App\Models\Research\Finding;
+use App\Models\Research\Project;
+use App\Models\Research\Run;
+use App\Models\Research\Source;
+use App\Models\Research\Task;
+use App\Models\User;
+use App\Services\Research\Context;
+use App\Services\Research\Inference;
+use App\Services\Research\Orchestrator;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
+use Tests\TestCase;
+
+class ResearchLiteratureRecoveryTest extends TestCase
+{
+    use RefreshDatabase;
+
+    private function source(string $text): Source
+    {
+        Queue::fake();
+        Http::preventStrayRequests();
+        $user = User::create(['name' => 'Literature fixture', 'email' => 'literature@example.com', 'password' => 'SyntheticPassword123']);
+        $user->forceFill(['email_verified_at' => now()])->save();
+        $project = Project::create(['owner_id' => $user->id, 'title' => 'Evidence recovery fixture', 'prompt' => 'Review supplied evidence only.', 'settings' => []]);
+
+        return Source::create(['project_id' => $project->id, 'fingerprint' => hash('sha256', $text), 'title' => 'Synthetic source', 'authors' => [], 'text' => $text, 'metadata' => []]);
+    }
+
+    private function start(Source $source): Run
+    {
+        $project = Project::findOrFail($source->project_id);
+
+        return app(Orchestrator::class)->start($project, $project->owner_id, 'literature');
+    }
+
+    private function drain(Run $run): void
+    {
+        for ($i = 0; $i < 30 && $run->fresh()->status === 'running'; $i++) {
+            app(Orchestrator::class)->pump($run->id);
+            foreach (Task::where('run_id', $run->id)->where('status', 'queued')->get() as $task) {
+                (new ExecuteTask($task->id))->handle();
+            }
+            $this->travel(20)->seconds();
+        }
+    }
+
+    public function test_selected_quote_ids_resolve_to_exact_unicode_source_text_and_remain_unreviewed(): void
+    {
+        $text = 'বাংলা গবেষণা: controlled synthetic evidence stays traceable to its original source.';
+        $source = $this->source($text);
+        $this->mock(Inference::class)->shouldReceive('json')->once()->andReturnUsing(function (Context $ctx, $instruction, $data) use ($source, $text) {
+            $this->assertSame($text, $data['source']['quote_options']['q1']);
+
+            return ['analyses' => ['Synthetic analysis'], 'evidence' => [['source_id' => (string) $source->id, 'claim' => 'Synthetic fixture claim', 'quote_id' => 'q1']]];
+        });
+        $run = $this->start($source);
+        $this->drain($run);
+        $this->assertSame('completed', $run->fresh()->status);
+        $evidence = Evidence::where('project_id', $source->project_id)->sole();
+        $this->assertSame($text, $evidence->quote);
+        $this->assertSame('unreviewed', $evidence->status);
+        $this->assertSame('unreviewed', Finding::where('project_id', $source->project_id)->sole()->data['analyses'][0]['evidence_status']);
+    }
+
+    public function test_a_paraphrased_legacy_quote_gets_one_bounded_repair_before_any_evidence_is_saved(): void
+    {
+        $text = 'Controlled synthetic findings require exact quoted evidence.';
+        $source = $this->source($text);
+        $calls = 0;
+        $this->mock(Inference::class)->shouldReceive('json')->twice()->andReturnUsing(function (Context $ctx, $instruction, $data) use ($source, &$calls) {
+            $this->assertSame(0, Evidence::where('project_id', $source->project_id)->count());
+            if (++$calls === 1) {
+                return ['analyses' => ['Retained analysis'], 'evidence' => [['source_id' => $source->id, 'claim' => 'Synthetic claim', 'quote' => 'This paraphrase was never in the source.']]];
+            }
+            $this->assertSame(['Synthetic claim'], $data['claims_to_check']);
+
+            return ['evidence' => [['source_id' => $source->id, 'claim' => 'Synthetic claim', 'quote_id' => 'q1']]];
+        });
+        $run = $this->start($source);
+        $this->drain($run);
+        $this->assertSame('completed', $run->fresh()->status);
+        $this->assertSame($text, Evidence::where('project_id', $source->project_id)->sole()->quote);
+        $this->assertSame(1, Finding::where('project_id', $source->project_id)->sole()->data['coverage']['quote_repair_requests']);
+        $this->assertSame(1, DB::table('research_events')->where('type', 'literature.quote_repair')->count());
+    }
+
+    public function test_failed_quote_repair_cannot_store_foreign_or_fabricated_evidence_or_advance_checkpoint(): void
+    {
+        $source = $this->source('An actual synthetic source contains only this controlled text.');
+        $this->mock(Inference::class)->shouldReceive('json')->twice()->andReturn(
+            ['analyses' => ['Synthetic analysis'], 'evidence' => [['source_id' => $source->id, 'claim' => 'Claim', 'quote' => 'Not an actual quotation.']]],
+            ['evidence' => [['source_id' => $source->id + 100, 'claim' => 'Claim', 'quote_id' => 'q1']]],
+        );
+        $run = $this->start($source);
+        $task = Task::where('run_id', $run->id)->sole();
+        (new ExecuteTask($task->id))->handle();
+        $task->refresh();
+        $this->assertSame('pending', $task->status);
+        $this->assertSame(1, $task->errors);
+        $this->assertSame('evidence_quote_not_in_source', $task->error_code);
+        $this->assertEmpty($task->checkpoint);
+        $this->assertSame(0, Evidence::where('project_id', $source->project_id)->count());
+        $this->assertSame(0, Finding::where('project_id', $source->project_id)->count());
+    }
+
+    public function test_empty_repaired_evidence_is_explicitly_missing_and_never_promoted_to_verified(): void
+    {
+        $source = $this->source('Controlled synthetic context cannot prove every proposed claim.');
+        $this->mock(Inference::class)->shouldReceive('json')->twice()->andReturn(
+            ['analyses' => ['Uncertain interpretation'], 'evidence' => [['source_id' => $source->id, 'claim' => 'Unsupported interpretation', 'quote' => 'An invented quotation.']]],
+            ['evidence' => []],
+        );
+        $run = $this->start($source);
+        $this->drain($run);
+        $data = Finding::where('project_id', $source->project_id)->sole()->data;
+        $this->assertSame('completed', $run->fresh()->status);
+        $this->assertSame('missing', $data['analyses'][0]['evidence_status']);
+        $this->assertSame(1, $data['coverage']['chunks_without_supported_quotes']);
+        $this->assertSame(0, Evidence::where('project_id', $source->project_id)->count());
+        $this->assertSame(1, DB::table('research_events')->where('type', 'literature.evidence_limited')->count());
+    }
+
+    public function test_retry_budget_resets_after_real_chunk_progress_but_failure_history_is_retained(): void
+    {
+        $source = $this->source(str_repeat('Controlled synthetic evidence. ', 600));
+        $attempts = [];
+        $this->mock(Inference::class)->shouldReceive('json')->andReturnUsing(function (Context $ctx, $instruction, $data) use (&$attempts, $source) {
+            $index = $ctx->task->checkpoint['index'] ?? 0;
+            if (($attempts[$index] ?? 0) === 0) {
+                $attempts[$index] = 1;
+                throw new \RuntimeException('synthetic transient provider failure');
+            }
+
+            return ['analyses' => ['Chunk '.$index], 'evidence' => [['source_id' => $source->id, 'claim' => 'Synthetic chunk '.$index, 'quote_id' => 'q1']]];
+        });
+        $run = $this->start($source);
+        $this->drain($run);
+        $task = Task::where('run_id', $run->id)->sole();
+        $this->assertSame('completed', $run->fresh()->status);
+        $this->assertSame(3, $task->checkpoint['index']);
+        $this->assertSame(0, $task->errors);
+        $this->assertNull($task->error_code);
+        $this->assertSame(3, DB::table('research_events')->where('task_id', $task->id)->where('type', 'task.error')->count());
+        $this->assertCount(3, Finding::where('project_id', $source->project_id)->sole()->data['analyses']);
+    }
+
+    public function test_repeated_failures_without_chunk_progress_still_stop_after_three_attempts(): void
+    {
+        $source = $this->source('Controlled synthetic source has no successful inference available.');
+        $this->mock(Inference::class)->shouldReceive('json')->times(3)->andThrow(new \RuntimeException('synthetic persistent provider failure'));
+        $run = $this->start($source);
+        $this->drain($run);
+        $task = Task::where('run_id', $run->id)->sole();
+        $this->assertSame('failed', $run->fresh()->status);
+        $this->assertSame('failed', $task->status);
+        $this->assertSame(3, $task->errors);
+        $this->assertEmpty($task->checkpoint);
+        $this->assertSame(0, Evidence::where('project_id', $source->project_id)->count());
+    }
+
+    public function test_legacy_checkpoint_resumes_at_its_next_chunk_without_rewriting_prior_analysis(): void
+    {
+        $source = $this->source(str_repeat('A', 8000).'The second chunk contains actual synthetic source evidence.');
+        $legacy = ['source_id' => $source->id, 'part' => 0, 'analysis' => ['Original saved analysis']];
+        $this->mock(Inference::class)->shouldReceive('json')->once()->andReturnUsing(function (Context $ctx, $instruction, $data) use ($source) {
+            $this->assertSame(1, $data['source']['part']);
+
+            return ['analyses' => ['New analysis'], 'evidence' => [['source_id' => $source->id, 'claim' => 'New synthetic claim', 'quote_id' => 'q1']]];
+        });
+        $run = $this->start($source);
+        Task::where('run_id', $run->id)->update(['checkpoint' => ['index' => 1, 'analyses' => [$legacy]], 'errors' => 2, 'error_code' => 'execution_or_validation_failed']);
+        $this->drain($run);
+        $data = Finding::where('project_id', $source->project_id)->sole()->data;
+        $this->assertSame('completed', $run->fresh()->status);
+        $this->assertSame($legacy, $data['analyses'][0]);
+        $this->assertCount(2, $data['analyses']);
+        $this->assertSame(1, $data['coverage']['quote_tracked_chunks']);
+        $this->assertSame(0, Task::where('run_id', $run->id)->sole()->errors);
+    }
+
+    public function test_quote_id_output_passes_the_real_inference_validator_and_gateway_with_a_mocked_provider(): void
+    {
+        $text = 'Controlled synthetic evidence is copied exactly from this source.';
+        $source = $this->source($text);
+        config(['research.model' => 'openmindai-ultra', 'research.fallback_models' => [], 'models.nvidia_key' => 'synthetic-provider-only']);
+        DB::table('hosted_code_agents')->where('slug', 'openmindai-ultra')->update(['enabled' => true, 'api_ready' => true, 'api_protocol' => 'chat', 'last_test_status' => 'success']);
+        $result = ['analyses' => ['Synthetic provider analysis'], 'evidence' => [['source_id' => $source->id, 'claim' => 'Synthetic claim', 'quote_id' => 'q1']]];
+        Http::fake(['integrate.api.nvidia.com/*' => Http::response(['id' => 'synthetic-completion', 'choices' => [['message' => ['role' => 'assistant', 'content' => json_encode($result)], 'finish_reason' => 'stop']], 'usage' => ['total_tokens' => 100]], 200)]);
+        $run = $this->start($source);
+        $this->drain($run);
+        $this->assertSame('completed', $run->fresh()->status);
+        $this->assertSame($text, Evidence::where('project_id', $source->project_id)->sole()->quote);
+        Http::assertSentCount(1);
+    }
+}

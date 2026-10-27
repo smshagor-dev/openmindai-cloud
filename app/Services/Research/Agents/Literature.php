@@ -5,6 +5,7 @@ namespace App\Services\Research\Agents;
 use App\Models\Research\Evidence;
 use App\Services\Research\Context;
 use App\Services\Research\Inference;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
 class Literature extends BaseAgent
 {
@@ -25,16 +26,43 @@ class Literature extends BaseAgent
         }
         $index = $state['index'] ?? 0;
         $analyses = $state['analyses'] ?? [];
+        $repairs = $state['quote_repairs'] ?? 0;
+        $withoutQuotes = $state['chunks_without_quotes'] ?? 0;
         if (isset($chunks[$index])) {
             $chunk = $chunks[$index];
+            // The model selects an ID; the backend supplies its exact source text.
+            // Existing checkpoints and legacy verbatim-quote responses remain valid.
+            $options = [];
+            foreach (mb_str_split($chunk['text'], 1000) as $quote) {
+                if (mb_strlen(trim($quote)) >= 12) {
+                    $options['q'.(count($options) + 1)] = $quote;
+                }
+            }
+            $chunk['quote_options'] = $options;
+            $rules = ['analyses' => 'present|array|max:12', 'evidence' => 'present|array|max:12', 'evidence.*.source_id' => 'required|integer', 'evidence.*.claim' => 'required|string|max:3000', 'evidence.*.quote_id' => 'sometimes|string|max:20', 'evidence.*.quote' => 'required_without:evidence.*.quote_id|string|max:3000'];
             $ctx->event('literature.reading', ['source_id' => $chunk['source_id'], 'status' => 'analyzing', 'completed' => $index, 'total' => count($chunks)]);
-            $out = app(Inference::class)->json($ctx, 'Analyze this source excerpt only. Return analyses[] describing objectives, methods, datasets, findings and limitations, plus evidence[{source_id,claim,quote}]. Each quote MUST be a contiguous verbatim excerpt. No evidence is preferable to fabricated evidence. Distinguish reported findings from interpretation; do not claim access to unseen pages.', ['project' => $this->project($ctx), 'source' => $chunk], ['analyses' => 'present|array|max:12', 'evidence' => 'present|array|max:12', 'evidence.*.source_id' => 'required|integer', 'evidence.*.claim' => 'required|string|max:3000', 'evidence.*.quote' => 'required|string|max:3000']);
-            foreach ($out['evidence'] as $e) {
-                abort_unless($e['source_id'] === $chunk['source_id'] && str_contains($chunk['text'], $e['quote']) && mb_strlen($e['quote']) >= 12, 422, 'Quote not found in this source excerpt.');
+            $out = app(Inference::class)->json($ctx, 'Analyze this source excerpt only. Return analyses[] describing objectives, methods, datasets, findings and limitations, plus evidence[{source_id,claim,quote_id}]. Select quote_id ONLY from source.quote_options, using the supplied source_id. Do not retype, translate or paraphrase quotations. Select only an option supporting the claim. Return evidence:[] when no supplied option supports a claim. Distinguish reported findings from interpretation; do not claim access to unseen pages.', ['project' => $this->project($ctx), 'source' => $chunk], $rules);
+            try {
+                $evidence = $this->resolveQuotes($out['evidence'], $chunk, $options);
+            } catch (HttpExceptionInterface $error) {
+                if ($error->getStatusCode() !== 422) {
+                    throw $error;
+                }
+                $ctx->event('literature.quote_repair', ['source_id' => $chunk['source_id'], 'status' => 'verifying', 'count' => count($out['evidence']), 'error_code' => 'evidence_quote_not_in_source']);
+                $repair = app(Inference::class)->json($ctx, 'The previous quotation or source ID failed exact-source validation. Return ONLY evidence[{source_id,claim,quote_id}]. Select quote_id from the supplied source.quote_options and use its exact source_id. Do not generate quote text. Retain a claim only if the selected source excerpt supports it; otherwise omit it. An empty evidence array is valid and records missing evidence, not verified findings.', ['source' => $chunk, 'claims_to_check' => array_column($out['evidence'], 'claim')], array_diff_key($rules, ['analyses' => true]));
+                $evidence = $this->resolveQuotes($repair['evidence'], $chunk, $options);
+                $repairs++;
+            }
+            // Validate every candidate before persisting any of this work unit.
+            foreach ($evidence as $e) {
                 $ctx->fenced(fn () => Evidence::firstOrCreate(['project_id' => $ctx->task->project_id, 'source_id' => $e['source_id'], 'task_id' => $ctx->task->id, 'claim' => $e['claim'], 'quote' => $e['quote']], ['status' => 'unreviewed']));
             }
-            $analyses[] = ['source_id' => $chunk['source_id'], 'part' => $chunk['part'], 'analysis' => $out['analyses']];
-            $ctx->checkpoint(['index' => $index + 1, 'analyses' => $analyses]);
+            if (! $evidence) {
+                $withoutQuotes++;
+                $ctx->event('literature.evidence_limited', ['source_id' => $chunk['source_id'], 'status' => 'needs_review', 'error_code' => 'no_supported_quotation']);
+            }
+            $analyses[] = ['source_id' => $chunk['source_id'], 'part' => $chunk['part'], 'analysis' => $out['analyses'], 'evidence_status' => $evidence ? 'unreviewed' : 'missing'];
+            $ctx->checkpoint(['index' => $index + 1, 'analyses' => $analyses, 'quote_repairs' => $repairs, 'chunks_without_quotes' => $withoutQuotes]);
             $ctx->event('literature.progress', ['source_id' => $chunk['source_id'], 'completed' => $index + 1, 'total' => count($chunks)]);
 
             return ['_continue' => true];
@@ -61,6 +89,18 @@ class Literature extends BaseAgent
             }$ctx->assertSources(array_column($overview['matrix'], 'source_id'));
         }
 
-        return array_merge($overview, ['analyses' => $analyses, 'evidence' => Evidence::where('task_id', $ctx->task->id)->get(['source_id', 'claim', 'quote', 'status'])->toArray(), 'coverage' => ['source_chunks_analyzed' => count($chunks), 'comparison_excerpts' => $compared, 'sources_analyzed' => count($bySource), 'matrix_rows' => count($overview['matrix']), 'comparison_scope' => 'Up to first/middle/last analysis excerpts per source; full chunk analyses are retained.']]);
+        return array_merge($overview, ['analyses' => $analyses, 'evidence' => Evidence::where('task_id', $ctx->task->id)->get(['source_id', 'claim', 'quote', 'status'])->toArray(), 'coverage' => ['source_chunks_analyzed' => count($chunks), 'comparison_excerpts' => $compared, 'sources_analyzed' => count($bySource), 'matrix_rows' => count($overview['matrix']), 'quote_repair_requests' => $repairs, 'chunks_without_supported_quotes' => $withoutQuotes, 'quote_tracked_chunks' => count(array_filter($analyses, fn ($item) => isset($item['evidence_status']))), 'quote_tracking_scope' => 'Quote counters cover entries with an evidence_status; older checkpoint entries retain their original review state.', 'comparison_scope' => 'Up to first/middle/last analysis excerpts per source; full chunk analyses are retained.']]);
+    }
+
+    private function resolveQuotes(array $candidates, array $chunk, array $options): array
+    {
+        $resolved = [];
+        foreach ($candidates as $candidate) {
+            $quote = isset($candidate['quote_id']) ? ($options[$candidate['quote_id']] ?? null) : ($candidate['quote'] ?? null);
+            abort_unless((int) $candidate['source_id'] === (int) $chunk['source_id'] && is_string($quote) && mb_strlen($quote) >= 12 && str_contains($chunk['text'], $quote), 422, 'Evidence quote or source could not be verified.');
+            $resolved[] = ['source_id' => (int) $chunk['source_id'], 'claim' => $candidate['claim'], 'quote' => $quote];
+        }
+
+        return $resolved;
     }
 }
