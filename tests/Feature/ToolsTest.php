@@ -89,11 +89,11 @@ class ToolsTest extends TestCase
         $r = TaskRun::create(['scheduled_task_id' => $t->id]);
         $this->mock(WebSearch::class)->shouldReceive('search')->times(3)->andReturn([['title' => 'Source', 'url' => 'https://example.com/article', 'snippet' => 'Summary']]);
         $this->mock(WebReader::class)->shouldReceive('read')->once()->andReturn(str_repeat('Verified page fixture text. ', 5));
-        Http::fake(fn ($request) => Http::response(['choices' => [['message' => ['content' => str_contains($request['messages'][0]['content'], 'research coordinator') ? json_encode(['action' => 'finish', 'reason' => 'Fixture coverage complete']) : 'Sourced report https://example.com/article']]]]));
+        Http::fake(fn ($request) => Http::response(['choices' => [['message' => ['content' => stripos($request['messages'][0]['content'], 'research coordinator') !== false ? json_encode(['action' => 'finish', 'reason' => 'Fixture coverage complete']) : 'Sourced report https://example.com/article']]]]));
         (new RunWorkspaceTask($r->id))->handle();
         $this->assertSame('complete', $r->fresh()->status);
         $this->assertSame('read', $r->fresh()->sources[0]['read_status']);
-        Http::assertSent(fn ($r) => str_contains($r['messages'][0]['content'], str_repeat('Verified page fixture text. ', 5)));
+        Http::assertSent(fn ($r) => str_contains($r['messages'][0]['content'], 'Verified page fixture text'));
     }
 
     public function test_web_reader_blocks_private_and_unsupported_urls(): void

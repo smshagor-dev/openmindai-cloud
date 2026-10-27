@@ -1291,3 +1291,9 @@ html .dialog .settings-nav button.selected {
   font: inherit;
   font-weight: 600;
 }
+
+/* Keep conversation controls separate from the brand on narrow screens. */
+@media (max-width: 380px) {
+  .workspace .topbar-brand > span { display: none; }
+  .workspace .topbar-right { flex-shrink: 0; gap: 3px; }
+}

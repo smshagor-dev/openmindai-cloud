@@ -220,3 +220,5 @@ Route::prefix('v1')->middleware('verified-mobile-ip')->group(function () {
         Route::delete('conversations/{id}', [ChatController::class, 'delete']);
     });
 });
+
+require __DIR__.'/research.php';

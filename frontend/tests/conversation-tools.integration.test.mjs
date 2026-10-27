@@ -106,6 +106,24 @@ test('empty selected search results cannot produce a fabricated biography',async
  fetcher:async()=>call('web_search',{query:'Person name'},'s'),web:async()=>{searches++;return {sources:[]};}});
  assert.equal(searches,2);assert.match(result.text,/cannot verify/);
 });
+test('a search outage still reads a user-supplied public page and never asks for the same link again',async()=>{
+ for(const readable of [true,false]){
+  let searches=0,reads=0;const chunks=[];
+  const url='https://www.php.net/manual/en/function.array-map.php';
+  const responses=[call('web_search',{query:'PHP array_map documentation'},'s'),call('read_page',{url},'r'),sse({content:'প্রদত্ত পৃষ্ঠা থেকে যাচাই করা উত্তর।'},'stop')];
+  const result=await runConversationTools({...base(),webSearchSelected:true,
+   messages:[{role:'user',content:`বাংলায় ব্যাখ্যা করো ${url}`}],
+   fetcher:async()=>responses.shift(),delta:chunk=>chunks.push(chunk),web:async input=>{
+    if(input.action==='search'){searches++;return {sources:[]};}
+    reads++;return {url,read_status:readable?'read':'unavailable',page_text:readable?'array_map applies a callback to array elements.':''};
+   }});
+  assert.equal(searches,2);assert.equal(reads,1);
+  assert.equal(chunks.join(''),result.text);
+  assert.match(result.text,readable?/যাচাই করা উত্তর/:/পৃষ্ঠাটিও পড়া যায়নি/);
+  assert.doesNotMatch(result.text,/link দিলে|Share an official/);
+ }
+});
+
 test('cancellation during search outage prevents retry and fallback',async()=>{
  const controller=new AbortController();let searches=0;
  await assert.rejects(()=>runConversationTools({...base(),webSearchSelected:true,signal:controller.signal,

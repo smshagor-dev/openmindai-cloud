@@ -173,7 +173,7 @@ class WebResearchTest extends TestCase
         $this->assertSame('https://example.org/paper', $sources[0]['url']);
         $this->assertSame('bing_rss', $sources[0]['provider']);
         $this->assertFalse($sources[0]['time_filter_applied']);
-        Http::assertSentCount(2);
+        Http::assertSentCount(3);
     }
 
     public function test_quick_search_reads_pages_and_preserves_unavailable_source_status(): void

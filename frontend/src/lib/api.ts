@@ -102,6 +102,7 @@ export type Conversation = {
   assistant_id?: number | null;
 };
 export type Message = {
+  research_metadata?: import("./research-status").ResearchMetadata | null;
   id?: number;
   animate?: boolean;
   status?: string;
@@ -113,6 +114,7 @@ export type Message = {
     snippet?: string;
     citation?: number;
     read_status?: string;
+    provider?:string;retrieved_at?:string;duplicate_of?:string|null;mime?:string;passages?:import("./research-evidence").Passage[];pdf?:{total_pages:number;sampled_pages:number[];partial:boolean;ocr:boolean}|null;
   }[];
   feedback?: "up" | "down" | null;
   role: "user" | "assistant";
