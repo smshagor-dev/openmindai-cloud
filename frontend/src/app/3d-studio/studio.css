@@ -1,0 +1,353 @@
+.studio-shell {
+  display: flex;
+  min-height: 100dvh;
+  background: #10141c;
+  color: #e9eef6;
+  font-family: var(--font-dm-sans), sans-serif;
+}
+.studio-shell button,
+.studio-shell a {
+  font: inherit;
+}
+.studio-shell button {
+  cursor: pointer;
+  color: inherit;
+  background: #243044;
+  border: 1px solid #3a4960;
+  border-radius: 10px;
+  padding: 10px 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.studio-shell button:hover {
+  background: #334660;
+}
+.studio-shell button:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+.studio-shell button:focus-visible,
+.studio-shell a:focus-visible,
+.studio-shell textarea:focus-visible {
+  outline: 2px solid #8dbfff;
+  outline-offset: 3px;
+}
+.studio-shell a {
+  color: #acbad0;
+  text-decoration: none;
+}
+.studio-sidebar {
+  width: 260px;
+  flex-shrink: 0;
+  background: #161d29;
+  padding: 26px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  border-right: 1px solid #2a3548;
+}
+.studio-back,
+.studio-sidebar h1 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.studio-sidebar h1 {
+  font-size: 23px;
+  margin: 0;
+}
+.studio-sidebar h2 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #9eaec5;
+  margin: 12px 0 0;
+}
+.studio-main {
+  width: min(1200px, 100%);
+  padding: 40px;
+  min-width: 0;
+  margin: auto;
+}
+.studio-main header h2 {
+  font-size: clamp(26px, 3vw, 40px);
+  font-weight: 500;
+  letter-spacing: -0.035em;
+  margin: 14px 0;
+}
+.studio-main header p {
+  color: #aebdd2;
+  line-height: 1.6;
+  max-width: 850px;
+}
+.studio-eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  color: #8bbcff;
+}
+.studio-empty {
+  text-align: center;
+  padding: 38px 0 28px;
+}
+.studio-orb {
+  width: 140px;
+  height: 140px;
+  border: 1px solid #42628a;
+  border-radius: 34px;
+  margin: 0 auto 25px;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(ellipse at 30% 20%, #42628a, #19263a);
+  box-shadow: 0 0 90px #4f8bed19;
+  color: #a1c9ff;
+  transform: rotate(-8deg);
+}
+.studio-empty h3 {
+  font-size: 24px;
+  font-weight: 500;
+}
+.studio-empty p,
+.studio-muted {
+  color: #97a7bd;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.studio-examples {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin: 25px auto 0;
+  max-width: 800px;
+}
+.studio-examples button {
+  text-align: left;
+  font-size: 13px;
+  line-height: 1.6;
+  background: #182130;
+}
+.studio-composer {
+  background: #182130;
+  border: 1px solid #34425a;
+  border-radius: 18px;
+  padding: 20px;
+  margin-top: 24px;
+}
+.studio-modes {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.studio-modes button[aria-pressed="true"] {
+  background: #345078;
+  border-color: #7babeb;
+}
+.studio-composer label {
+  font-size: 13px;
+  display: block;
+  color: #bdcbe0;
+  margin-bottom: 10px;
+}
+.studio-composer textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  resize: vertical;
+  min-height: 85px;
+  max-height: 300px;
+  background: transparent;
+  color: inherit;
+  border: 0;
+  font: inherit;
+  line-height: 1.6;
+}
+.studio-submit {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 14px 0;
+}
+.studio-submit small {
+  color: #9baec8;
+  font-size: 11px;
+}
+.studio-submit button {
+  background: #b9d6ff;
+  color: #11203a;
+  border: 0;
+}
+.studio-history {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.studio-history > div {
+  display: flex;
+  border-radius: 10px;
+}
+.studio-history > div.active {
+  background: #2b3e59;
+}
+.studio-history button {
+  background: transparent;
+  border: 0;
+  padding: 9px 6px;
+  font-size: 13px;
+  min-width: 0;
+}
+.studio-history button:first-child {
+  flex: 1;
+  text-align: left;
+}
+.studio-history span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 153px;
+}
+.studio-viewer {
+  position: relative;
+  border-radius: 18px;
+  border: 1px solid #35455d;
+  overflow: hidden;
+  margin-top: 24px;
+  background: #101722;
+}
+.studio-viewport {
+  height: clamp(350px, 52vh, 640px);
+  position: relative;
+}
+.studio-viewport canvas {
+  display: block;
+  touch-action: none;
+}
+.studio-label-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.studio-label {
+  font-size: 11px;
+  color: #f2f6ff;
+  background: #101722cf;
+  padding: 3px 7px;
+  border: 1px solid #506486;
+  border-radius: 5px;
+  max-width: 150px;
+  white-space: normal;
+  text-align: center;
+}
+.studio-viewer-tools {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  display: flex;
+  gap: 8px;
+}
+.studio-viewer-tools button {
+  font-size: 12px;
+  background: #1c2b40e8;
+}
+.studio-viewer-hint {
+  font-size: 11px;
+  color: #a7bbd6;
+  padding: 0 16px 8px;
+}
+.studio-node {
+  position: absolute;
+  right: 14px;
+  bottom: 45px;
+  padding: 16px;
+  max-width: 260px;
+  max-height: 190px;
+  overflow: auto;
+  background: #1a273aef;
+  border: 1px solid #496181;
+  border-radius: 10px;
+  font-size: 12px;
+}
+.studio-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  color: #aebdd2;
+  font-size: 12px;
+  margin-top: 12px;
+}
+.studio-meta button {
+  font-size: 12px;
+}
+.studio-error,
+.studio-preview-error {
+  background: #512b32;
+  color: #ffdae0;
+  padding: 14px;
+  border-radius: 10px;
+}
+.studio-preview-error {
+  position: absolute;
+  top: 70px;
+  left: 20px;
+  right: 20px;
+}
+.studio-spin {
+  animation: studio-spin 1.5s linear infinite;
+}
+@keyframes studio-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .studio-spin {
+    animation: none;
+  }
+}
+@media (max-width: 800px) {
+  .studio-shell {
+    display: block;
+  }
+  .studio-sidebar {
+    width: auto;
+    padding: 18px;
+    border-right: 0;
+    border-bottom: 1px solid #2a3548;
+    gap: 14px;
+  }
+  .studio-sidebar h2,
+  .studio-sidebar > .studio-muted {
+    display: none;
+  }
+  .studio-history {
+    max-height: 150px;
+    overflow: auto;
+  }
+  .studio-history span {
+    max-width: none;
+  }
+  .studio-main {
+    box-sizing: border-box;
+    padding: 24px 16px;
+  }
+  .studio-examples {
+    grid-template-columns: 1fr;
+  }
+  .studio-submit {
+    align-items: flex-start;
+  }
+  .studio-submit small {
+    max-width: 130px;
+  }
+  .studio-empty {
+    padding-top: 22px;
+  }
+  .studio-orb {
+    width: 100px;
+    height: 100px;
+  }
+  .studio-node {
+    max-width: 180px;
+  }
+}

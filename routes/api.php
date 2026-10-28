@@ -24,6 +24,7 @@ use App\Http\Controllers\NvidiaMaxineController;
 use App\Http\Controllers\NvidiaVoiceChatController;
 use App\Http\Controllers\OpenMindAiGatewayController;
 use App\Http\Controllers\RealtimeController;
+use App\Http\Controllers\SceneStudioController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\StreamChatController;
 use App\Http\Controllers\TeamController;
@@ -89,6 +90,10 @@ Route::prefix('v1')->middleware('verified-mobile-ip')->group(function () {
         Route::post('email/verify-code', [AuthController::class, 'verifyCode']);
     });
     Route::middleware(['auth:sanctum', 'active', 'interactive-token', 'throttle:api'])->group(function () {
+        Route::get('3d-scenes', [SceneStudioController::class, 'index']);
+        Route::post('3d-scenes', [SceneStudioController::class, 'create'])->middleware('throttle:chat');
+        Route::get('3d-scenes/{id}', [SceneStudioController::class, 'show']);
+        Route::delete('3d-scenes/{id}', [SceneStudioController::class, 'delete']);
         // User-owned Mobile sessions share hosted quota accounting; no client secret.
         Route::get('mobile/models', [OpenMindAiGatewayController::class, 'mobileModels']);
         Route::post('mobile/chat/completions', [OpenMindAiGatewayController::class, 'mobileChat'])->middleware('throttle:chat');

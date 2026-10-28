@@ -299,3 +299,8 @@ Work remains on dedicated feature/research-studio, fast-forwarding from the depl
 Local Research Studio browser verification completed: all four browser workflows passed (26.6s), covering desktop/mobile document persistence, chat-based research start and unauthenticated proxy rejection. Corrected only the isolated test environment PATH/dependencies; no app security gate was changed. Exact-commit CI and production recovery remain pending.
 
 Initial recovery CI (`4445cdf`) exposed a MySQL-only test assertion mismatch: native JSON reordered object keys while preserving the legacy checkpoint values/types. Corrected only that test to sort the outer object keys before strict comparison; nested analysis/list ordering and types remain strict. All eight local recovery tests (49 assertions) and Pint passed again. No application validation was weakened. Fresh exact-commit CI, including MySQL, and deployment remain pending.
+
+
+## 2026-10-28 — Separate 3D Studio branch
+
+The prompt-driven Object/Architecture feature is being implemented on `feature/3d-studio` from current main. It does not alter Research execution or private-worker gates. See `docs/3D_STUDIO_STATUS.md` for actual implementation, verification and limitations.
