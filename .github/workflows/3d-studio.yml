@@ -27,5 +27,5 @@ jobs:
       - run: php artisan test --filter=SceneStudioTest
       - name: Verify feature formatting
         run: |
-          vendor/bin/pint app/Http/Controllers/SceneStudioController.php app/Services/StudioScene.php database/migrations/2026_10_28_000001_create_studio_scenes.php tests/Feature/SceneStudioTest.php
+          vendor/bin/pint app/Http/Controllers/SceneStudioController.php app/Services/StudioScene.php database/migrations/2026_10_28_000001_create_studio_scenes.php tests/Feature/SceneStudioTest.php routes/api.php
           git diff --exit-code

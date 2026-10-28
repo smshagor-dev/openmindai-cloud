@@ -19,7 +19,7 @@ Branch: `feature/3d-studio`, based on main `61c34c0`.
 - Added backend tests for authentication, ownership, persistence/deletion, invalid input/output, lock release and unsafe scene data.
 - Added desktop/mobile browser tests for both modes, GLB header verification, history and provider failure handling.
 - Local production browser suite: all 5 tests passed (desktop/mobile Object and Architecture, real WebGL rendering, GLB magic-header verification, history/deletion and authentication/provider error handling). Browser APIs used fixtures; this is not live-provider verification.
-- Backend PHP 8.2/8.3 execution is running in CI; local PHP is unavailable. No live-provider acceptance claimed.
+- PHP 8.3 targeted backend suite passed in CI: 6 tests, 26 assertions, including the real application gateway with a fixture HTTP provider. Local PHP is unavailable. PHP formatting corrections and final PHP 8.2/8.3 CI are being checked. No live-provider acceptance claimed.
 
 ## Release requirements
 

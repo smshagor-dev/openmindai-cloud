@@ -8,6 +8,7 @@ use App\Services\StudioScene;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class SceneStudioController
 {
@@ -59,7 +60,7 @@ class SceneStudioController
             abort_unless(is_array($scene), 502, 'The model returned invalid scene JSON. Try a more specific prompt.');
             try {
                 $scene = $scenes->validate($scene);
-            } catch (\Illuminate\Validation\ValidationException $e) {
+            } catch (ValidationException $e) {
                 abort(502, 'The generated scene failed validation. Try a simpler or more specific prompt.');
             }
             $id = DB::table('studio_scenes')->insertGetId(['user_id' => $request->user()->id, 'title' => $scene['title'], 'mode' => $data['mode'], 'prompt' => $data['prompt'], 'scene' => json_encode($scene, JSON_UNESCAPED_UNICODE), 'created_at' => now(), 'updated_at' => now()]);

@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Services\StudioScene;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Validation\ValidationException;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -87,12 +88,12 @@ class SceneStudioTest extends TestCase
         try {
             app(StudioScene::class)->validate($scene);
             $this->fail('Dangling connection accepted.');
-        } catch (\Illuminate\Validation\ValidationException $e) {
+        } catch (ValidationException $e) {
             $this->assertArrayHasKey('scene', $e->errors());
         }
         $scene = $this->scene();
         $scene['nodes'][0]['script'] = 'alert(1)';
-        $this->expectException(\Illuminate\Validation\ValidationException::class);
+        $this->expectException(ValidationException::class);
         app(StudioScene::class)->validate($scene);
     }
 }
