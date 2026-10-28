@@ -205,4 +205,88 @@ class ResearchLiteratureRecoveryTest extends TestCase
         $this->assertSame($text, Evidence::where('project_id', $source->project_id)->sole()->quote);
         Http::assertSentCount(1);
     }
+
+    private function checkpointedSources(int $count): array
+    {
+        $first = $this->source('Synthetic comparison source 0.');
+        $sources = [$first];
+        for ($i = 1; $i < $count; $i++) {
+            $sources[] = Source::create(['project_id' => $first->project_id, 'fingerprint' => hash('sha256', 'comparison-'.$i), 'title' => 'Synthetic source '.$i, 'authors' => [], 'text' => 'Synthetic comparison source '.$i, 'metadata' => []]);
+        }
+        $run = $this->start($first);
+        $analyses = array_map(fn ($source) => ['source_id' => $source->id, 'part' => 0, 'analysis' => ['Previously saved synthetic analysis']], $sources);
+        Task::where('run_id', $run->id)->update(['checkpoint' => ['index' => $count, 'analyses' => $analyses, 'quote_repairs' => 2]]);
+
+        return [$run, $sources, $analyses];
+    }
+
+    private function comparisonRows(array $sources): array
+    {
+        return ['themes' => [], 'contradictions' => [], 'matrix' => array_map(fn ($s) => ['source_id' => $s['source_id'], 'methodology' => 'Synthetic method', 'findings' => 'Synthetic finding', 'limitations' => 'Limited supplied excerpt'], $sources)];
+    }
+
+    public function test_final_comparison_is_bounded_checkpointed_and_synthesized_without_reanalyzing_sources(): void
+    {
+        [$run, $sources, $analyses] = $this->checkpointedSources(14);
+        $calls = 0;
+        $this->mock(Inference::class)->shouldReceive('json')->times(4)->andReturnUsing(function (Context $ctx, $instruction, $data) use (&$calls) {
+            $calls++;
+            $this->assertArrayNotHasKey('source', $data);
+            $this->assertLessThanOrEqual(6, count($data['sources']));
+            if ($calls <= 3) {
+                $this->assertCount($calls - 1, $ctx->task->checkpoint['comparison_batches'] ?? []);
+
+                return $this->comparisonRows($data['sources']);
+            }
+            $this->assertCount(3, $ctx->task->checkpoint['comparison_batches']);
+
+            return ['themes' => [['name' => 'Cross-batch interpretation', 'summary' => 'A limited synthetic comparison.', 'source_ids' => array_merge(...array_column($data['sources'], 'source_ids'))]], 'contradictions' => [], 'matrix' => []];
+        });
+        $this->drain($run);
+        $task = Task::where('run_id', $run->id)->sole();
+        $this->assertSame('completed', $run->fresh()->status);
+        $this->assertEquals($analyses, $task->checkpoint['analyses']);
+        $this->assertSame(14, $task->checkpoint['index']);
+        $this->assertSame(2, $task->checkpoint['quote_repairs']);
+        $this->assertCount(14, $task->output['matrix']);
+        $this->assertSame(3, $task->output['coverage']['comparison_batches_completed']);
+    }
+
+    public function test_failed_comparison_retries_only_the_unfinished_batch(): void
+    {
+        [$run] = $this->checkpointedSources(8);
+        $failed = false;
+        $this->mock(Inference::class)->shouldReceive('json')->times(4)->andReturnUsing(function (Context $ctx, $instruction, $data) use (&$failed) {
+            $done = count($ctx->task->checkpoint['comparison_batches'] ?? []);
+            if ($done === 1 && ! $failed) {
+                $failed = true;
+                throw new \RuntimeException('Synthetic transient failure');
+            }
+            if ($done === 2) {
+                return ['themes' => [], 'contradictions' => [], 'matrix' => []];
+            }
+
+            return $this->comparisonRows($data['sources']);
+        });
+        $this->drain($run);
+        $task = Task::where('run_id', $run->id)->sole();
+        $this->assertSame('completed', $run->fresh()->status);
+        $this->assertSame(0, $task->errors);
+        $this->assertCount(8, $task->output['matrix']);
+        $this->assertSame(1, DB::table('research_events')->where('task_id', $task->id)->where('type', 'task.error')->count());
+    }
+
+    public function test_comparison_cannot_cite_an_unprovided_source_even_when_owned_by_the_same_project(): void
+    {
+        [$run, $sources] = $this->checkpointedSources(8);
+        $this->mock(Inference::class)->shouldReceive('json')->twice()->andReturn(['themes' => [['name' => 'Unsupported', 'summary' => 'Not supplied in first batch', 'source_ids' => [$sources[7]->id]]], 'contradictions' => [], 'matrix' => []]);
+        $task = Task::where('run_id', $run->id)->sole();
+        (new ExecuteTask($task->id))->handle();
+        $task->refresh();
+        $this->assertSame('pending', $task->status);
+        $this->assertSame('structured_output_validation_failed', $task->error_code);
+        $this->assertArrayNotHasKey('comparison_batches', $task->checkpoint);
+        $this->assertSame(8, $task->checkpoint['index']);
+        $this->assertSame(0, Finding::where('project_id', $task->project_id)->count());
+    }
 }

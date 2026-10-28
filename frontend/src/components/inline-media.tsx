@@ -131,7 +131,7 @@ export default function InlineMedia({
       </strong>
       {(error || task?.error) && <p role="alert">{error || task?.error}</p>}
       {task?.kind === "image" && <p className="muted">Task #{id} · {task.status}</p>}
-      {url && ["image/png", "image/jpeg"].includes(task?.output_mime || "") && (
+      {url && ["image/png", "image/jpeg", "image/webp"].includes(task?.output_mime || "") && (
         <a href={url} target="_blank" rel="noopener noreferrer">
           <img
             className="media-preview"
@@ -160,7 +160,7 @@ export default function InlineMedia({
         </a>
       )}
       <small className="muted">
-        Saved in Library. This preview is local to the current workspace view.
+        Saved in Library.
       </small>
     </article>
   );

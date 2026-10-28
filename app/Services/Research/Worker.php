@@ -30,7 +30,7 @@ class Worker
         }
         [$url, $key] = $configuration;
         try {
-            $r = Http::withToken($key)->acceptJson()->connectTimeout(3)->timeout(6)->withOptions(['allow_redirects' => false, 'stream' => true])->get($url.'/health');
+            $r = Http::withToken($key)->acceptJson()->connectTimeout(3)->timeout(config('research.worker_transport') === 'vercel' ? 30 : 6)->withOptions(['allow_redirects' => false, 'stream' => true])->get($url.'/health');
             $body = $r->toPsrResponse()->getBody();
             $raw = '';
             try {

@@ -22,7 +22,7 @@ export async function limitedJson(response, limit) {
 
 /** Only the gateway holds credentials; each job gets a fresh offline microVM. */
 export function researchWorker({ Sandbox, Snapshot, env = process.env, fetcher = fetch }) {
-  let checkedAt = 0; let checkedSnapshot = '';
+  let checkedAt = 0; let checkedRuntime = ''; let healthCheck;
   return async (request, operation) => {
     const key = env.RESEARCH_WORKER_KEY || '';
     const provided = request.headers.get('authorization') || '';
@@ -35,10 +35,23 @@ export function researchWorker({ Sandbox, Snapshot, env = process.env, fetcher =
     if (!/^snap_[A-Za-z0-9]+$/.test(snapshotId) || !/^sha256:[a-f0-9]{64}$/.test(digest)) return reply({ status: 'setup_required', runtime_checked: false }, 503);
     try {
       if (operation === 'health') {
-        if (checkedSnapshot !== snapshotId || Date.now() - checkedAt > 30000) {
-          const snapshot = await Snapshot.get({ snapshotId, signal: AbortSignal.timeout(4000) });
-          if (snapshot.status !== 'created') throw new Error('snapshot_unavailable');
-          checkedSnapshot = snapshotId; checkedAt = Date.now();
+        const identity = snapshotId + ':' + digest;
+        if (checkedRuntime !== identity || Date.now() - checkedAt > 30000) {
+          // Coalesce concurrent probes; snapshot metadata alone cannot establish
+          // the installed runtime identity or document tools' availability.
+          if (!healthCheck) healthCheck = (async () => {
+            const snapshot = await Snapshot.get({ snapshotId, signal: AbortSignal.timeout(4000) });
+            if (snapshot.status !== 'created') throw new Error('snapshot_unavailable');
+            const sandbox = await Sandbox.create({ source: { type: 'snapshot', snapshotId }, networkPolicy: 'deny-all', persistent: false, resources: { vcpus: 1 }, timeout: 20000, env: {}, ports: [] });
+            try {
+              const code = "import hashlib,json,pathlib,shutil,sys,os; import numpy,pandas,scipy,matplotlib,sklearn,pypdf,docx,citeproc; root=pathlib.Path('/opt/openmind'); m=json.loads((root/'runtime/research/runtime-manifest.json').read_text()); assert os.geteuid()==0; assert m['digest']==sys.argv[1]; assert all(hashlib.sha256((root/f).read_bytes()).hexdigest()==h for f,h in m['files'].items()); assert shutil.which('pandoc') and shutil.which('xelatex'); assert (root/'runtime/research/microvm.py').is_file()";
+              const result = await sandbox.runCommand({ cmd: '/opt/research/venv/bin/python', args: ['-I', '-c', code, digest], sudo: true, timeoutMs: 10000 });
+              if (result.exitCode !== 0) throw new Error('runtime_unavailable');
+              checkedRuntime = identity; checkedAt = Date.now();
+            } finally { await sandbox.stop(); }
+          })().finally(() => { healthCheck = undefined; });
+          await healthCheck;
+          if (checkedRuntime !== identity) throw new Error('runtime_changed');
         }
         return reply({ status: 'ready', runtime_checked: true, execution_verified: false, document_processing: 'isolated_microvm', experiments: 'isolated_microvm', isolation: 'firecracker_microvm', network: 'none', snapshot_id: snapshotId, runtime_digest: digest });
       }

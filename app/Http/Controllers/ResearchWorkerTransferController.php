@@ -5,7 +5,7 @@ namespace App\Http\Controllers;
 use App\Services\Research\WorkerTransfers;
 use Illuminate\Http\Request;
 
-class ResearchWorkerTransferController extends Controller
+class ResearchWorkerTransferController
 {
     public function transfer(Request $request, string $id, string $action, WorkerTransfers $transfers)
     {

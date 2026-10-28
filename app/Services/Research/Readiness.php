@@ -20,7 +20,7 @@ class Readiness
         }
         $reasoningReady = $model !== null && strlen((string) config('models.nvidia_key')) >= 12;
         $worker = app(Worker::class);
-        $fingerprint = hash('sha256', (string) config('research.worker_url')."\0".(string) config('research.worker_key'));
+        $fingerprint = hash('sha256', json_encode(array_map(fn ($key) => config('research.'.$key), ['worker_url', 'worker_key', 'worker_transport', 'worker_snapshot', 'worker_runtime_digest'])));
         $check = fn () => $worker->health();
         $state = $fresh ? $check() : Cache::remember('research:readiness:'.$fingerprint, 30, $check);
 

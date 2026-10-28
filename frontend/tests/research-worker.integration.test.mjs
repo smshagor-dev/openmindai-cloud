@@ -32,13 +32,17 @@ test('worker refuses missing/wrong credentials before inspecting runtime or crea
   assert.equal(f.calls.length, 0);
 });
 
-test('health checks an accessible snapshot, reports microVM isolation, and does not claim execution', async () => {
+test('health probes installed tools and pinned manifest in an offline VM without claiming experiment verification', async () => {
   const f = fixture();
   const r = await f.handler(request('health'), 'health');
   const body = await r.json();
   assert.equal(r.status, 200); assert.equal(body.runtime_checked, true); assert.equal(body.execution_verified, false);
   assert.equal(body.document_processing, 'isolated_microvm'); assert.equal(body.snapshot_id, env.RESEARCH_WORKER_SNAPSHOT_ID);
-  assert.equal(f.calls.filter(x => x[0] === 'create').length, 0);
+  assert.equal(f.calls.filter(x => x[0] === 'create').length, 1);
+  assert.equal(f.calls.find(x => x[0] === 'create')[1].networkPolicy, 'deny-all');
+  assert.equal(f.calls.at(-1)[0], 'stop');
+  await f.handler(request('health'), 'health');
+  assert.equal(f.calls.filter(x => x[0] === 'create').length, 1);
 });
 
 test('large private input/result use scoped backend transfers and only an offline disposable VM executes', async () => {
@@ -79,4 +83,11 @@ test('cancel never resumes an existing or stopped VM', async () => {
 
 test('bounded parsing rejects oversized bodies even without Content-Length', async () => {
   await assert.rejects(() => limitedJson(new Response('x'.repeat(2050)), 2048), /body_limit/);
+});
+
+ test('a failed runtime probe fails health closed and stops its VM', async () => {
+  const f = fixture({ commandExit: 1 });
+  const response = await f.handler(request('health'), 'health');
+  assert.equal(response.status, 503);
+  assert.equal(f.calls.at(-1)[0], 'stop');
 });
