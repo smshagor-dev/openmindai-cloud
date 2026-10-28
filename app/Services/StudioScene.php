@@ -36,12 +36,16 @@ TEXT;
         ];
         foreach (['position' => [-40, 40], 'rotation' => [-6.284, 6.284], 'scale' => [0.05, 20]] as $key => [$min, $max]) {
             $rules["nodes.*.$key"] = 'required|array|size:3|list';
-            $rules["nodes.*.$key.*"] = "required|numeric|between:$min,$max";
+            $rules["nodes.*.$key.*"] = ['required', 'numeric', "between:$min,$max", function ($attribute, $value, $fail) {
+                if ((! is_int($value) && ! is_float($value)) || ! is_finite((float) $value)) {
+                    $fail('Transform values must be finite JSON numbers.');
+                }
+            }];
         }
         $data = Validator::make($scene, $rules)->validate();
         $nodes = array_column($data['nodes'], null, 'id');
         foreach ($data['edges'] as $edge) {
-            if (! isset($nodes[$edge['from']], $nodes[$edge['to']]) || $edge['from'] === $edge['to'] || $nodes[$edge['from']]['position'] === $nodes[$edge['to']]['position']) {
+            if (! isset($nodes[$edge['from']], $nodes[$edge['to']]) || $edge['from'] === $edge['to'] || $nodes[$edge['from']]['position'] == $nodes[$edge['to']]['position']) {
                 throw ValidationException::withMessages(['scene' => 'Connections require distinct, existing nodes at different positions.']);
             }
         }

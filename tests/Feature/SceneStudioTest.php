@@ -6,6 +6,7 @@ use App\Http\Controllers\OpenMindAiGatewayController;
 use App\Models\User;
 use App\Services\StudioScene;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -53,11 +54,23 @@ class SceneStudioTest extends TestCase
     public function test_invalid_provider_output_is_not_saved_and_lock_is_released(): void
     {
         Sanctum::actingAs($this->user(), ['user']);
-        $this->mock(OpenMindAiGatewayController::class)->shouldReceive('mobileChat')->twice()->andReturn(response()->json(['choices' => [['message' => ['content' => '{"title":"Invalid"}']]] ]));
+        $this->mock(OpenMindAiGatewayController::class)->shouldReceive('mobileChat')->twice()->andReturn(response()->json(['choices' => [['message' => ['content' => '{"title":"Invalid"}']]]]));
         for ($i = 0; $i < 2; $i++) {
             $this->postJson('/api/v1/3d-scenes', ['mode' => 'architecture', 'prompt' => 'A web architecture'])->assertStatus(502);
         }
         $this->assertDatabaseCount('studio_scenes', 0);
+    }
+
+    public function test_real_gateway_contract_uses_ultra_and_accounts_for_credits(): void
+    {
+        config(['models.nvidia_key' => 'fixture-provider-secret']);
+        $scene = $this->scene();
+        Http::fake(['integrate.api.nvidia.com/*' => Http::response(['choices' => [['message' => ['role' => 'assistant', 'content' => json_encode($scene)], 'finish_reason' => 'stop']]])]);
+        $user = $this->user();
+        $token = $user->createToken('Studio session', ['user'])->plainTextToken;
+        $this->withToken($token)->postJson('/api/v1/3d-scenes', ['mode' => 'architecture', 'prompt' => 'An application service'])->assertCreated();
+        Http::assertSent(fn ($request) => $request['model'] === 'nvidia/nemotron-3-ultra-550b-a55b' && $request['stream'] === false);
+        $this->assertDatabaseHas('api_credit_usage', ['user_id' => $user->id, 'credits' => 1]);
     }
 
     public function test_invalid_prompt_is_rejected_before_inference(): void

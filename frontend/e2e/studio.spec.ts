@@ -121,10 +121,14 @@ test("3D Studio exposes authentication and provider failures", async ({
     }),
   );
   await page.goto("/3d-studio");
-  await expect(page.getByRole("alert")).toContainText("Please sign in.");
+  await expect(page.getByRole("main").getByRole("alert")).toContainText(
+    "Please sign in.",
+  );
   await page.getByRole("textbox").fill("A robot with wheels");
   await page.getByRole("button", { name: "Generate scene" }).click();
-  await expect(page.getByRole("alert")).toContainText("Provider unavailable.");
+  await expect(page.getByRole("main").getByRole("alert")).toContainText(
+    "Provider unavailable.",
+  );
   await expect(
     page.getByRole("button", { name: "Generate scene" }),
   ).toBeEnabled();
