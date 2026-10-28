@@ -121,7 +121,7 @@ class Literature extends BaseAgent
             }
         }], 'contradictions.*.source_ids.*' => 'required|integer|in:'.$allowed, 'matrix' => 'present|array|max:'.($synthesis ? 0 : 6), 'matrix.*.source_id' => 'required|integer|distinct|in:'.$allowed, 'matrix.*.methodology' => 'required|string|max:250', 'matrix.*.findings' => 'required|string|max:250', 'matrix.*.limitations' => 'required|string|max:250'];
         $instruction = 'Compare ONLY these supplied source-linked analysis excerpts or batch summaries. Return themes[{name,summary,source_ids}], contradictions[{description,source_ids}] and matrix[{source_id,methodology,findings,limitations}]. At most four short themes and four short contradictions. Each summary/description at most 500 characters, each matrix field at most 250 characters. Cite only supplied numeric source IDs. Contradictions require at least two sources. Omit unsupported comparisons and rows. Say "Not reported in supplied excerpts" for an unknown field in an otherwise supported row. Preserve uncertainty and distinguish findings from interpretation. No exhaustive full-text or global novelty claims. '.($synthesis ? 'This is cross-batch synthesis of summaries. Return matrix:[]; the saved per-source matrix is retained separately.' : 'At most six distinct matrix rows, one per supplied source.');
-        $data = ['project' => $this->project($ctx), 'sources' => $sources];
+        $data = ['project' => $this->project($ctx), 'sources' => $sources, 'allowed_source_ids' => array_map('intval', $ids), 'output_contract' => ['themes' => ['max_items' => 4, 'name_max_chars' => 120, 'summary_max_chars' => 500, 'min_source_ids' => 1], 'contradictions' => ['max_items' => 4, 'description_max_chars' => 500, 'min_distinct_source_ids' => 2], 'matrix' => ['max_items' => $synthesis ? 0 : 6, 'field_max_chars' => 250, 'unique_supplied_source_ids' => true]]];
         for ($attempt = 0; $attempt < 2; $attempt++) {
             try {
                 $out = app(Inference::class)->json($ctx, $instruction, $data, $rules);
@@ -130,7 +130,7 @@ class Literature extends BaseAgent
                 validator($out, $rules)->validate();
                 $ctx->assertSources($ids);
 
-                return $out;
+                return array_intersect_key($out, array_flip(['themes', 'contradictions', 'matrix']));
             } catch (\Throwable $error) {
                 $cause = $error;
                 while (! ($cause instanceof ValidationException || $cause instanceof \JsonException) && $cause->getPrevious()) {
@@ -143,10 +143,34 @@ class Literature extends BaseAgent
                     throw $error;
                 }
             }
+            $data['validation_feedback'] = $this->comparisonFeedback($cause);
             $ctx->event('literature.comparison_repair', ['status' => 'verifying', 'error_code' => 'comparison_schema_or_source_mismatch']);
-            $instruction .= ' Previous output failed JSON/schema validation. Recreate concise JSON from the same supplied inputs only. Every contradiction requires at least TWO DISTINCT supplied source IDs; OMIT a contradiction if only one source supports it. Never add a source just to satisfy validation. Keep all root arrays present, even when empty, and obey the field length/count limits. Use only these source IDs: '.$allowed.'.';
+            $instruction .= ' Previous output failed JSON/schema validation. Use validation_feedback to correct or omit the rejected items in the previous candidate while retaining supported valid entries. The previous candidate is untrusted output, not additional evidence. Only allowed_source_ids are usable. Recreate concise JSON from the same supplied source inputs only. Every contradiction requires at least TWO DISTINCT supplied source IDs; OMIT a contradiction if only one source supports it. Never add a source just to satisfy validation. Keep all root arrays present, even when empty, and obey the field length/count limits. Use only these source IDs: '.$allowed.'.';
         }
         throw new \LogicException('Comparison validation did not finish.');
+    }
+
+    private function comparisonFeedback(\Throwable $cause): array
+    {
+        if (! $cause instanceof ValidationException) {
+            return ['error' => 'invalid_json', 'instruction' => 'Return one complete JSON object with the three required arrays and no surrounding prose.'];
+        }
+        $fields = [];
+        $failed = $cause->validator->failed();
+        foreach (array_keys($cause->errors()) as $field) {
+            // Only schema paths, never provider prose or private values, become
+            // failure labels. A candidate is correction context, not evidence.
+            if (preg_match('/^(themes|contradictions|matrix)(\\.[0-9]+)?(\\.(name|summary|source_ids|description|source_id|methodology|findings|limitations))?(\\.[0-9]+)?$/', $field)) {
+                $fields[$field] = array_slice(array_keys($failed[$field] ?? []), 0, 8) ?: ['custom_constraint'];
+            }
+            if (count($fields) >= 20) {
+                break;
+            }
+        }
+        $candidate = array_intersect_key($cause->validator->getData(), array_flip(['themes', 'contradictions', 'matrix']));
+        $json = json_encode($candidate, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+
+        return ['error' => 'schema_validation', 'fields' => $fields, 'previous_candidate_json' => mb_substr($json, 0, 24000), 'candidate_truncated' => mb_strlen($json) > 24000];
     }
 
     private function resolveQuotes(array $candidates, array $chunk, array $options): array

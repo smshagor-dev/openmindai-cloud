@@ -295,13 +295,15 @@ class ResearchLiteratureRecoveryTest extends TestCase
         [$run, $sources] = $this->checkpointedSources(2);
         config(['research.model' => 'openmindai-ultra', 'research.fallback_models' => [], 'models.nvidia_key' => 'synthetic-provider-only']);
         DB::table('hosted_code_agents')->where('slug', 'openmindai-ultra')->update(['enabled' => true, 'api_ready' => true, 'api_protocol' => 'chat', 'last_test_status' => 'success']);
-        $invalid = ['themes' => [], 'contradictions' => [['description' => 'A single-source interpretation', 'source_ids' => [$sources[0]->id]]], 'matrix' => []];
+        $invalid = ['themes' => [], 'contradictions' => [['description' => 'A single-source interpretation', 'source_ids' => [$sources[0]->id]]], 'matrix' => [], 'debug' => 'SYNTHETIC-EXTRA-FIELD-NOT-FOR-CORRECTION'];
         $valid = ['themes' => [], 'contradictions' => [], 'matrix' => []];
         $calls = 0;
-        Http::fake(['integrate.api.nvidia.com/*' => function ($request) use (&$calls, $invalid, $valid) {
+        $repairContext = null;
+        Http::fake(['integrate.api.nvidia.com/*' => function ($request) use (&$calls, &$repairContext, $invalid, $valid) {
             $calls++;
             if ($calls === 2) {
                 $this->assertStringContainsString('Never add a source just to satisfy validation', $request['messages'][0]['content']);
+                $repairContext = json_decode(implode('', array_column(array_slice($request['messages'], 1), 'content')), true);
             }
 
             return Http::response(['choices' => [['message' => ['role' => 'assistant', 'content' => json_encode($calls === 1 ? $invalid : $valid)], 'finish_reason' => 'stop']], 'usage' => ['total_tokens' => 100]], 200);
@@ -314,6 +316,11 @@ class ResearchLiteratureRecoveryTest extends TestCase
         $this->assertSame(12000, $run->fresh()->reserved_tokens);
         $this->assertSame(1, DB::table('research_events')->where('task_id', $task->id)->where('type', 'literature.comparison_repair')->count());
         Http::assertSentCount(2);
+        $this->assertContains('Min', $repairContext['validation_feedback']['fields']['contradictions.0.source_ids']);
+        $this->assertArrayHasKey('previous_candidate_json', $repairContext['validation_feedback']);
+        $this->assertFalse($repairContext['validation_feedback']['candidate_truncated']);
+        $this->assertSame(120, $repairContext['output_contract']['themes']['name_max_chars']);
+        $this->assertStringNotContainsString('SYNTHETIC-EXTRA-FIELD-NOT-FOR-CORRECTION', json_encode($repairContext));
     }
 
     public function test_two_repeated_ids_do_not_count_as_two_sources_and_repair_may_omit_the_contradiction(): void
@@ -338,5 +345,31 @@ class ResearchLiteratureRecoveryTest extends TestCase
         $this->assertSame(1, $task->fresh()->errors);
         $this->assertArrayNotHasKey('comparison_batches', $task->fresh()->checkpoint);
         $this->assertSame(0, DB::table('research_events')->where('type', 'literature.comparison_repair')->count());
+    }
+
+    public function test_invalid_json_is_repaired_once_using_the_real_gateway_and_keeps_only_defined_comparison_fields(): void
+    {
+        [$run] = $this->checkpointedSources(2);
+        config(['research.model' => 'openmindai-ultra', 'research.fallback_models' => [], 'models.nvidia_key' => 'synthetic-provider-only']);
+        DB::table('hosted_code_agents')->where('slug', 'openmindai-ultra')->update(['enabled' => true, 'api_ready' => true, 'api_protocol' => 'chat', 'last_test_status' => 'success']);
+        $calls = 0;
+        $feedback = null;
+        Http::fake(['integrate.api.nvidia.com/*' => function ($request) use (&$calls, &$feedback) {
+            $calls++;
+            if ($calls === 2) {
+                $context = json_decode(implode('', array_column(array_slice($request['messages'], 1), 'content')), true);
+                $feedback = $context['validation_feedback'];
+            }
+            $content = $calls === 1 ? '{incomplete' : json_encode(['themes' => [], 'contradictions' => [], 'matrix' => [], 'unexpected_debug' => 'Synthetic extra field']);
+
+            return Http::response(['choices' => [['message' => ['role' => 'assistant', 'content' => $content], 'finish_reason' => 'stop']]], 200);
+        }]);
+        $this->drain($run);
+        $task = Task::where('run_id', $run->id)->sole();
+        $this->assertSame('completed', $run->fresh()->status);
+        $this->assertSame('invalid_json', $feedback['error']);
+        $this->assertArrayNotHasKey('unexpected_debug', $task->output);
+        $this->assertSame(12000, $run->fresh()->reserved_tokens);
+        Http::assertSentCount(2);
     }
 }
