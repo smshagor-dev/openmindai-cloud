@@ -48,6 +48,8 @@ class Inference
                     $messages[] = ['role' => 'user', 'content' => $part];
                 }
                 $request = Request::create('/api/v1/mobile/chat/completions', 'POST', ['model' => $slug, 'messages' => $messages, 'stream' => false, 'temperature' => 0.2, 'max_tokens' => 6000]);
+                // Internal request metadata, never a public request parameter.
+                $request->attributes->set('research_literature_json', $ctx->task->agent === 'literature');
                 $request->setUserResolver(fn () => $user);
                 $response = app(OpenMindAiGatewayController::class)->mobileChat($request, app(HostedCodeAgents::class), app(ApiCreditUsage::class));
                 if ($response->getStatusCode() !== 200) {

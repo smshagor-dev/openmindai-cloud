@@ -297,6 +297,12 @@ class OpenMindAiGatewayController
             if (isset($data['temperature'])) {
                 $payload['temperature'] = $data['temperature'];
             }
+            // These models support the same bounded JSON mode used by the
+            // hosted research planner. Leave ordinary chat and other agents alone.
+            if ($request->attributes->get('research_literature_json') === true
+                && in_array($agent->provider_model, ['nvidia/nemotron-3.5-lightning-30b-a3b', 'nvidia/nemotron-3-ultra-550b-a55b'], true)) {
+                $payload['chat_template_kwargs'] = ['enable_thinking' => false];
+            }
             $upstream = Http::withToken($key)->accept($stream ? 'text/event-stream' : 'application/json')
                 ->connectTimeout(10)->timeout(120)->withOptions(['allow_redirects' => false, 'stream' => $stream])
                 ->post('https://integrate.api.nvidia.com/v1/chat/completions', $payload);

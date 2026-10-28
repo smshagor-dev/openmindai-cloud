@@ -204,6 +204,22 @@ class ResearchLiteratureRecoveryTest extends TestCase
         $this->assertSame('completed', $run->fresh()->status);
         $this->assertSame($text, Evidence::where('project_id', $source->project_id)->sole()->quote);
         Http::assertSentCount(1);
+        Http::assertSent(fn ($request) => $request['chat_template_kwargs'] === ['enable_thinking' => false]
+            && $request['max_tokens'] === 6000);
+    }
+
+    public function test_other_research_agents_keep_the_provider_default_thinking_mode(): void
+    {
+        $source = $this->source('Synthetic source.');
+        config(['research.model' => 'openmindai-ultra', 'research.fallback_models' => [], 'models.nvidia_key' => 'synthetic-provider-only']);
+        DB::table('hosted_code_agents')->where('slug', 'openmindai-ultra')->update(['enabled' => true, 'api_ready' => true, 'api_protocol' => 'chat', 'last_test_status' => 'success']);
+        Http::fake(['integrate.api.nvidia.com/*' => Http::response(['choices' => [['message' => ['content' => '{"ready":true}']]]], 200)]);
+        $run = $this->start($source);
+        $task = Task::where('run_id', $run->id)->sole();
+        $task->update(['agent' => 'planning', 'status' => 'running', 'claim' => 'synthetic-claim']);
+        $result = app(Inference::class)->json(new Context($task, 'synthetic-claim'), 'Return ready JSON.', [], ['ready' => 'required|boolean']);
+        $this->assertSame(['ready' => true], $result);
+        Http::assertSent(fn ($request) => ! isset($request['chat_template_kwargs']) && $request['max_tokens'] === 6000);
     }
 
     private function checkpointedSources(int $count): array
