@@ -5,6 +5,7 @@ namespace App\Services\Research\Agents;
 use App\Models\Research\Evidence;
 use App\Services\Research\Context;
 use App\Services\Research\Inference;
+use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
 class Literature extends BaseAgent
@@ -114,24 +115,36 @@ class Literature extends BaseAgent
     {
         $ids = $synthesis ? array_merge(...array_column($sources, 'source_ids')) : array_column($sources, 'source_id');
         $allowed = implode(',', array_map('intval', $ids));
-        $rules = ['themes' => 'present|array|max:4', 'themes.*.name' => 'required|string|max:120', 'themes.*.summary' => 'required|string|max:500', 'themes.*.source_ids' => 'required|array|min:1|max:60', 'themes.*.source_ids.*' => 'required|integer|in:'.$allowed, 'contradictions' => 'present|array|max:4', 'contradictions.*.description' => 'required|string|max:500', 'contradictions.*.source_ids' => 'required|array|min:2|max:60', 'contradictions.*.source_ids.*' => 'required|integer|in:'.$allowed, 'matrix' => 'present|array|max:'.($synthesis ? 0 : 6), 'matrix.*.source_id' => 'required|integer|distinct|in:'.$allowed, 'matrix.*.methodology' => 'required|string|max:250', 'matrix.*.findings' => 'required|string|max:250', 'matrix.*.limitations' => 'required|string|max:250'];
+        $rules = ['themes' => 'present|array|max:4', 'themes.*.name' => 'required|string|max:120', 'themes.*.summary' => 'required|string|max:500', 'themes.*.source_ids' => 'required|array|min:1|max:60', 'themes.*.source_ids.*' => 'required|integer|in:'.$allowed, 'contradictions' => 'present|array|max:4', 'contradictions.*.description' => 'required|string|max:500', 'contradictions.*.source_ids' => ['required', 'array', 'min:2', 'max:60', function ($attribute, $value, $fail) {
+            if (is_array($value) && count(array_unique(array_map('intval', $value))) < 2) {
+                $fail('A contradiction requires two distinct supplied sources.');
+            }
+        }], 'contradictions.*.source_ids.*' => 'required|integer|in:'.$allowed, 'matrix' => 'present|array|max:'.($synthesis ? 0 : 6), 'matrix.*.source_id' => 'required|integer|distinct|in:'.$allowed, 'matrix.*.methodology' => 'required|string|max:250', 'matrix.*.findings' => 'required|string|max:250', 'matrix.*.limitations' => 'required|string|max:250'];
         $instruction = 'Compare ONLY these supplied source-linked analysis excerpts or batch summaries. Return themes[{name,summary,source_ids}], contradictions[{description,source_ids}] and matrix[{source_id,methodology,findings,limitations}]. At most four short themes and four short contradictions. Each summary/description at most 500 characters, each matrix field at most 250 characters. Cite only supplied numeric source IDs. Contradictions require at least two sources. Omit unsupported comparisons and rows. Say "Not reported in supplied excerpts" for an unknown field in an otherwise supported row. Preserve uncertainty and distinguish findings from interpretation. No exhaustive full-text or global novelty claims. '.($synthesis ? 'This is cross-batch synthesis of summaries. Return matrix:[]; the saved per-source matrix is retained separately.' : 'At most six distinct matrix rows, one per supplied source.');
         $data = ['project' => $this->project($ctx), 'sources' => $sources];
         for ($attempt = 0; $attempt < 2; $attempt++) {
-            $out = app(Inference::class)->json($ctx, $instruction, $data, $rules);
-            // Recheck the schema at the boundary, including strict input-scoped
-            // IDs. Ownership alone would allow unrelated project references.
-            $validator = validator($out, $rules);
-            if (! $validator->fails()) {
+            try {
+                $out = app(Inference::class)->json($ctx, $instruction, $data, $rules);
+                // Inference already validates live responses. Recheck at this
+                // boundary too, including adapters and input-scoped source IDs.
+                validator($out, $rules)->validate();
                 $ctx->assertSources($ids);
 
                 return $out;
-            }
-            if ($attempt === 1) {
-                $validator->validate();
+            } catch (\Throwable $error) {
+                $cause = $error;
+                while (! ($cause instanceof ValidationException || $cause instanceof \JsonException) && $cause->getPrevious()) {
+                    $cause = $cause->getPrevious();
+                }
+                // Live Inference wraps exhausted schema/JSON errors. Repair
+                // those once, without retrying quotas, stale claims, network
+                // failures, or deleted/unscoped project references here.
+                if ($attempt === 1 || ! ($cause instanceof ValidationException || $cause instanceof \JsonException)) {
+                    throw $error;
+                }
             }
             $ctx->event('literature.comparison_repair', ['status' => 'verifying', 'error_code' => 'comparison_schema_or_source_mismatch']);
-            $instruction .= ' Previous output failed validation. Recreate a concise response from the supplied inputs only; omit unsupported entries and use only these source IDs: '.$allowed.'.';
+            $instruction .= ' Previous output failed JSON/schema validation. Recreate concise JSON from the same supplied inputs only. Every contradiction requires at least TWO DISTINCT supplied source IDs; OMIT a contradiction if only one source supports it. Never add a source just to satisfy validation. Keep all root arrays present, even when empty, and obey the field length/count limits. Use only these source IDs: '.$allowed.'.';
         }
         throw new \LogicException('Comparison validation did not finish.');
     }
