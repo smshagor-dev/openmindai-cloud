@@ -1,10 +1,9 @@
 import { defineConfig } from "@playwright/test";
-import { fileURLToPath } from "node:url";
-const outputDir = fileURLToPath(
-  new URL(
-    `../test-results/studio-${process.env.RESPONSIVE_BROWSER || "chromium"}/`,
-    import.meta.url,
-  ),
+import { resolve } from "node:path";
+const outputDir = resolve(
+  __dirname,
+  "../test-results/",
+  `studio-${process.env.RESPONSIVE_BROWSER || "chromium"}`,
 );
 export default defineConfig({
   testDir: ".",
@@ -17,7 +16,7 @@ export default defineConfig({
     [
       "json",
       {
-        outputFile: outputDir + "results.json",
+        outputFile: resolve(outputDir, "results.json"),
       },
     ],
   ],

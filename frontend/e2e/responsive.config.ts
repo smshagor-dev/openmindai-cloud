@@ -1,9 +1,11 @@
 import { defineConfig } from "@playwright/test";
-import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 const browserName = (process.env.RESPONSIVE_BROWSER || "chromium") as
   "chromium" | "firefox" | "webkit";
-const outputDir = fileURLToPath(
-  new URL(`../test-results/responsive-${browserName}/`, import.meta.url),
+const outputDir = resolve(
+  __dirname,
+  "../test-results/",
+  `responsive-${browserName}`,
 );
 export default defineConfig({
   testDir: ".",
@@ -12,7 +14,10 @@ export default defineConfig({
   timeout: 45000,
   expect: { timeout: 5000 },
   workers: 2,
-  reporter: [["list"], ["json", { outputFile: outputDir + "results.json" }]],
+  reporter: [
+    ["list"],
+    ["json", { outputFile: resolve(outputDir, "results.json") }],
+  ],
   use: {
     browserName,
     baseURL: process.env.RESEARCH_BROWSER_URL,
