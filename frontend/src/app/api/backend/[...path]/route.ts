@@ -31,8 +31,8 @@ const publicPaths = new Set([
   "email/change/confirm",
 ]);
 const routes: Record<string, RegExp> = {
-  GET: /^(3d-scenes(?:\/\d+)?|developer\/keys|public-config|teams(?:\/\d+(?:\/(documents|threads)\/\d+)?)?|connectors|explore\/assistants(?:\/[a-f0-9-]{36})?|assistants|tasks(?:\/\d+\/runs)?|canvases\/\d+\/versions(?:\/\d+)?|conversations\/\d+\/branches|media(?:\/image-capabilities|\/\d+(?:\/output)?)?|me|models|tokens|capabilities|preferences|projects|memories|attachments(?:\/\d+)?|canvases(?:\/\d+)?|shares|export|shared\/[a-f0-9]{64}|conversations(?:\/\d+)?)$/,
-  POST: /^(3d-scenes|guest\/chat|developer\/keys|teams(?:\/\d+\/(preview|invites|documents|threads(?:\/\d+)?))?|team-invites\/\d+\/accept|connectors\/[a-zA-Z0-9_-]{1,80}\/(connect|tools|call)|live\/(start|input|stop)|explore\/assistants\/[a-f0-9-]{36}\/copy|assistants(?:\/\d+\/publish)?|tasks(?:\/\d+\/runs(?:\/\d+\/resume)?)?|me\/(avatar|email)|email\/change\/confirm|settings\/data|media(?:\/(?:image|transcription|speech|video|document_create))?|login(?:\/verify-ip)?|register|forgot-password|reset-password|email\/resend|email\/verify-code|logout|logout-all|web-search|chat(?:\/(stream|resume))?|projects|memories|attachments|canvases|conversations\/\d+\/(branch|share)|conversations\/\d+\/messages\/\d+\/stop|2fa\/(setup|confirm|recovery-codes))$/,
+  GET: /^(3d-scenes(?:\/uploads(?:\/\d+)?|\/\d+)?|developer\/keys|public-config|teams(?:\/\d+(?:\/(documents|threads)\/\d+)?)?|connectors|explore\/assistants(?:\/[a-f0-9-]{36})?|assistants|tasks(?:\/\d+\/runs)?|canvases\/\d+\/versions(?:\/\d+)?|conversations\/\d+\/branches|media(?:\/image-capabilities|\/\d+(?:\/output)?)?|me|models|tokens|capabilities|preferences|projects|memories|attachments(?:\/\d+)?|canvases(?:\/\d+)?|shares|export|shared\/[a-f0-9]{64}|conversations(?:\/\d+)?)$/,
+  POST: /^(3d-scenes(?:\/uploads)?|guest\/chat|developer\/keys|teams(?:\/\d+\/(preview|invites|documents|threads(?:\/\d+)?))?|team-invites\/\d+\/accept|connectors\/[a-zA-Z0-9_-]{1,80}\/(connect|tools|call)|live\/(start|input|stop)|explore\/assistants\/[a-f0-9-]{36}\/copy|assistants(?:\/\d+\/publish)?|tasks(?:\/\d+\/runs(?:\/\d+\/resume)?)?|me\/(avatar|email)|email\/change\/confirm|settings\/data|media(?:\/(?:image|transcription|speech|video|document_create))?|login(?:\/verify-ip)?|register|forgot-password|reset-password|email\/resend|email\/verify-code|logout|logout-all|web-search|chat(?:\/(stream|resume))?|projects|memories|attachments|canvases|conversations\/\d+\/(branch|share)|conversations\/\d+\/messages\/\d+\/stop|2fa\/(setup|confirm|recovery-codes))$/,
   PATCH: /^(me|preferences|conversations\/\d+)$/,
   PUT: /^(teams\/\d+\/(members|documents)\/\d+|assistants\/\d+|tasks\/\d+|me\/password|projects\/\d+|canvases\/\d+|memories\/\d+|conversations\/\d+\/messages\/\d+\/feedback)$/,
   DELETE:
@@ -92,7 +92,7 @@ async function proxy(
         size += value.byteLength;
         if (
           size >
-          (endpoint.startsWith("research/")
+          (endpoint === "3d-scenes/uploads" ? 4_500_000 : endpoint === "3d-scenes" ? 150_000 : endpoint.startsWith("research/")
             ? 12_000_000
             : endpoint === "media" || endpoint === "media/image" || endpoint === "live/input" || endpoint === "media/transcription"
             ? 11_000_000
@@ -235,6 +235,9 @@ async function proxy(
           "X-Accel-Buffering": "no",
         },
       });
+    }
+    if (upstream.ok && /^3d-scenes\/uploads\/\d+$/.test(endpoint)) {
+      return new NextResponse(upstream.body, {headers:{"Content-Type":"application/octet-stream","Content-Disposition":upstream.headers.get("content-disposition") || "attachment; filename=reference.bin","Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff"}});
     }
     if (upstream.ok && researchDownload(endpoint)) {
       const mime = upstream.headers.get('content-type')?.split(';')[0] || '';

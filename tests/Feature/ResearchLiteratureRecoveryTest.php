@@ -17,6 +17,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
 class ResearchLiteratureRecoveryTest extends TestCase
@@ -204,5 +205,209 @@ class ResearchLiteratureRecoveryTest extends TestCase
         $this->assertSame('completed', $run->fresh()->status);
         $this->assertSame($text, Evidence::where('project_id', $source->project_id)->sole()->quote);
         Http::assertSentCount(1);
+        Http::assertSent(fn ($request) => $request['chat_template_kwargs'] === ['enable_thinking' => false]
+            && $request['max_tokens'] === 6000);
+    }
+
+    public function test_other_research_agents_also_keep_json_output_available(): void
+    {
+        $source = $this->source('Synthetic source.');
+        config(['research.model' => 'openmindai-ultra', 'research.fallback_models' => [], 'models.nvidia_key' => 'synthetic-provider-only']);
+        DB::table('hosted_code_agents')->where('slug', 'openmindai-ultra')->update(['enabled' => true, 'api_ready' => true, 'api_protocol' => 'chat', 'last_test_status' => 'success']);
+        Http::fake(['integrate.api.nvidia.com/*' => Http::response(['choices' => [['message' => ['content' => '{"ready":true}']]]], 200)]);
+        $run = $this->start($source);
+        $task = Task::where('run_id', $run->id)->sole();
+        $task->update(['agent' => 'planning', 'status' => 'running', 'claim' => 'synthetic-claim']);
+        config(['research.token_budget' => 0]);
+        $run->update(['reserved_tokens' => 2000000]);
+        $result = app(Inference::class)->json(new Context($task, 'synthetic-claim'), 'Return ready JSON.', [], ['ready' => 'required|boolean']);
+        $this->assertSame(['ready' => true], $result);
+        $this->assertSame(2006000, $run->fresh()->reserved_tokens);
+        Http::assertSent(fn ($request) => $request['chat_template_kwargs'] === ['enable_thinking' => false] && $request['max_tokens'] === 6000);
+    }
+
+    public function test_provider_rate_wait_does_not_consume_failure_attempts_or_lose_checkpoint(): void
+    {
+        $source = $this->source('Synthetic rate waiting source.');
+        $run = $this->start($source);
+        $task = Task::where('run_id', $run->id)->sole();
+        $checkpoint = ['retained' => 'accepted work'];
+        $task->update(['checkpoint' => $checkpoint]);
+        $this->mock(Inference::class)->shouldReceive('json')->once()->andThrow(new HttpException(429, 'provider_rate_limit', null, ['Retry-After' => 35]));
+        (new ExecuteTask($task->id))->handle();
+        $task->refresh();
+        $this->assertSame('pending', $task->status);
+        $this->assertSame(0, $task->errors);
+        $this->assertSame($checkpoint, $task->checkpoint);
+        $this->assertSame('provider_rate_limited', $task->error_code);
+        $this->assertTrue($task->available_at->greaterThan(now()->addSeconds(30)));
+        $this->assertSame('running', $run->fresh()->status);
+    }
+
+    private function checkpointedSources(int $count): array
+    {
+        $first = $this->source('Synthetic comparison source 0.');
+        $sources = [$first];
+        for ($i = 1; $i < $count; $i++) {
+            $sources[] = Source::create(['project_id' => $first->project_id, 'fingerprint' => hash('sha256', 'comparison-'.$i), 'title' => 'Synthetic source '.$i, 'authors' => [], 'text' => 'Synthetic comparison source '.$i, 'metadata' => []]);
+        }
+        $run = $this->start($first);
+        $analyses = array_map(fn ($source) => ['source_id' => $source->id, 'part' => 0, 'analysis' => ['Previously saved synthetic analysis']], $sources);
+        Task::where('run_id', $run->id)->update(['checkpoint' => ['index' => $count, 'analyses' => $analyses, 'quote_repairs' => 2]]);
+
+        return [$run, $sources, $analyses];
+    }
+
+    private function comparisonRows(array $sources): array
+    {
+        return ['themes' => [], 'contradictions' => [], 'matrix' => array_map(fn ($s) => ['source_id' => $s['source_id'], 'methodology' => 'Synthetic method', 'findings' => 'Synthetic finding', 'limitations' => 'Limited supplied excerpt'], $sources)];
+    }
+
+    public function test_final_comparison_is_bounded_checkpointed_and_synthesized_without_reanalyzing_sources(): void
+    {
+        [$run, $sources, $analyses] = $this->checkpointedSources(14);
+        $calls = 0;
+        $this->mock(Inference::class)->shouldReceive('json')->times(4)->andReturnUsing(function (Context $ctx, $instruction, $data) use (&$calls) {
+            $calls++;
+            $this->assertArrayNotHasKey('source', $data);
+            $this->assertLessThanOrEqual(6, count($data['sources']));
+            if ($calls <= 3) {
+                $this->assertCount($calls - 1, $ctx->task->checkpoint['comparison_batches'] ?? []);
+
+                return $this->comparisonRows($data['sources']);
+            }
+            $this->assertCount(3, $ctx->task->checkpoint['comparison_batches']);
+
+            return ['themes' => [['name' => 'Cross-batch interpretation', 'summary' => 'A limited synthetic comparison.', 'source_ids' => array_merge(...array_column($data['sources'], 'source_ids'))]], 'contradictions' => [], 'matrix' => []];
+        });
+        $this->drain($run);
+        $task = Task::where('run_id', $run->id)->sole();
+        $this->assertSame('completed', $run->fresh()->status);
+        $this->assertEquals($analyses, $task->checkpoint['analyses']);
+        $this->assertSame(14, $task->checkpoint['index']);
+        $this->assertSame(2, $task->checkpoint['quote_repairs']);
+        $this->assertCount(14, $task->output['matrix']);
+        $this->assertSame(3, $task->output['coverage']['comparison_batches_completed']);
+    }
+
+    public function test_failed_comparison_retries_only_the_unfinished_batch(): void
+    {
+        [$run] = $this->checkpointedSources(8);
+        $failed = false;
+        $this->mock(Inference::class)->shouldReceive('json')->times(4)->andReturnUsing(function (Context $ctx, $instruction, $data) use (&$failed) {
+            $done = count($ctx->task->checkpoint['comparison_batches'] ?? []);
+            if ($done === 1 && ! $failed) {
+                $failed = true;
+                throw new \RuntimeException('Synthetic transient failure');
+            }
+            if ($done === 2) {
+                return ['themes' => [], 'contradictions' => [], 'matrix' => []];
+            }
+
+            return $this->comparisonRows($data['sources']);
+        });
+        $this->drain($run);
+        $task = Task::where('run_id', $run->id)->sole();
+        $this->assertSame('completed', $run->fresh()->status);
+        $this->assertSame(0, $task->errors);
+        $this->assertCount(8, $task->output['matrix']);
+        $this->assertSame(1, DB::table('research_events')->where('task_id', $task->id)->where('type', 'task.error')->count());
+    }
+
+    public function test_comparison_cannot_cite_an_unprovided_source_even_when_owned_by_the_same_project(): void
+    {
+        [$run, $sources] = $this->checkpointedSources(8);
+        $this->mock(Inference::class)->shouldReceive('json')->twice()->andReturn(['themes' => [['name' => 'Unsupported', 'summary' => 'Not supplied in first batch', 'source_ids' => [$sources[7]->id]]], 'contradictions' => [], 'matrix' => []]);
+        $task = Task::where('run_id', $run->id)->sole();
+        (new ExecuteTask($task->id))->handle();
+        $task->refresh();
+        $this->assertSame('pending', $task->status);
+        $this->assertSame('structured_output_validation_failed', $task->error_code);
+        $this->assertArrayNotHasKey('comparison_batches', $task->checkpoint);
+        $this->assertSame(8, $task->checkpoint['index']);
+        $this->assertSame(0, Finding::where('project_id', $task->project_id)->count());
+    }
+
+    public function test_real_inference_schema_failure_gets_one_repair_without_weakening_contradiction_evidence(): void
+    {
+        [$run, $sources] = $this->checkpointedSources(2);
+        config(['research.model' => 'openmindai-ultra', 'research.fallback_models' => [], 'models.nvidia_key' => 'synthetic-provider-only']);
+        DB::table('hosted_code_agents')->where('slug', 'openmindai-ultra')->update(['enabled' => true, 'api_ready' => true, 'api_protocol' => 'chat', 'last_test_status' => 'success']);
+        $invalid = ['themes' => [], 'contradictions' => [['description' => 'A single-source interpretation', 'source_ids' => [$sources[0]->id]]], 'matrix' => [], 'debug' => 'SYNTHETIC-EXTRA-FIELD-NOT-FOR-CORRECTION'];
+        $valid = ['themes' => [], 'contradictions' => [], 'matrix' => []];
+        $calls = 0;
+        $repairContext = null;
+        Http::fake(['integrate.api.nvidia.com/*' => function ($request) use (&$calls, &$repairContext, $invalid, $valid) {
+            $calls++;
+            if ($calls === 2) {
+                $this->assertStringContainsString('Never add a source just to satisfy validation', $request['messages'][0]['content']);
+                $repairContext = json_decode(implode('', array_column(array_slice($request['messages'], 1), 'content')), true);
+            }
+
+            return Http::response(['choices' => [['message' => ['role' => 'assistant', 'content' => json_encode($calls === 1 ? $invalid : $valid)], 'finish_reason' => 'stop']], 'usage' => ['total_tokens' => 100]], 200);
+        }]);
+        $this->drain($run);
+        $task = Task::where('run_id', $run->id)->sole();
+        $this->assertSame('completed', $run->fresh()->status);
+        $this->assertSame([], $task->output['contradictions']);
+        $this->assertSame(2, $task->checkpoint['index']);
+        $this->assertSame(12000, $run->fresh()->reserved_tokens);
+        $this->assertSame(1, DB::table('research_events')->where('task_id', $task->id)->where('type', 'literature.comparison_repair')->count());
+        Http::assertSentCount(2);
+        $this->assertContains('Min', $repairContext['validation_feedback']['fields']['contradictions.0.source_ids']);
+        $this->assertArrayHasKey('previous_candidate_json', $repairContext['validation_feedback']);
+        $this->assertFalse($repairContext['validation_feedback']['candidate_truncated']);
+        $this->assertSame(120, $repairContext['output_contract']['themes']['name_max_chars']);
+        $this->assertStringNotContainsString('SYNTHETIC-EXTRA-FIELD-NOT-FOR-CORRECTION', json_encode($repairContext));
+    }
+
+    public function test_two_repeated_ids_do_not_count_as_two_sources_and_repair_may_omit_the_contradiction(): void
+    {
+        [$run, $sources] = $this->checkpointedSources(2);
+        $this->mock(Inference::class)->shouldReceive('json')->twice()->andReturn(
+            ['themes' => [], 'contradictions' => [['description' => 'Unsupported comparison', 'source_ids' => [$sources[0]->id, $sources[0]->id]]], 'matrix' => []],
+            ['themes' => [], 'contradictions' => [], 'matrix' => []],
+        );
+        $this->drain($run);
+        $this->assertSame('completed', $run->fresh()->status);
+        $this->assertSame([], Finding::where('project_id', $sources[0]->project_id)->sole()->data['contradictions']);
+    }
+
+    public function test_comparison_does_not_treat_provider_transport_failure_as_a_schema_repair(): void
+    {
+        [$run] = $this->checkpointedSources(2);
+        $this->mock(Inference::class)->shouldReceive('json')->once()->andThrow(new \RuntimeException('Synthetic transport failure'));
+        $task = Task::where('run_id', $run->id)->sole();
+        (new ExecuteTask($task->id))->handle();
+        $this->assertSame('pending', $task->fresh()->status);
+        $this->assertSame(1, $task->fresh()->errors);
+        $this->assertArrayNotHasKey('comparison_batches', $task->fresh()->checkpoint);
+        $this->assertSame(0, DB::table('research_events')->where('type', 'literature.comparison_repair')->count());
+    }
+
+    public function test_invalid_json_is_repaired_once_using_the_real_gateway_and_keeps_only_defined_comparison_fields(): void
+    {
+        [$run] = $this->checkpointedSources(2);
+        config(['research.model' => 'openmindai-ultra', 'research.fallback_models' => [], 'models.nvidia_key' => 'synthetic-provider-only']);
+        DB::table('hosted_code_agents')->where('slug', 'openmindai-ultra')->update(['enabled' => true, 'api_ready' => true, 'api_protocol' => 'chat', 'last_test_status' => 'success']);
+        $calls = 0;
+        $feedback = null;
+        Http::fake(['integrate.api.nvidia.com/*' => function ($request) use (&$calls, &$feedback) {
+            $calls++;
+            if ($calls === 2) {
+                $context = json_decode(implode('', array_column(array_slice($request['messages'], 1), 'content')), true);
+                $feedback = $context['validation_feedback'];
+            }
+            $content = $calls === 1 ? '{incomplete' : json_encode(['themes' => [], 'contradictions' => [], 'matrix' => [], 'unexpected_debug' => 'Synthetic extra field']);
+
+            return Http::response(['choices' => [['message' => ['role' => 'assistant', 'content' => $content], 'finish_reason' => 'stop']]], 200);
+        }]);
+        $this->drain($run);
+        $task = Task::where('run_id', $run->id)->sole();
+        $this->assertSame('completed', $run->fresh()->status);
+        $this->assertSame('invalid_json', $feedback['error']);
+        $this->assertArrayNotHasKey('unexpected_debug', $task->output);
+        $this->assertSame(12000, $run->fresh()->reserved_tokens);
+        Http::assertSentCount(2);
     }
 }

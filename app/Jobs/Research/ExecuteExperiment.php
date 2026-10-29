@@ -6,6 +6,7 @@ use App\Models\Research\Experiment;
 use App\Models\Research\Project;
 use App\Models\User;
 use App\Services\Research\Events;
+use App\Services\Research\ExecutionProvenance;
 use App\Services\Research\Transactions;
 use App\Services\Research\Worker;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -59,7 +60,7 @@ class ExecuteExperiment implements ShouldQueue
             }abort_if(array_sum(array_map(fn ($d) => strlen($d['data']), $datasets)) > 12000000, 422);
             $out = app(Worker::class)->call('experiment', ['execution_id' => $x->execution_id, 'code' => $x->code, 'code_hash' => hash('sha256', $x->code), 'seed' => $x->seed, 'datasets' => $datasets]);
             $provenance = $out['provenance'] ?? [];
-            if (($provenance['execution_id'] ?? '') !== $x->execution_id || ($provenance['code_hash'] ?? '') !== hash('sha256', $x->code) || ($provenance['seed'] ?? null) !== $x->seed || ! preg_match('/^sha256:[a-f0-9]{64}$/', $provenance['image'] ?? '')) {
+            if (($provenance['execution_id'] ?? '') !== $x->execution_id || ($provenance['code_hash'] ?? '') !== hash('sha256', $x->code) || ($provenance['seed'] ?? null) !== $x->seed || ! ExecutionProvenance::runtime($provenance)) {
                 throw new \RuntimeException('execution_provenance_invalid');
             }
             Transactions::run(function () use ($x, $out) {

@@ -351,3 +351,5 @@
     max-width: 180px;
   }
 }
+
+.studio-references {display:grid;gap:10px;padding:12px 0;min-width:0}.studio-references small{color:var(--studio-muted,#a0aec0)}.studio-upload-label{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.studio-upload-label input{max-width:100%}.studio-reference-row{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:6px 0;overflow-wrap:anywhere}.studio-reference-row label{display:flex;align-items:center;gap:8px;min-width:0}.studio-reference-row a{flex-shrink:0;font-size:12px}.studio-references p{overflow-wrap:anywhere}.studio-compatible{position:absolute;bottom:40px;left:20px;right:20px;font-size:12px;color:#a9c7de;pointer-events:none}

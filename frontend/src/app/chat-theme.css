@@ -183,6 +183,9 @@ html[data-theme="dark"] {
   box-shadow: none;
   color: var(--text);
 }
+.workspace a.sidebar-action[href="/research-studio"] {
+  text-decoration: none;
+}
 .workspace .sidebar-action svg {
   color: var(--text);
   stroke-width: 1.7;

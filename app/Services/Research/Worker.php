@@ -30,7 +30,7 @@ class Worker
         }
         [$url, $key] = $configuration;
         try {
-            $r = Http::withToken($key)->acceptJson()->connectTimeout(3)->timeout(6)->withOptions(['allow_redirects' => false, 'stream' => true])->get($url.'/health');
+            $r = Http::withToken($key)->acceptJson()->connectTimeout(3)->timeout(config('research.worker_transport') === 'vercel' ? 30 : 6)->withOptions(['allow_redirects' => false, 'stream' => true])->get($url.'/health');
             $body = $r->toPsrResponse()->getBody();
             $raw = '';
             try {
@@ -45,7 +45,11 @@ class Worker
             }
             $data = strlen($raw) <= 16384 ? json_decode($raw, true) : null;
             $runtime = is_array($data) && ($data['runtime_checked'] ?? false) === true;
-            $ready = $r->successful() && $runtime && ($data['status'] ?? '') === 'ready' && ($data['document_processing'] ?? '') === 'isolated_container' && ($data['experiments'] ?? '') === 'isolated_container';
+            $isolation = config('research.worker_transport') === 'vercel' ? 'isolated_microvm' : 'isolated_container';
+            $ready = $r->successful() && $runtime && ($data['status'] ?? '') === 'ready' && ($data['document_processing'] ?? '') === $isolation && ($data['experiments'] ?? '') === $isolation;
+            if (config('research.worker_transport') === 'vercel') {
+                $ready = $ready && ExecutionProvenance::runtime($data);
+            }
 
             return ['status' => $ready ? 'ready' : (($data['status'] ?? '') === 'setup_required' ? 'setup_required' : ($runtime ? 'runtime_unavailable' : 'unverified_runtime')), 'configured' => true, 'runtime_checked' => $runtime];
         } catch (\Throwable) {
@@ -59,6 +63,29 @@ class Worker
         $configuration = $this->configuration();
         abort_unless($configuration, 503, 'Private research worker is not configured.');
         [$url, $key] = $configuration;
+        if (config('research.worker_transport') === 'vercel') {
+            $transfers = app(WorkerTransfers::class);
+            if ($operation === 'cancel') {
+                $transfers->cancel($payload['execution_id'] ?? '');
+                $r = Http::withToken($key)->acceptJson()->connectTimeout(3)->timeout(8)->withOptions(['allow_redirects' => false])->post($url.'/cancel', $payload);
+                if (! $r->successful()) {
+                    throw new \RuntimeException('research_cancellation_unconfirmed');
+                }
+
+                return $r->json();
+            }
+            $ticket = $transfers->create($operation, $payload);
+            try {
+                $r = Http::withToken($key)->acceptJson()->connectTimeout(8)->timeout(180)->withOptions(['allow_redirects' => false])->post($url.'/'.$operation, $ticket);
+                if (! $r->successful() || $r->json('stored') !== true) {
+                    throw new \RuntimeException('research_worker_failed');
+                }
+
+                return $transfers->result($ticket['id']);
+            } finally {
+                $transfers->remove($ticket['id']);
+            }
+        }
         $r = Http::withToken($key)->acceptJson()->connectTimeout(8)->timeout($operation === 'cancel' ? 5 : 160)->withOptions(['allow_redirects' => false, 'stream' => true])->post(rtrim($url, '/').'/'.$operation, $payload);
         if (! $r->successful()) {
             throw new \RuntimeException('research_worker_failed');

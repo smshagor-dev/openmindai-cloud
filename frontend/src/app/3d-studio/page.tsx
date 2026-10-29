@@ -10,6 +10,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { downloadScene, studioApi, type SavedScene } from "@/lib/studio-scene";
+import { prepareStudioUpload, type StudioReference } from "@/lib/studio-upload";
 import "./studio.css";
 const Viewport = dynamic(() => import("@/components/studio-viewport"), {
   ssr: false,
@@ -33,11 +34,18 @@ export default function StudioPage() {
     [history, setHistory] = useState<History[]>([]),
     [busy, setBusy] = useState(false),
     [loading, setLoading] = useState(false),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [references, setReferences] = useState<StudioReference[]>([]),
+    [selectedUploads, setSelectedUploads] = useState<number[]>([]),
+    [uploading, setUploading] = useState(false);
   const pending = useRef(false);
   async function refresh() {
-    const data = await studioApi();
+    const [data, uploads] = await Promise.all([
+      studioApi(),
+      studioApi("/uploads"),
+    ]);
     setHistory(data.data);
+    setReferences(uploads.data);
   }
   useEffect(() => {
     refresh().catch((e) => setError(e.message));
@@ -49,7 +57,11 @@ export default function StudioPage() {
     setBusy(true);
     setError("");
     try {
-      const result = await studioApi("", "POST", { mode, prompt });
+      const result = await studioApi("", "POST", {
+        mode,
+        prompt,
+        upload_ids: selectedUploads,
+      });
       setSaved(result);
       await refresh();
     } catch (e) {
@@ -67,6 +79,13 @@ export default function StudioPage() {
       setSaved(result);
       setMode(result.mode);
       setPrompt(result.prompt);
+      setSelectedUploads(result.upload_ids || []);
+      setReferences((old) => [
+        ...(result.uploads || []),
+        ...old.filter(
+          (file) => !result.uploads?.some((linked) => linked.id === file.id),
+        ),
+      ]);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load scene.");
     } finally {
@@ -87,6 +106,7 @@ export default function StudioPage() {
           onClick={() => {
             setSaved(null);
             setPrompt("");
+            setSelectedUploads([]);
             setError("");
           }}
         >
@@ -230,11 +250,104 @@ export default function StudioPage() {
             placeholder="What would you like to create?"
             rows={3}
           />
+          <section className="studio-references" aria-label="Scene references">
+            <label className="studio-upload-label">
+              {uploading
+                ? "Reading and saving references…"
+                : "Upload references"}
+              <input
+                type="file"
+                multiple
+                accept=".md,.markdown,.txt,.csv,.json,.doc,.docx,.pdf,.png,.jpg,.jpeg,.webp"
+                disabled={busy || loading || uploading}
+                onChange={async (e) => {
+                  const input = e.currentTarget;
+                  const files = Array.from(input.files || []);
+                  if (selectedUploads.length + files.length > 5) {
+                    setError("Select up to five references.");
+                    input.value = "";
+                    return;
+                  }
+                  setUploading(true);
+                  setError("");
+                  try {
+                    for (const file of files) {
+                      const data = await prepareStudioUpload(file);
+                      const saved: StudioReference = await studioApi(
+                        "/uploads",
+                        "POST",
+                        data,
+                      );
+                      setReferences((old) => [saved, ...old]);
+                      setSelectedUploads((old) => [...old, saved.id]);
+                    }
+                  } catch (error) {
+                    setError(
+                      error instanceof Error ? error.message : "Upload failed.",
+                    );
+                  } finally {
+                    setUploading(false);
+                    input.value = "";
+                  }
+                }}
+              />
+            </label>
+            <small>
+              MD, documents, PDF and images · up to 3 MB each · originals stay
+              private
+            </small>
+            {references.length > 0 && (
+              <details>
+                <summary>
+                  Saved references ({selectedUploads.length} selected)
+                </summary>
+                {references.map((file) => (
+                  <div className="studio-reference-row" key={file.id}>
+                    <label>
+                      <input
+                        type="checkbox"
+                        disabled={busy || uploading}
+                        checked={selectedUploads.includes(file.id)}
+                        onChange={(e) => {
+                          if (e.target.checked && selectedUploads.length >= 5) {
+                            setError("Select up to five references.");
+                            return;
+                          }
+                          setSelectedUploads((old) =>
+                            e.target.checked
+                              ? [...old, file.id]
+                              : old.filter((id) => id !== file.id),
+                          );
+                        }}
+                      />
+                      {file.name}
+                    </label>
+                    <a
+                      href={`/api/backend/3d-scenes/uploads/${file.id}`}
+                      download
+                    >
+                      Download original
+                    </a>
+                  </div>
+                ))}
+              </details>
+            )}
+            {selectedUploads.length > 0 && (
+              <p>
+                {references
+                  .filter((file) => selectedUploads.includes(file.id))
+                  .map((file) => file.name)
+                  .join(" · ")}
+              </p>
+            )}
+          </section>
           <div className="studio-submit">
             <small>Procedural models · Multilingual prompts · GLB export</small>
             <button
               type="submit"
-              disabled={busy || loading || prompt.trim().length < 5}
+              disabled={
+                busy || loading || uploading || prompt.trim().length < 5
+              }
             >
               {busy ? (
                 <>

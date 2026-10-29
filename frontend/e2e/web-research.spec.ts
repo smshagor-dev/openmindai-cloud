@@ -36,6 +36,12 @@ for (const width of [1440, 768, 375, 320]) {
         return json([]);
       });
       await page.goto("/");
+      if (width === 1440) {
+        const studio = page.getByRole("link", {name:"Research Studio",exact:true});
+        await expect(studio).toBeVisible();
+        await expect(studio).toHaveAttribute("href", "/research-studio");
+        expect(await studio.evaluate(el=>getComputedStyle(el).textDecorationLine)).toBe("none");
+      }
       const input=page.getByRole("textbox",{name:"Message",exact:true});
       await expect(page.getByRole("button",{name:"Send message",exact:true})).toBeDisabled();
       if(kind==="image") {

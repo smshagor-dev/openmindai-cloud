@@ -1,7 +1,7 @@
 name: 3D Studio contracts
 on:
   push:
-    branches: [feature/3d-studio]
+    branches: [feature/3d-studio, release/3d-studio-deployment, feature/research-unlimited-3d-uploads]
   pull_request:
     paths:
       - 'app/Http/Controllers/SceneStudioController.php'
@@ -24,7 +24,7 @@ jobs:
           coverage: none
       - run: composer install --no-interaction --prefer-dist
       - run: cp .env.example .env
-      - run: php artisan test --filter=SceneStudioTest
+      - run: php artisan test --filter='SceneStudioTest|StudioUploadTest|NvidiaRequestRateTest'
       - name: Verify feature formatting
         run: |
           vendor/bin/pint app/Http/Controllers/SceneStudioController.php app/Services/StudioScene.php database/migrations/2026_10_28_000001_create_studio_scenes.php tests/Feature/SceneStudioTest.php routes/api.php
