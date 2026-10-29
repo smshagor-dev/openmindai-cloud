@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class StudioUploadTest extends TestCase
@@ -103,7 +104,7 @@ class StudioUploadTest extends TestCase
         return [['timeout'], ['unreadable']];
     }
 
-    #[\PHPUnit\Framework\Attributes\DataProvider('visionFailures')]
+    #[DataProvider('visionFailures')]
     public function test_image_reference_falls_back_after_verified_provider_timeout(string $failure): void
     {
         $this->actor();
@@ -118,6 +119,7 @@ class StudioUploadTest extends TestCase
                 if ($failure === 'timeout') {
                     throw new ConnectionException('Synthetic timeout');
                 }
+
                 return Http::response(['choices' => [['message' => ['content' => json_encode(['observed' => false, 'description' => 'Cannot analyze this image.'])]]]]);
             }
 
