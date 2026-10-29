@@ -1,7 +1,7 @@
 name: Research Studio
 on:
   push:
-    branches: [main, feature/research-studio]
+    branches: [main, feature/research-studio, release/3d-studio-deployment]
   pull_request:
 permissions:
   contents: read

@@ -37,6 +37,7 @@
     "react-dom": "19.3.1",
     "react-markdown": "10.1.0",
     "remark-gfm": "4.0.1",
+    "three": "^0.180.0",
     "unpdf": "1.9.1",
     "word-extractor": "^1.0.4",
     "zod": "^4.6.7"
@@ -48,6 +49,7 @@
     "@types/qrcode": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",
+    "@types/three": "^0.180.0",
     "prettier": "3.9.10",
     "typescript": "latest"
   },
