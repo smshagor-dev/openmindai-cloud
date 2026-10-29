@@ -307,7 +307,7 @@ class OpenMindAiGatewayController
             }
             NvidiaRequestRate::reserve();
             $upstream = Http::withToken($key)->accept($stream ? 'text/event-stream' : 'application/json')
-                ->connectTimeout(10)->timeout(120)->withOptions(['allow_redirects' => false, 'stream' => $stream])
+                ->connectTimeout(10)->timeout($request->attributes->get('studio_reference_vision') === true ? 30 : 120)->withOptions(['allow_redirects' => false, 'stream' => $stream])
                 ->post('https://integrate.api.nvidia.com/v1/chat/completions', $payload);
             if (! $upstream->successful()) {
                 $code = $upstream->status();

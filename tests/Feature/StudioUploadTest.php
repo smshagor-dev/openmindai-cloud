@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Http\Controllers\OpenMindAiGatewayController;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
@@ -95,6 +96,27 @@ class StudioUploadTest extends TestCase
         }
         $this->assertDatabaseCount('studio_uploads', 0);
         $this->assertSame([], Storage::disk('local')->allFiles());
+    }
+
+    public function test_image_reference_falls_back_after_verified_provider_timeout(): void
+    {
+        $this->actor();
+        config(['models.nvidia_key' => 'synthetic-provider-secret']);
+        DB::table('hosted_code_agents')->whereIn('slug', ['nvidia-llama-3.2-11b-vision-instruct', 'nvidia-llama-3.2-90b-vision-instruct'])->update(['enabled' => true, 'api_ready' => true, 'last_test_status' => 'success']);
+        $image = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aV7sAAAAASUVORK5CYII=';
+        $id = $this->postJson('/api/v1/3d-scenes/uploads', ['name' => 'fallback.png', 'data' => $image, 'image_preview' => 'data:image/png;base64,'.$image])->assertCreated()->json('id');
+        $calls = 0;
+        Http::fake(function ($request) use (&$calls) {
+            $calls++;
+            if ($calls === 1) {
+                throw new ConnectionException('Synthetic timeout');
+            }
+
+            return Http::response(['choices' => [['message' => ['content' => $calls === 2 ? 'Blue robot body.' : json_encode($this->scene())], 'finish_reason' => 'stop']]]);
+        });
+        $this->postJson('/api/v1/3d-scenes', ['mode' => 'object', 'prompt' => 'Use fallback image', 'upload_ids' => [$id]])->assertCreated();
+        $this->assertSame(3, $calls);
+        $this->get('/api/v1/3d-scenes/uploads/'.$id)->assertOk();
     }
 
     public function test_image_reference_uses_real_vision_gateway_before_scene_model(): void
