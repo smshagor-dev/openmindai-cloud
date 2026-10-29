@@ -27,6 +27,7 @@ use App\Http\Controllers\RealtimeController;
 use App\Http\Controllers\ResearchWorkerTransferController;
 use App\Http\Controllers\SceneStudioController;
 use App\Http\Controllers\SettingsController;
+use App\Http\Controllers\StudioUploadController;
 use App\Http\Controllers\StreamChatController;
 use App\Http\Controllers\TeamController;
 use App\Http\Controllers\ToolsController;
@@ -92,6 +93,9 @@ Route::prefix('v1')->middleware('verified-mobile-ip')->group(function () {
         Route::post('email/verify-code', [AuthController::class, 'verifyCode']);
     });
     Route::middleware(['auth:sanctum', 'active', 'interactive-token', 'throttle:api'])->group(function () {
+        Route::get('3d-scenes/uploads', [StudioUploadController::class, 'index']);
+        Route::post('3d-scenes/uploads', [StudioUploadController::class, 'create']);
+        Route::get('3d-scenes/uploads/{id}', [StudioUploadController::class, 'download'])->whereNumber('id');
         Route::get('3d-scenes', [SceneStudioController::class, 'index']);
         Route::post('3d-scenes', [SceneStudioController::class, 'create'])->middleware('throttle:chat');
         Route::get('3d-scenes/{id}', [SceneStudioController::class, 'show']);

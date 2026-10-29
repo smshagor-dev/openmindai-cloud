@@ -208,7 +208,7 @@ class ResearchLiteratureRecoveryTest extends TestCase
             && $request['max_tokens'] === 6000);
     }
 
-    public function test_other_research_agents_keep_the_provider_default_thinking_mode(): void
+    public function test_other_research_agents_also_keep_json_output_available(): void
     {
         $source = $this->source('Synthetic source.');
         config(['research.model' => 'openmindai-ultra', 'research.fallback_models' => [], 'models.nvidia_key' => 'synthetic-provider-only']);
@@ -217,9 +217,30 @@ class ResearchLiteratureRecoveryTest extends TestCase
         $run = $this->start($source);
         $task = Task::where('run_id', $run->id)->sole();
         $task->update(['agent' => 'planning', 'status' => 'running', 'claim' => 'synthetic-claim']);
+        config(['research.token_budget' => 0]);
+        $run->update(['reserved_tokens' => 2000000]);
         $result = app(Inference::class)->json(new Context($task, 'synthetic-claim'), 'Return ready JSON.', [], ['ready' => 'required|boolean']);
         $this->assertSame(['ready' => true], $result);
-        Http::assertSent(fn ($request) => ! isset($request['chat_template_kwargs']) && $request['max_tokens'] === 6000);
+        $this->assertSame(2006000, $run->fresh()->reserved_tokens);
+        Http::assertSent(fn ($request) => $request['chat_template_kwargs'] === ['enable_thinking' => false] && $request['max_tokens'] === 6000);
+    }
+
+    public function test_provider_rate_wait_does_not_consume_failure_attempts_or_lose_checkpoint(): void
+    {
+        $source = $this->source('Synthetic rate waiting source.');
+        $run = $this->start($source);
+        $task = Task::where('run_id', $run->id)->sole();
+        $checkpoint = ['retained' => 'accepted work'];
+        $task->update(['checkpoint' => $checkpoint]);
+        $this->mock(Inference::class)->shouldReceive('json')->once()->andThrow(new \Symfony\Component\HttpKernel\Exception\HttpException(429, 'provider_rate_limit', null, ['Retry-After' => 35]));
+        (new ExecuteTask($task->id))->handle();
+        $task->refresh();
+        $this->assertSame('pending', $task->status);
+        $this->assertSame(0, $task->errors);
+        $this->assertSame($checkpoint, $task->checkpoint);
+        $this->assertSame('provider_rate_limited', $task->error_code);
+        $this->assertTrue($task->available_at->greaterThan(now()->addSeconds(30)));
+        $this->assertSame('running', $run->fresh()->status);
     }
 
     private function checkpointedSources(int $count): array

@@ -75,6 +75,17 @@ class ExecuteTask implements ShouldQueue
                 $e instanceof HttpExceptionInterface && $e->getStatusCode() === 429 => 'research_budget_exhausted',
                 default => 'execution_or_validation_failed',
             };
+            if ($e instanceof HttpExceptionInterface && $e->getStatusCode() === 429 && $e->getMessage() !== 'Research token reservation limit reached.') {
+                try {
+                    $ctx->fenced(function ($t) use ($e) {
+                        $delay = max(1, min(300, (int) ($e->getHeaders()['Retry-After'] ?? 60)));
+                        $t->update(['status' => 'pending', 'claim' => null, 'lease_until' => null, 'available_at' => now()->addSeconds($delay), 'error_code' => 'provider_rate_limited']);
+                        Events::add($t->project_id, 'task.waiting', ['agent' => $t->agent, 'status' => 'waiting', 'error_code' => 'provider_rate_limited', 'retry_after' => $delay], $t->id);
+                    });
+                } catch (StaleExecution) {
+                }
+                return;
+            }
             try {
                 $ctx->fenced(function ($t) use ($code) {
                     $errors = $t->errors + 1;

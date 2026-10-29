@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
+import { SVGRenderer } from "three/addons/renderers/SVGRenderer.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
 import {
@@ -21,31 +22,40 @@ export default function StudioViewport({
     );
   const [selected, setSelected] = useState<string | null>(null),
     [error, setError] = useState(""),
-    [exporting, setExporting] = useState(false);
+    [exporting, setExporting] = useState(false),
+    [compatible, setCompatible] = useState(false),
+    [ready, setReady] = useState(false);
   useEffect(() => {
     if (!host.current) return;
     const container = host.current;
     setError("");
     setSelected(null);
-    let renderer: THREE.WebGLRenderer;
+    setReady(false);
+    let renderer: THREE.WebGLRenderer | SVGRenderer;
+    let svg = false;
     try {
       renderer = new THREE.WebGLRenderer({ antialias: true });
     } catch {
-      setError(
-        "WebGL is unavailable. Enable hardware acceleration or download scene JSON.",
-      );
-      return;
+      renderer = new SVGRenderer();
+      renderer.setClearColor(new THREE.Color("#101722"), 1);
+      svg = true;
     }
+    setCompatible(svg);
     const world = new THREE.Scene();
     world.background = new THREE.Color("#101722");
     const camera = new THREE.PerspectiveCamera(45, 1, 0.05, 1000);
-    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    if (renderer instanceof THREE.WebGLRenderer)
+      renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     container.appendChild(renderer.domElement);
     const labels = new CSS2DRenderer();
     labels.domElement.className = "studio-label-layer";
     container.appendChild(labels.domElement);
-    const controls = new OrbitControls(camera, renderer.domElement);
+    const controls = new OrbitControls(
+      camera,
+      renderer.domElement as unknown as HTMLElement,
+    );
     controls.enableDamping = true;
+    world.add(new THREE.AmbientLight(0xffffff, 1.2));
     world.add(new THREE.HemisphereLight(0xffffff, 0x34415e, 3));
     const light = new THREE.DirectionalLight(0xffffff, 4);
     light.position.set(10, 20, 10);
@@ -75,10 +85,9 @@ export default function StudioViewport({
                 : new THREE.BoxGeometry(1, 1, 1);
       const mesh = new THREE.Mesh(
         geometry,
-        new THREE.MeshStandardMaterial({
+        new (svg ? THREE.MeshLambertMaterial : THREE.MeshStandardMaterial)({
           color: node.color,
-          roughness: 0.55,
-          metalness: 0.15,
+          ...(svg ? {} : { roughness: 0.55, metalness: 0.15 }),
         }),
       );
       mesh.position.fromArray(node.position);
@@ -140,17 +149,42 @@ export default function StudioViewport({
       controls.update();
     };
     reset();
+    let dirty = true;
+    controls.addEventListener("change", () => {
+      dirty = true;
+    });
     actions.current = {
       reset,
       export: async () => {
-        const result = await new GLTFExporter().parseAsync(model, {
-          binary: true,
+        const exportModel = model.clone(true);
+        const converted: THREE.Material[] = [];
+        exportModel.traverse((object) => {
+          const mesh = object as THREE.Mesh;
+          if (mesh.material instanceof THREE.MeshLambertMaterial) {
+            const material = new THREE.MeshStandardMaterial({
+              color: mesh.material.color,
+              roughness: 0.55,
+              metalness: 0.15,
+            });
+            mesh.material = material;
+            converted.push(material);
+          }
         });
+        let result: ArrayBuffer | { [key: string]: unknown };
+        try {
+          result = await new GLTFExporter().parseAsync(exportModel, {
+            binary: true,
+          });
+        } finally {
+          converted.forEach((material) => material.dispose());
+        }
         if (!(result instanceof ArrayBuffer)) throw new Error("Export failed");
         downloadScene(result, "openmind-scene.glb", "model/gltf-binary");
       },
     };
+    setReady(true);
     const resize = () => {
+      dirty = true;
       const w = container.clientWidth,
         h = container.clientHeight;
       if (!w || !h) return;
@@ -180,27 +214,42 @@ export default function StudioViewport({
       const hit = ray.intersectObjects(meshes)[0];
       setSelected(hit ? String(hit.object.userData.nodeId) : null);
     };
-    renderer.domElement.addEventListener("pointerdown", pointerDown);
-    renderer.domElement.addEventListener("pointerup", click);
-    renderer.setAnimationLoop(() => {
+    renderer.domElement.addEventListener(
+      "pointerdown",
+      pointerDown as EventListener,
+    );
+    renderer.domElement.addEventListener("pointerup", click as EventListener);
+    let frame = 0;
+    const animate = () => {
+      frame = requestAnimationFrame(animate);
       controls.update();
-      renderer.render(world, camera);
-      labels.render(world, camera);
-    });
+      if (dirty) {
+        renderer.render(world, camera);
+        labels.render(world, camera);
+        dirty = false;
+      }
+    };
+    animate();
     return () => {
       actions.current = null;
       observer.disconnect();
-      renderer.setAnimationLoop(null);
+      cancelAnimationFrame(frame);
       controls.dispose();
-      renderer.domElement.removeEventListener("pointerdown", pointerDown);
-      renderer.domElement.removeEventListener("pointerup", click);
+      renderer.domElement.removeEventListener(
+        "pointerdown",
+        pointerDown as EventListener,
+      );
+      renderer.domElement.removeEventListener(
+        "pointerup",
+        click as EventListener,
+      );
       world.traverse((obj) => {
         const m = obj as THREE.Mesh;
         m.geometry?.dispose();
         if (Array.isArray(m.material)) m.material.forEach((x) => x.dispose());
         else m.material?.dispose();
       });
-      renderer.dispose();
+      if (renderer instanceof THREE.WebGLRenderer) renderer.dispose();
       container.replaceChildren();
     };
   }, [scene, architecture]);
@@ -208,15 +257,22 @@ export default function StudioViewport({
   return (
     <section className="studio-viewer" aria-label="Interactive 3D preview">
       <div className="studio-viewport" ref={host} />
+      {compatible && (
+        <p role="status" className="studio-compatible">
+          Compatible preview mode · orbit, zoom and GLB export available
+        </p>
+      )}
       {error && (
         <p role="alert" className="studio-preview-error">
           {error}
         </p>
       )}
       <div className="studio-viewer-tools">
-        <button onClick={() => actions.current?.reset()}>Reset view</button>
+        <button disabled={!ready} onClick={() => actions.current?.reset()}>
+          Reset view
+        </button>
         <button
-          disabled={exporting || !!error}
+          disabled={exporting || !ready}
           onClick={async () => {
             setExporting(true);
             try {
