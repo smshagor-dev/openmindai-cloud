@@ -5,7 +5,7 @@
 .shared-page h1,
 .shared-message .markdown,
 .settings-content :is(p, a, code),
-.studio-main :is(h2, p),
+.studio-main :is(h1, h2, p),
 .rs-project-header h1 {
   min-width: 0;
   overflow-wrap: anywhere;
