@@ -63,6 +63,30 @@ class StudioUploadTest extends TestCase
         $this->getJson('/api/v1/3d-scenes/'.$saved)->assertOk()->assertJsonPath('upload_ids.0', $id)->assertJsonPath('uploads.0.name', 'reference.md')->assertJsonMissingPath('uploads.0.private_path')->assertJsonMissingPath('uploads.0.text');
     }
 
+    public function test_docx_is_validated_by_bounded_ooxml_structure_and_original_is_preserved(): void
+    {
+        $this->actor();
+        $path = tempnam(sys_get_temp_dir(), 'studio-docx');
+        $zip = new \ZipArchive;
+        $zip->open($path, \ZipArchive::OVERWRITE);
+        $zip->addFromString('[Content_Types].xml', '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>');
+        $zip->addFromString('word/document.xml', '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Blue robot</w:t></w:r></w:p></w:body></w:document>');
+        $zip->close();
+        try {
+            $bytes = file_get_contents($path);
+            $id = $this->postJson('/api/v1/3d-scenes/uploads', ['name' => 'robot.docx', 'data' => base64_encode($bytes), 'text' => 'Blue robot'])->assertCreated()->assertJsonPath('mime', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')->json('id');
+            $this->get('/api/v1/3d-scenes/uploads/'.$id)->assertOk()->assertContent($bytes);
+            $zip->open($path);
+            $zip->addFromString('word/document.xml', '<!DOCTYPE document [<!ENTITY x SYSTEM "file:///etc/passwd">]><document>&x;</document>');
+            $zip->close();
+            $this->postJson('/api/v1/3d-scenes/uploads', ['name' => 'unsafe.docx', 'data' => base64_encode(file_get_contents($path)), 'text' => 'Blue robot'])->assertUnprocessable();
+            $this->postJson('/api/v1/3d-scenes/uploads', ['name' => 'fake.docx', 'data' => base64_encode('PK'.str_repeat('x', 30)), 'text' => 'Blue robot'])->assertUnprocessable();
+        } finally {
+            unlink($path);
+        }
+        $this->assertDatabaseCount('studio_uploads', 1);
+    }
+
     public function test_invalid_uploads_are_rejected_without_storage(): void
     {
         $this->actor();

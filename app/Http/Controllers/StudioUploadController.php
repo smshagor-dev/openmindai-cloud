@@ -40,7 +40,8 @@ class StudioUploadController
             } elseif ($ext === 'doc') {
                 abort_unless(str_starts_with($bytes, hex2bin('d0cf11e0a1b11ae1')), 422, 'Invalid Word document.');
             } elseif ($ext === 'docx') {
-                abort_unless(str_starts_with($bytes, "PK\x03\x04") && in_array($mime, ['application/zip', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'], true), 422, 'Invalid DOCX.');
+                $this->validateDocx($bytes);
+                $mime = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
             } else {
                 abort_unless(mb_check_encoding($bytes, 'UTF-8') && ! str_contains($bytes, "\0"), 422, 'Text references must be UTF-8.');
             }
@@ -59,6 +60,41 @@ class StudioUploadController
         });
 
         return response()->json(['id' => $id, 'name' => $name, 'mime' => $mime, 'bytes' => strlen($bytes)], 201);
+    }
+
+    private function validateDocx(string $bytes): void
+    {
+        // libmagic versions on shared hosts disagree about valid Office ZIP MIME types.
+        // Inspect bounded OOXML entries without extracting files or resolving entities.
+        $temporary = tmpfile();
+        abort_unless($temporary, 503, 'Document validation unavailable.');
+        $zip = new \ZipArchive;
+        $opened = false;
+        try {
+            fwrite($temporary, $bytes);
+            $path = stream_get_meta_data($temporary)['uri'];
+            $opened = $zip->open($path, \ZipArchive::RDONLY) === true;
+            abort_unless($opened, 422, 'Invalid DOCX.');
+            abort_unless($zip->numFiles <= 2000, 422, 'Oversized DOCX archive.');
+            foreach (['[Content_Types].xml', 'word/document.xml'] as $name) {
+                $entry = $zip->statName($name);
+                abort_unless($entry && $entry['size'] > 0 && $entry['size'] <= 8000000, 422, 'Invalid or oversized DOCX.');
+                $xml = $zip->getFromName($name);
+                abort_unless(is_string($xml) && ! preg_match('/<!DOCTYPE|<!ENTITY/i', $xml), 422, 'Invalid DOCX XML.');
+                $document = new \DOMDocument;
+                abort_unless(@$document->loadXML($xml, LIBXML_NONET), 422, 'Invalid DOCX XML.');
+                if ($name === 'word/document.xml') {
+                    abort_unless($document->documentElement?->localName === 'document' && in_array($document->documentElement?->namespaceURI, ['http://schemas.openxmlformats.org/wordprocessingml/2006/main', 'http://purl.oclc.org/ooxml/wordprocessingml/main'], true), 422, 'Invalid Word document.');
+                } else {
+                    abort_unless($document->documentElement?->localName === 'Types' && $document->documentElement?->namespaceURI === 'http://schemas.openxmlformats.org/package/2006/content-types', 422, 'Invalid DOCX content types.');
+                }
+            }
+        } finally {
+            if ($opened) {
+                $zip->close();
+            }
+            fclose($temporary);
+        }
     }
 
     public function download(Request $request, string $id)
