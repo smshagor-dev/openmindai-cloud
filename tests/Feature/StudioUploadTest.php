@@ -98,7 +98,13 @@ class StudioUploadTest extends TestCase
         $this->assertSame([], Storage::disk('local')->allFiles());
     }
 
-    public function test_image_reference_falls_back_after_verified_provider_timeout(): void
+    public static function visionFailures(): array
+    {
+        return [['timeout'], ['unreadable']];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('visionFailures')]
+    public function test_image_reference_falls_back_after_verified_provider_timeout(string $failure): void
     {
         $this->actor();
         config(['models.nvidia_key' => 'synthetic-provider-secret']);
@@ -106,13 +112,16 @@ class StudioUploadTest extends TestCase
         $image = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aV7sAAAAASUVORK5CYII=';
         $id = $this->postJson('/api/v1/3d-scenes/uploads', ['name' => 'fallback.png', 'data' => $image, 'image_preview' => 'data:image/png;base64,'.$image])->assertCreated()->json('id');
         $calls = 0;
-        Http::fake(function ($request) use (&$calls) {
+        Http::fake(function ($request) use (&$calls, $failure) {
             $calls++;
             if ($calls === 1) {
-                throw new ConnectionException('Synthetic timeout');
+                if ($failure === 'timeout') {
+                    throw new ConnectionException('Synthetic timeout');
+                }
+                return Http::response(['choices' => [['message' => ['content' => json_encode(['observed' => false, 'description' => 'Cannot analyze this image.'])]]]]);
             }
 
-            return Http::response(['choices' => [['message' => ['content' => $calls === 2 ? 'Blue robot body.' : json_encode($this->scene())], 'finish_reason' => 'stop']]]);
+            return Http::response(['choices' => [['message' => ['content' => $calls === 2 ? json_encode(['observed' => true, 'description' => 'Blue robot body.']) : json_encode($this->scene())], 'finish_reason' => 'stop']]]);
         });
         $this->postJson('/api/v1/3d-scenes', ['mode' => 'object', 'prompt' => 'Use fallback image', 'upload_ids' => [$id]])->assertCreated();
         $this->assertSame(3, $calls);
@@ -126,7 +135,7 @@ class StudioUploadTest extends TestCase
         DB::table('hosted_code_agents')->where('slug', 'nvidia-llama-3.2-90b-vision-instruct')->update(['enabled' => true, 'api_ready' => true, 'last_test_status' => 'success']);
         $image = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aV7sAAAAASUVORK5CYII=';
         $id = $this->postJson('/api/v1/3d-scenes/uploads', ['name' => 'reference.png', 'data' => $image, 'image_preview' => 'data:image/png;base64,'.$image])->assertCreated()->json('id');
-        Http::fake(['integrate.api.nvidia.com/*' => Http::sequence()->push(['choices' => [['message' => ['content' => 'A blue rectangular robot body.'], 'finish_reason' => 'stop']]])->push(['choices' => [['message' => ['content' => json_encode($this->scene())], 'finish_reason' => 'stop']]])]);
+        Http::fake(['integrate.api.nvidia.com/*' => Http::sequence()->push(['choices' => [['message' => ['content' => json_encode(['observed' => true, 'description' => 'A blue rectangular robot body.'])], 'finish_reason' => 'stop']]])->push(['choices' => [['message' => ['content' => json_encode($this->scene())], 'finish_reason' => 'stop']]])]);
         $this->postJson('/api/v1/3d-scenes', ['mode' => 'object', 'prompt' => 'Use the image reference', 'upload_ids' => [$id]])->assertCreated();
         Http::assertSentCount(2);
         $sent = Http::recorded();
