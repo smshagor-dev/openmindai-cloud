@@ -416,3 +416,8 @@ Fresh authenticated inspection on 2026-10-29 found the broader run failed at 498
 ## 2026-10-28 — Separate 3D Studio branch
 
 The prompt-driven Object/Architecture feature is being implemented on `feature/3d-studio` from current main. It does not alter Research execution or private-worker gates. See `docs/3D_STUDIO_STATUS.md` for actual implementation, verification and limitations.
+
+
+## Unlimited Research and 3D upload exact-code CI — 2026-10-29
+
+Application commit `374e03c6cbaa5de8a0e9e095a39333bf2ab1ddcb` on `feature/research-unlimited-3d-uploads` passed all general, Research Studio and 3D workflow jobs. Full PHP 8.2 and 8.3 suites each passed **393 tests / 2516 assertions**; Composer audit found no advisories. Frontend production build/typecheck, **243 integration tests**, **18 web-research browser tests** and **6 Studio browser tests** passed. Research browser, MySQL, concurrency and actual isolated Docker worker fixture suites passed. Studio browser acceptance includes private Markdown upload, generation reference IDs, WebGL-disabled SVG preview, downloaded GLB header and reopening selected references. Real-provider verification of the new upload feature and production deployment remain pending: cPanel secure reauthentication was declined after the prior browser session expired. The existing live deployment and retained Research run have not been changed in this continuation. These green fixture checks do not certify a completed live Research manuscript or new live vision/reference generation.
