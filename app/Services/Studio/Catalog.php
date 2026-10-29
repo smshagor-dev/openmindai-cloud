@@ -1,0 +1,33 @@
+<?php
+
+namespace App\Services\Studio;
+
+use App\Services\HostedCodeAgents;
+use Illuminate\Support\Facades\Cache;
+
+class Catalog
+{
+    public function all(): array
+    {
+        $catalog = json_decode(file_get_contents(base_path('runtime/studio/catalog.json')), true, 64, JSON_THROW_ON_ERROR);
+        $health = Cache::remember('studio:worker-health:'.hash('sha256', config('studio.worker_url').config('studio.worker_key')), 15, fn () => app(Worker::class)->health());
+        $models = app(HostedCodeAgents::class)->enabled();
+        $reasoning = (bool) config('models.nvidia_key') && $models->contains(fn ($m) => $m->slug === 'openmindai-ultra' && $m->last_test_status === 'success');
+        $builtins = [];
+        foreach (['procedural' => 'Procedural 3D', 'architecture' => '3D Architecture'] as $id => $name) {
+            $builtins[] = ['id' => $id, 'name' => $name, 'kind' => 'scene', 'input' => 'text', 'output' => 'scene', 'available' => $reasoning, 'reason' => $reasoning ? null : 'verified_scene_model_required'];
+        }
+        foreach ($catalog['engines'] as &$engine) {
+            $runtime = collect($health['engines'] ?? [])->firstWhere('id', $engine['id']);
+            // Catalog presence is not installation evidence. A matching immutable
+            // adapter revision, license review, weights and a real smoke are required.
+            $engine['available'] = ($health['ready'] ?? false) === true && ($runtime['ready'] ?? false) === true
+                && ($runtime['revision'] ?? '') === $engine['revision'] && ($runtime['smoke_verified'] ?? false) === true && ($runtime['license_approved'] ?? false) === true;
+            $engine['availability'] = $engine['available'] ? 'verified' : 'not_verified';
+            $engine['license_status'] = $engine['available'] ? 'operator_reviewed' : 'review_required';
+            $engine['reason'] = $engine['available'] ? null : 'licensed_verified_gpu_worker_required';
+        }
+
+        return ['data' => [...$builtins, ...$catalog['engines']], 'worker' => ['ready' => ($health['ready'] ?? false) === true, 'reason' => $health['reason'] ?? null, 'hardware' => $health['hardware'] ?? null, 'processors' => $health['processors'] ?? []], 'upstream' => $catalog['upstream']];
+    }
+}

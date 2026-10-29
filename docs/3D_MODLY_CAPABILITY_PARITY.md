@@ -55,3 +55,7 @@ Review the upstream repository LICENSE and every model/weight/extension license 
 
 ## Current verified state
 The prior procedural studio status is in docs/3D_STUDIO_STATUS.md. This document tracks **work still required** for parity. Creating this plan does not satisfy any checkbox above.
+
+## Implementation checkpoint — 2026-10-29
+
+Actual code is now in progress in the required branch; see `docs/3D_MODLY_IMPLEMENTATION_STATUS.md` for reviewed pins, implemented contracts, CPU geometry evidence, incomplete UI integration and concrete GPU/license blockers. The checklist above remains the full acceptance scope, not a claim that every item is complete.

@@ -1,11 +1,14 @@
 <?php
 
+use App\Jobs\ExecuteStudioJob;
+use App\Jobs\ExecuteStudioWorkflow;
 use App\Jobs\RunMediaTask;
 use App\Jobs\RunWorkspaceTask;
 use App\Models\ConversationShare;
 use App\Models\MediaTask;
 use App\Models\Message;
 use App\Models\ScheduledTask;
+use App\Models\StudioJob;
 use App\Models\TaskRun;
 use App\Models\User;
 use App\Services\AdminSettings;
@@ -15,6 +18,7 @@ use App\Services\Research\WorkerTransfers;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schedule;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 
 Artisan::command('admin:create {email} {name}', function () {
@@ -224,3 +228,17 @@ Artisan::command('research:preflight {--fresh : Recheck worker instead of using 
 
     return $status['infrastructure_ready'] ? 0 : 1;
 })->purpose('Check Research Studio infrastructure without revealing credentials or executing research.');
+
+Artisan::command('studio:recover', function () {
+    if (! Schema::hasTable('studio_jobs')) {
+        return;
+    }
+    StudioJob::whereIn('status', ['queued', 'running', 'cancel_requested'])
+        ->where(fn ($q) => $q->whereNull('lease_until')->orWhere('lease_until', '<', now()))
+        ->where('updated_at', '<', now()->subSeconds(30))->orderBy('created_at')->limit(20)->get()
+        ->each(function ($job) {
+            $class = $job->operation === 'workflow' ? ExecuteStudioWorkflow::class : ExecuteStudioJob::class;
+            $class::dispatch($job->id)->onConnection('database')->onQueue('studio');
+        });
+});
+Schedule::command('studio:recover')->everyMinute()->withoutOverlapping();

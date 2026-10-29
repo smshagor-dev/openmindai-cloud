@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\StudioJob;
 use App\Services\ApiCreditUsage;
 use App\Services\HostedCodeAgents;
 use App\Services\StudioReferences;
@@ -41,9 +42,36 @@ class SceneStudioController
         return response()->noContent();
     }
 
+    public function update(Request $request, string $id, StudioScene $scenes)
+    {
+        $data = $request->validate(['scene' => 'required|array', 'version' => 'required|integer|min:1']);
+        $scene = $scenes->validate($data['scene']);
+
+        return DB::transaction(function () use ($request, $id, $data, $scene) {
+            $row = $this->owned($request, $id)->lockForUpdate()->first();
+            abort_unless($row, 404);
+            abort_unless($row->version === $data['version'], 409, 'This scene changed. Reload before saving your edits.');
+            DB::table('studio_scene_revisions')->insertOrIgnore(['scene_id' => $row->id, 'version' => $row->version, 'scene' => $row->scene, 'created_at' => now(), 'updated_at' => now()]);
+            $this->owned($request, $id)->update(['scene' => json_encode($scene, JSON_UNESCAPED_UNICODE), 'title' => $scene['title'], 'version' => $row->version + 1, 'updated_at' => now()]);
+
+            return $this->show($request, $id);
+        });
+    }
+
+    public function revisions(Request $request, string $id)
+    {
+        abort_unless($this->owned($request, $id)->exists(), 404);
+
+        return response()->json(['data' => DB::table('studio_scene_revisions')->where('scene_id', $id)->orderByDesc('version')->limit(100)->get(['version', 'scene', 'created_at'])])->header('Cache-Control', 'private, no-store');
+    }
+
     public function create(Request $request, StudioScene $scenes, OpenMindAiGatewayController $gateway, HostedCodeAgents $agents, ApiCreditUsage $credits)
     {
         $data = $request->validate(['prompt' => 'required|string|min:5|max:8000', 'mode' => 'required|in:object,architecture', 'upload_ids' => 'sometimes|array|max:5', 'upload_ids.*' => 'required|integer|distinct']);
+        $origin = $request->attributes->get('studio_job_id');
+        if (is_string($origin) && ($existing = DB::table('studio_scenes')->where('user_id', $request->user()->id)->where('origin_job_id', $origin)->first())) {
+            return $this->show($request, (string) $existing->id);
+        }
         $lock = Cache::lock('3d-studio:'.$request->user()->id, 300);
         abort_unless($lock->get(), 409, 'A 3D generation is already running.');
         try {
@@ -72,7 +100,10 @@ class SceneStudioController
             } catch (ValidationException $e) {
                 abort(502, 'The generated scene failed validation. Try a simpler or more specific prompt.');
             }
-            $id = DB::table('studio_scenes')->insertGetId(['user_id' => $request->user()->id, 'title' => $scene['title'], 'mode' => $data['mode'], 'prompt' => $data['prompt'], 'scene' => json_encode($scene, JSON_UNESCAPED_UNICODE), 'upload_ids' => json_encode($data['upload_ids'] ?? []), 'created_at' => now(), 'updated_at' => now()]);
+            if ($parent = $request->attributes->get('studio_parent_job')) {
+                abort_unless(StudioJob::whereKey($parent)->where('user_id', $request->user()->id)->whereIn('status', ['queued', 'running'])->exists(), 409, 'Scene generation was cancelled.');
+            }
+            $id = DB::table('studio_scenes')->insertGetId(['user_id' => $request->user()->id, 'title' => $scene['title'], 'mode' => $data['mode'], 'prompt' => $data['prompt'], 'scene' => json_encode($scene, JSON_UNESCAPED_UNICODE), 'upload_ids' => json_encode($data['upload_ids'] ?? []), 'origin_job_id' => is_string($origin) ? $origin : null, 'created_at' => now(), 'updated_at' => now()]);
 
             return response()->json(['id' => $id, 'mode' => $data['mode'], 'prompt' => $data['prompt'], 'scene' => $scene, 'upload_ids' => $data['upload_ids'] ?? []], 201)->header('Cache-Control', 'no-store');
         } finally {

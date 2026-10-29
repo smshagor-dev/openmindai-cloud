@@ -20,3 +20,7 @@ __pycache__/
 *.pyc
 
 /storage/framework/research-queue-*.lock
+
+/frontend/node_modules
+/runtime/studio/.venv/
+/runtime/studio/state/

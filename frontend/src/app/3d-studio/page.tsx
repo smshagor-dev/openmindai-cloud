@@ -11,7 +11,11 @@ import {
 } from "lucide-react";
 import { downloadScene, studioApi, type SavedScene } from "@/lib/studio-scene";
 import { prepareStudioUpload, type StudioReference } from "@/lib/studio-upload";
+import { workbenchApi, type Asset, type Capabilities } from "@/lib/studio-workbench";
+import Workbench from "@/components/studio-workbench";
+import SceneEditor from "@/components/studio-scene-editor";
 import "./studio.css";
+const AssetViewport = dynamic(() => import("@/components/studio-asset-viewport"), { ssr: false, loading: () => <p role="status">Loading mesh renderer…</p> });
 const Viewport = dynamic(() => import("@/components/studio-viewport"), {
   ssr: false,
   loading: () => <p role="status">Loading 3D renderer…</p>,
@@ -28,7 +32,7 @@ const examples = {
   ],
 };
 export default function StudioPage() {
-  const [mode, setMode] = useState<"object" | "architecture">("object"),
+  const [mode, setMode] = useState<"auto" | "object" | "architecture">("auto"),
     [prompt, setPrompt] = useState(""),
     [saved, setSaved] = useState<SavedScene | null>(null),
     [history, setHistory] = useState<History[]>([]),
@@ -38,6 +42,10 @@ export default function StudioPage() {
     [references, setReferences] = useState<StudioReference[]>([]),
     [selectedUploads, setSelectedUploads] = useState<number[]>([]),
     [uploading, setUploading] = useState(false);
+  const [capabilities, setCapabilities] = useState<Capabilities | null>(null),
+    [engine, setEngine] = useState("auto"),
+    [jobId, setJobId] = useState<string | null>(null),
+    [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const pending = useRef(false);
   async function refresh() {
     const [data, uploads] = await Promise.all([
@@ -49,6 +57,7 @@ export default function StudioPage() {
   }
   useEffect(() => {
     refresh().catch((e) => setError(e.message));
+    workbenchApi("/engines").then(setCapabilities).catch((e) => setError(e.message));
   }, []);
   async function generate(e: React.FormEvent) {
     e.preventDefault();
@@ -57,13 +66,20 @@ export default function StudioPage() {
     setBusy(true);
     setError("");
     try {
-      const result = await studioApi("", "POST", {
-        mode,
-        prompt,
-        upload_ids: selectedUploads,
-      });
-      setSaved(result);
-      await refresh();
+      const route = await workbenchApi("/route", "POST", { mode, engine, prompt, upload_ids: selectedUploads });
+      let result;
+      if (route.output === "scene") {
+        result = await workbenchApi("/jobs/scene", "POST", {
+          request_key: crypto.randomUUID(), mode: route.mode, prompt, upload_ids: selectedUploads,
+        });
+      } else {
+        const image = references.find((r) => selectedUploads.includes(r.id) && r.mime.startsWith("image/"));
+        if (!image) throw new Error("Select an image reference for this engine.");
+        result = await workbenchApi("/jobs", "POST", {
+          request_key: crypto.randomUUID(), engine: route.engine, operation: "generate", upload_id: image.id, params: {},
+        });
+      }
+      setJobId(result.id);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Generation failed.");
     } finally {
@@ -77,6 +93,7 @@ export default function StudioPage() {
     try {
       const result: SavedScene = await studioApi(`/${id}`);
       setSaved(result);
+      setSelectedAsset(null);
       setMode(result.mode);
       setPrompt(result.prompt);
       setSelectedUploads(result.upload_ids || []);
@@ -105,6 +122,8 @@ export default function StudioPage() {
           disabled={busy || loading}
           onClick={() => {
             setSaved(null);
+            setSelectedAsset(null);
+            setMode("auto");
             setPrompt("");
             setSelectedUploads([]);
             setError("");
@@ -172,12 +191,13 @@ export default function StudioPage() {
           </div>
         )}
         {loading && <p role="status">Loading your scene…</p>}
-        {saved ? (
+        {selectedAsset ? <AssetViewport key={selectedAsset.id} asset={selectedAsset} /> : saved ? (
           <>
             <Viewport
               scene={saved.scene}
               architecture={saved.mode === "architecture"}
             />
+            <SceneEditor key={saved.id} saved={saved} onChange={(scene) => setSaved({ ...saved, scene })} onSaved={setSaved} />
             <div className="studio-meta">
               <span>
                 {saved.scene.nodes.length} parts · {saved.scene.edges.length}{" "}
@@ -207,7 +227,7 @@ export default function StudioPage() {
               space.
             </p>
             <div className="studio-examples">
-              {examples[mode].map((text) => (
+              {examples[mode === "auto" ? "object" : mode].map((text) => (
                 <button
                   disabled={busy}
                   key={text}
@@ -221,7 +241,7 @@ export default function StudioPage() {
         )}
         <form className="studio-composer" onSubmit={generate}>
           <div className="studio-modes" role="group" aria-label="Scene type">
-            {(["object", "architecture"] as const).map((value) => (
+            {(["auto", "object", "architecture"] as const).map((value) => (
               <button
                 type="button"
                 key={value}
@@ -230,10 +250,16 @@ export default function StudioPage() {
                 onClick={() => setMode(value)}
               >
                 {value === "object" ? <Box size={17} /> : <Layers3 size={17} />}{" "}
-                {value === "object" ? "3D Object" : "Architecture"}
+                {value === "auto" ? "Auto Detect" : value === "object" ? "3D Model" : "3D Architecture"}
               </button>
             ))}
           </div>
+          <label>Tools / engine
+            <select value={engine} disabled={busy} onChange={(e) => setEngine(e.target.value)}>
+              <option value="auto">Auto Detect engine</option>
+              {capabilities?.data.map((item) => <option key={item.id} value={item.id} disabled={!item.available}>{item.name}{item.available ? "" : " — unavailable"}</option>)}
+            </select>
+          </label>
           <label htmlFor="scene-prompt">
             {mode === "object"
               ? "Describe your object, materials and proportions"
@@ -370,6 +396,8 @@ export default function StudioPage() {
             dimensions are illustrative.
           </small>
         </form>
+        <Workbench capabilities={capabilities} jobId={jobId} selectedAsset={selectedAsset}
+          onAsset={setSelectedAsset} onScene={(id) => { open(id); refresh().catch((e) => setError(e.message)); }} onBusy={setBusy} />
       </section>
     </main>
   );

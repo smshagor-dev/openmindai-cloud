@@ -73,6 +73,7 @@ export default function StudioViewport({
       world.add(obj);
     }
     for (const node of scene.nodes) {
+      if (node.hidden) continue;
       const geometry =
         node.shape === "sphere"
           ? new THREE.SphereGeometry(0.5, 24, 16)
@@ -106,6 +107,7 @@ export default function StudioViewport({
         );
     }
     for (const edge of scene.edges) {
+      if (scene.nodes.find((n) => n.id === edge.from)?.hidden || scene.nodes.find((n) => n.id === edge.to)?.hidden) continue;
       const from = scene.nodes.find((n) => n.id === edge.from)!,
         to = scene.nodes.find((n) => n.id === edge.to)!;
       const start = new THREE.Vector3(...from.position),

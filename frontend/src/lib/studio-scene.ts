@@ -6,6 +6,7 @@ export type SceneNode = {
   rotation: [number, number, number];
   scale: [number, number, number];
   color: string;
+  hidden?: boolean;
 };
 export type StudioScene = {
   title: string;
@@ -14,6 +15,7 @@ export type StudioScene = {
   edges: { from: string; to: string; label: string }[];
 };
 export type SavedScene = {
+  version?: number;
   id: number;
   mode: "object" | "architecture";
   prompt: string;
