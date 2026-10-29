@@ -47,6 +47,41 @@ async function fixtures(page: Page, guest = false) {
       });
     if (path === "preferences")
       return json({ theme: "dark", reduced_motion: true, send_on_enter: true });
+    if (path.startsWith("shared/"))
+      return json({
+        title: long,
+        messages: [
+          {
+            role: "assistant",
+            content:
+              "Responsive rich content.\n\n| Column | Value |\n| --- | --- |\n| " +
+              long +
+              " | A value |\n\n```ts\nconst name = '" +
+              long +
+              "';\n```",
+          },
+        ],
+      });
+    if (path === "conversations/42")
+      return json({
+        conversation: {
+          id: 42,
+          title: long,
+          updated_at: "2026-10-29T10:00:00Z",
+        },
+        messages: {
+          data: [
+            {
+              id: 1,
+              role: "assistant",
+              content: "Responsive rich content.",
+              status: "complete",
+            },
+          ],
+          current_page: 1,
+          last_page: 1,
+        },
+      });
     if (path === "conversations" || path === "media" || path === "attachments")
       return json({ data: [], last_page: 1, current_page: 1 });
     if (path === "teams") return json({ teams: [], invites: [] });
@@ -213,6 +248,7 @@ for (const [width, height] of sizes) {
       "/3d-studio",
       "/reset-password",
       "/confirm-email",
+      `/share/${"a".repeat(64)}`,
     ]) {
       await page.goto(route);
       await expect(page.locator("h1")).toBeVisible();
@@ -237,6 +273,12 @@ for (const [width, height] of sizes) {
         });
       }
     }
+    await page.goto("/c/42-responsive-qa");
+    await expect(
+      page.getByText("Responsive rich content.", { exact: true }),
+    ).toBeVisible();
+    await fits(page);
+    await fits(page, ".composer");
     if (width <= 760) {
       await page.goto("/research-studio");
       await page

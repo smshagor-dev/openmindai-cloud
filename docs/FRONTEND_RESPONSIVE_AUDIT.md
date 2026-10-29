@@ -4,7 +4,7 @@ Branch: `fix/frontend-responsive-audit`, based on main `4004773`.
 
 ## Scope and fixes
 
-Chat home/composer, model picker, tool menu, Settings tabs, workspace tools (Teams, Connectors, Assistants, Explore, Tasks, Research, Library, Voice, Code), project dialog, assistant gallery, Research home/navigation, 3D Studio/history/export, reset and email-confirmation pages.
+Chat home/composer, model picker, tool menu, Settings tabs, workspace tools (Teams, Connectors, Assistants, Explore, Tasks, Research, Library, Voice, Code), project dialog, assistant gallery, Research home/navigation, 3D Studio/history/export, saved conversation and shared-snapshot routes, reset and email-confirmation pages.
 
 - Closed mobile Chat/Research drawers no longer remain in keyboard/accessibility navigation.
 - Long component, project, assistant and account content wraps without widening the viewport; narrow control rows can wrap.

@@ -2,6 +2,8 @@
 .dialog-header h2,
 .manage-card :is(h2, h3, strong),
 .gallery-page :is(h1, h2, h3),
+.shared-page h1,
+.shared-message .markdown,
 .settings-content :is(p, a, code),
 .studio-main :is(h2, p),
 .rs-project-header h1 {
