@@ -1,6 +1,6 @@
 # OpenMind Cloud 3D Studio — Modly Capability Parity Plan
 
-Status: specification and integration backlog, **not implemented or production-verified**.
+Status: implementation in progress on `feature/3d-modly-capabilities`; see `3D_MODLY_IMPLEMENTATION_STATUS.md` for tested capabilities and remaining acceptance. **Not production-verified or deployed.**
 Upstream: https://github.com/lightningpixel/modly (reviewed 2026-10-29).
 Existing: /3d-studio Object/Architecture procedural scene generation, auth, scene ownership, history, Three.js viewer and GLB/JSON export. Preserve this functionality.
 

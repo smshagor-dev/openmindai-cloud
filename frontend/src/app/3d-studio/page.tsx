@@ -11,11 +11,18 @@ import {
 } from "lucide-react";
 import { downloadScene, studioApi, type SavedScene } from "@/lib/studio-scene";
 import { prepareStudioUpload, type StudioReference } from "@/lib/studio-upload";
-import { workbenchApi, type Asset, type Capabilities } from "@/lib/studio-workbench";
+import {
+  workbenchApi,
+  type Asset,
+  type Capabilities,
+} from "@/lib/studio-workbench";
 import Workbench from "@/components/studio-workbench";
 import SceneEditor from "@/components/studio-scene-editor";
 import "./studio.css";
-const AssetViewport = dynamic(() => import("@/components/studio-asset-viewport"), { ssr: false, loading: () => <p role="status">Loading mesh renderer…</p> });
+const AssetViewport = dynamic(
+  () => import("@/components/studio-asset-viewport"),
+  { ssr: false, loading: () => <p role="status">Loading mesh renderer…</p> },
+);
 const Viewport = dynamic(() => import("@/components/studio-viewport"), {
   ssr: false,
   loading: () => <p role="status">Loading 3D renderer…</p>,
@@ -44,6 +51,7 @@ export default function StudioPage() {
     [uploading, setUploading] = useState(false);
   const [capabilities, setCapabilities] = useState<Capabilities | null>(null),
     [engine, setEngine] = useState("auto"),
+    [engineParams, setEngineParams] = useState<Record<string, unknown>>({}),
     [jobId, setJobId] = useState<string | null>(null),
     [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const pending = useRef(false);
@@ -57,7 +65,9 @@ export default function StudioPage() {
   }
   useEffect(() => {
     refresh().catch((e) => setError(e.message));
-    workbenchApi("/engines").then(setCapabilities).catch((e) => setError(e.message));
+    workbenchApi("/engines")
+      .then(setCapabilities)
+      .catch((e) => setError(e.message));
   }, []);
   async function generate(e: React.FormEvent) {
     e.preventDefault();
@@ -66,25 +76,40 @@ export default function StudioPage() {
     setBusy(true);
     setError("");
     try {
-      const route = await workbenchApi("/route", "POST", { mode, engine, prompt, upload_ids: selectedUploads });
+      const route = await workbenchApi("/route", "POST", {
+        mode,
+        engine,
+        prompt,
+        upload_ids: selectedUploads,
+      });
       let result;
       if (route.output === "scene") {
         result = await workbenchApi("/jobs/scene", "POST", {
-          request_key: crypto.randomUUID(), mode: route.mode, prompt, upload_ids: selectedUploads,
+          request_key: crypto.randomUUID(),
+          mode: route.mode,
+          prompt,
+          upload_ids: selectedUploads,
         });
       } else {
-        const image = references.find((r) => selectedUploads.includes(r.id) && r.mime.startsWith("image/"));
-        if (!image) throw new Error("Select an image reference for this engine.");
+        const image = references.find(
+          (r) => selectedUploads.includes(r.id) && r.mime.startsWith("image/"),
+        );
+        if (!image)
+          throw new Error("Select an image reference for this engine.");
         result = await workbenchApi("/jobs", "POST", {
-          request_key: crypto.randomUUID(), engine: route.engine, operation: "generate", upload_id: image.id, params: {},
+          request_key: crypto.randomUUID(),
+          engine: route.engine,
+          operation: "generate",
+          upload_id: image.id,
+          params: engineParams,
         });
       }
       setJobId(result.id);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Generation failed.");
-    } finally {
       pending.current = false;
-      setBusy(false);
+    } finally {
+      if (!pending.current) setBusy(false);
     }
   }
   async function open(id: number) {
@@ -191,13 +216,20 @@ export default function StudioPage() {
           </div>
         )}
         {loading && <p role="status">Loading your scene…</p>}
-        {selectedAsset ? <AssetViewport key={selectedAsset.id} asset={selectedAsset} /> : saved ? (
+        {selectedAsset ? (
+          <AssetViewport key={selectedAsset.id} asset={selectedAsset} />
+        ) : saved ? (
           <>
             <Viewport
               scene={saved.scene}
               architecture={saved.mode === "architecture"}
             />
-            <SceneEditor key={saved.id} saved={saved} onChange={(scene) => setSaved({ ...saved, scene })} onSaved={setSaved} />
+            <SceneEditor
+              key={saved.id}
+              saved={saved}
+              onChange={(scene) => setSaved({ ...saved, scene })}
+              onSaved={setSaved}
+            />
             <div className="studio-meta">
               <span>
                 {saved.scene.nodes.length} parts · {saved.scene.edges.length}{" "}
@@ -250,16 +282,81 @@ export default function StudioPage() {
                 onClick={() => setMode(value)}
               >
                 {value === "object" ? <Box size={17} /> : <Layers3 size={17} />}{" "}
-                {value === "auto" ? "Auto Detect" : value === "object" ? "3D Model" : "3D Architecture"}
+                {value === "auto"
+                  ? "Auto Detect"
+                  : value === "object"
+                    ? "3D Model"
+                    : "3D Architecture"}
               </button>
             ))}
           </div>
-          <label>Tools / engine
-            <select value={engine} disabled={busy} onChange={(e) => setEngine(e.target.value)}>
+          <label>
+            Tools / engine
+            <select
+              value={engine}
+              disabled={busy}
+              onChange={(e) => {
+                setEngine(e.target.value);
+                setEngineParams({});
+              }}
+            >
               <option value="auto">Auto Detect engine</option>
-              {capabilities?.data.map((item) => <option key={item.id} value={item.id} disabled={!item.available}>{item.name}{item.available ? "" : " — unavailable"}</option>)}
+              {capabilities?.data.map((item) => (
+                <option
+                  key={item.id}
+                  value={item.id}
+                  disabled={!item.available}
+                >
+                  {item.name}
+                  {item.available ? "" : " — unavailable"}
+                </option>
+              ))}
             </select>
           </label>
+          {capabilities?.data
+            .find((item) => item.id === engine)
+            ?.parameters?.map((parameter) => (
+              <label key={parameter.id}>
+                {parameter.label}
+                {parameter.options ? (
+                  <select
+                    value={String(
+                      engineParams[parameter.id] ?? parameter.default,
+                    )}
+                    onChange={(event) =>
+                      setEngineParams((old) => ({
+                        ...old,
+                        [parameter.id]: parameter.options?.find(
+                          (option) =>
+                            String(option.value) === event.target.value,
+                        )?.value,
+                      }))
+                    }
+                  >
+                    {parameter.options.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="number"
+                    min={parameter.min}
+                    max={parameter.max}
+                    value={Number(
+                      engineParams[parameter.id] ?? parameter.default,
+                    )}
+                    onChange={(event) =>
+                      setEngineParams((old) => ({
+                        ...old,
+                        [parameter.id]: Number(event.target.value),
+                      }))
+                    }
+                  />
+                )}
+              </label>
+            ))}
           <label htmlFor="scene-prompt">
             {mode === "object"
               ? "Describe your object, materials and proportions"
@@ -396,8 +493,20 @@ export default function StudioPage() {
             dimensions are illustrative.
           </small>
         </form>
-        <Workbench capabilities={capabilities} jobId={jobId} selectedAsset={selectedAsset}
-          onAsset={setSelectedAsset} onScene={(id) => { open(id); refresh().catch((e) => setError(e.message)); }} onBusy={setBusy} />
+        <Workbench
+          capabilities={capabilities}
+          jobId={jobId}
+          selectedAsset={selectedAsset}
+          onAsset={setSelectedAsset}
+          onScene={(id) => {
+            open(id);
+            refresh().catch((e) => setError(e.message));
+          }}
+          onBusy={(value) => {
+            pending.current = value;
+            setBusy(value);
+          }}
+        />
       </section>
     </main>
   );

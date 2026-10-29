@@ -12,6 +12,7 @@ use App\Services\Studio\Router;
 use App\Services\Studio\Workflow;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 
 class StudioWorkbenchController
 {
@@ -32,7 +33,7 @@ class StudioWorkbenchController
 
     public function assets(Request $r)
     {
-        return ['data' => DB::table('studio_assets')->where('user_id', $r->user()->id)->whereNull('deleted_at')->latest('id')->limit(100)->get(['id', 'project_id', 'parent_id', 'name', 'kind', 'format', 'bytes', 'sha256', 'metadata', 'created_at'])];
+        return ['data' => DB::table('studio_assets')->where('user_id', $r->user()->id)->when($r->boolean('trash'), fn ($q) => $q->whereNotNull('deleted_at'), fn ($q) => $q->whereNull('deleted_at'))->latest('id')->limit(100)->get(['id', 'project_id', 'parent_id', 'name', 'kind', 'format', 'bytes', 'sha256', 'metadata', 'created_at'])];
     }
 
     public function upload(Request $r, Assets $assets, Jobs $jobs, Catalog $catalog)
@@ -45,19 +46,28 @@ class StudioWorkbenchController
         abort_unless($bytes !== false && strlen($bytes) <= config('studio.artifact_bytes'), 422);
 
         // Request-key locking keeps original-file creation idempotent as well.
-        return DB::transaction(function () use ($r, $data, $format, $bytes, $assets, $jobs) {
-            DB::table('users')->where('id', $r->user()->id)->lockForUpdate()->first();
-            $existing = StudioJob::where('user_id', $r->user()->id)->where('request_key', $data['request_key'])->first();
-            if ($existing) {
-                abort_unless(($existing->input['source_sha256'] ?? null) === hash('sha256', $bytes) && ($existing->input['source_name'] ?? null) === $data['name'], 409, 'Upload request key conflict.');
+        $sourcePath = null;
+        try {
+            return DB::transaction(function () use ($r, $data, $format, $bytes, $assets, $jobs, &$sourcePath) {
+                DB::table('users')->where('id', $r->user()->id)->lockForUpdate()->first();
+                $existing = StudioJob::where('user_id', $r->user()->id)->where('request_key', $data['request_key'])->first();
+                if ($existing) {
+                    abort_unless(($existing->input['source_sha256'] ?? null) === hash('sha256', $bytes) && ($existing->input['source_name'] ?? null) === $data['name'], 409, 'Upload request key conflict.');
 
-                return response()->json($jobs->public($existing), 202);
+                    return response()->json($jobs->public($existing), 202);
+                }
+                $source = $assets->store($r->user()->id, $data['name'], $format, $bytes, ['validated' => false], project: $data['project_id'] ?? null, kind: 'source_mesh');
+                $sourcePath = DB::table('studio_assets')->where('id', $source)->value('private_path');
+                $job = $jobs->create($r->user()->id, ['request_key' => $data['request_key'], 'project_id' => $data['project_id'] ?? null, 'operation' => 'import', 'engine' => 'cpu', 'asset_id' => $source, 'params' => [], 'source_sha256' => hash('sha256', $bytes), 'source_name' => $data['name']]);
+
+                return response()->json($jobs->public($job), 202);
+            });
+        } catch (\Throwable $error) {
+            if ($sourcePath && ! DB::table('studio_assets')->where('private_path', $sourcePath)->exists()) {
+                Storage::disk('local')->delete($sourcePath);
             }
-            $source = $assets->store($r->user()->id, $data['name'], $format, $bytes, ['validated' => false], project: $data['project_id'] ?? null, kind: 'source_mesh');
-            $job = $jobs->create($r->user()->id, ['request_key' => $data['request_key'], 'project_id' => $data['project_id'] ?? null, 'operation' => 'import', 'engine' => 'cpu', 'asset_id' => $source, 'params' => [], 'source_sha256' => hash('sha256', $bytes), 'source_name' => $data['name']]);
-
-            return response()->json($jobs->public($job), 202);
-        });
+            throw $error;
+        }
     }
 
     public function download(Request $r, int $id, Assets $assets)

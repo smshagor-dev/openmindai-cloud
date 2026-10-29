@@ -1,4 +1,57 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
+async function mockWorkbench(
+  page: Page,
+  onSubmit: (body: { mode: string; upload_ids: number[] }) => void,
+  failure = false,
+) {
+  const job = {
+    id: "12345678-1234-4234-8234-123456789abc",
+    engine: "workflow",
+    operation: "workflow",
+    status: "completed",
+    result: { scene_id: 1 },
+  };
+  await page.route("**/api/backend/3d-studio/**", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/engines"))
+      return route.fulfill({
+        json: {
+          data: [
+            {
+              id: "procedural",
+              name: "Procedural 3D",
+              available: true,
+              input: "text",
+              output: "scene",
+              kind: "scene",
+            },
+          ],
+          worker: { ready: false },
+        },
+      });
+    if (path.endsWith("/route")) {
+      if (failure)
+        return route.fulfill({
+          status: 503,
+          json: { message: "Provider unavailable." },
+        });
+      const body = route.request().postDataJSON();
+      return route.fulfill({
+        json: {
+          mode: body.mode === "architecture" ? "architecture" : "object",
+          engine: "procedural",
+          output: "scene",
+        },
+      });
+    }
+    if (path.endsWith("/jobs/scene")) {
+      onSubmit(route.request().postDataJSON());
+      return route.fulfill({ status: 202, json: { ...job, status: "queued" } });
+    }
+    if (path.endsWith(job.id)) return route.fulfill({ json: job });
+    return route.fulfill({ json: { data: [] } });
+  });
+}
 for (const width of [1440, 375]) {
   for (const mode of ["object", "architecture"] as const) {
     test(`3D ${mode}: generate, export, reopen and delete at ${width}px`, async ({
@@ -34,6 +87,10 @@ for (const width of [1440, 375]) {
             : [],
       };
       let exists = false;
+      await mockWorkbench(page, (body) => {
+        expect(body.mode).toBe(mode);
+        exists = true;
+      });
       await page.route("**/api/backend/3d-scenes**", async (route) => {
         const req = route.request(),
           list = new URL(req.url()).pathname.endsWith("3d-scenes");
@@ -61,11 +118,14 @@ for (const width of [1440, 375]) {
       const errors: string[] = [];
       page.on("pageerror", (e) => errors.push(e.message));
       await page.goto("/3d-studio");
+      await expect(
+        page.getByRole("button", { name: "Auto Detect", exact: true }),
+      ).toHaveAttribute("aria-pressed", "true");
       if (mode === "architecture")
         await page
-          .getByRole("button", { name: "Architecture", exact: true })
+          .getByRole("button", { name: "3D Architecture", exact: true })
           .click();
-      await page.getByRole("textbox").fill("A robot with a camera");
+      await page.locator("#scene-prompt").fill("A robot with a camera");
       await page.getByRole("button", { name: "Generate scene" }).click();
       await expect(
         page.getByRole("heading", { name: "Delivery robot" }),
@@ -125,11 +185,12 @@ test("3D Studio exposes authentication and provider failures", async ({
       },
     }),
   );
+  await mockWorkbench(page, () => {}, true);
   await page.goto("/3d-studio");
   await expect(page.getByRole("main").getByRole("alert")).toContainText(
     "Please sign in.",
   );
-  await page.getByRole("textbox").fill("A robot with wheels");
+  await page.locator("#scene-prompt").fill("A robot with wheels");
   await page.getByRole("button", { name: "Generate scene" }).click();
   await expect(page.getByRole("main").getByRole("alert")).toContainText(
     "Provider unavailable.",
@@ -221,8 +282,12 @@ test("uploads Markdown privately and exports GLB using compatible preview withou
           },
     });
   });
+  await mockWorkbench(page, (body) => {
+    expect(body.upload_ids).toEqual([7]);
+    exists = true;
+  });
   await page.goto("/3d-studio");
-  await page.locator("input[type=file]").setInputFiles({
+  await page.locator(".studio-references input[type=file]").setInputFiles({
     name: "robot.md",
     mimeType: "text/markdown",
     buffer: Buffer.from("# Blue body"),
@@ -230,7 +295,7 @@ test("uploads Markdown privately and exports GLB using compatible preview withou
   await expect(
     page.getByText("robot.md", { exact: true }).last(),
   ).toBeVisible();
-  await page.getByRole("textbox").fill("Use the blue body reference");
+  await page.locator("#scene-prompt").fill("Use the blue body reference");
   await page.getByRole("button", { name: "Generate scene" }).click();
   await expect(page.locator(".studio-viewport svg")).toBeVisible();
   await expect(page.getByText(/Compatible preview mode/)).toBeVisible();
