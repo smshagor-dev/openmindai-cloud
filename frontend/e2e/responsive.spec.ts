@@ -229,6 +229,12 @@ for (const [width, height] of sizes) {
         ).toBeVisible();
       }
       await fits(page);
+      if (route === "/3d-studio" && [320, 768, 1440].includes(width)) {
+        await page.screenshot({
+          path: test.info().outputPath(`studio-${width}.png`),
+          fullPage: true,
+        });
+      }
     }
     if (width <= 760) {
       await page.goto("/research-studio");
@@ -279,7 +285,7 @@ for (const viewport of [
           ).toBeVisible();
           await page
             .getByRole("button", { name: "Close sidebar", exact: true })
-            .click({position: {x: viewport.width - 8, y: 80}});
+            .click({ position: { x: viewport.width - 8, y: 80 } });
           await expect(
             page.getByRole("complementary", { name: "Chat history" }),
           ).toBeHidden();
@@ -300,7 +306,7 @@ for (const viewport of [
           await fits(page, ".rs-nav");
           await page
             .getByRole("button", { name: "Close navigation", exact: true })
-            .click({position: {x: viewport.width - 8, y: 80}});
+            .click({ position: { x: viewport.width - 8, y: 80 } });
           await expect(page.locator(".rs-nav")).toBeHidden();
         }
         await fits(page);

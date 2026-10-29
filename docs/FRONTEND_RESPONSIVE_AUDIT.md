@@ -25,15 +25,28 @@ Signed-in tests at `https://chat.openmindai.org/` used the existing browser sess
 
 QA scene records are retained; no existing user data was deleted.
 
-## Automated evidence at checkpoint
+## Automated evidence
+
+Implementation checkpoint `d2d4f267ffd22a1fa7094b49b68ef169227c1ecf` passed all three browser jobs in [CI run 40885118063](https://github.com/smshagor-dev/openmindai-cloud/actions/runs/40885118063):
+
+| Engine | Responsive cases | 3D lifecycle/export cases | Result |
+|---|---:|---:|---|
+| Chromium | 35 | 13 | 48 passed |
+| Firefox | 33 | 13 | 46 passed |
+| WebKit | 35 | 13 | 48 passed |
+
+142 browser cases passed in total. The 11 viewport sizes cover 320, 360, 390, 430, 568 landscape, 768, 820, 1024, 1280, 1440 and 1920px. Touch navigation is additionally exercised at 390/820px in Chromium/WebKit; Firefox has no Playwright mobile-context emulation. Both normal and forced-no-WebGL 3D modes validate generated/reopened scenes, accessible inspection, real GLB binary headers and deletion of fixture-only records.
+
+Additional local verification:
 
 - Clean production build and TypeScript validation passed.
-- Initial Chromium responsive matrix: 33 tests passed across 11 viewport sizes (320, 360, 390, 430, 568 landscape, 768, 820, 1024, 1280, 1440 and 1920px).
-- Default and forced-no-WebGL object/architecture rendering and GLB binary checks passed in the first 12 expanded Studio cases. Final full rerun pending at this checkpoint.
-- Touch navigation coverage added; correcting the test to click the exposed backdrop instead of its center behind the drawer.
-- Firefox could launch locally but content pages crashed in this container; WebKit runtime dependencies are missing. These local limitations are not passes. The CI matrix installs the official dependencies and will provide engine-level results.
+- All 235 frontend integration tests passed, zero skipped.
+- All 18 existing browser flow regressions passed: image and DOCX preview/reload/Library, research pause/reload/resume and citation drawers, at desktop/tablet/mobile sizes.
+- Final test-harness updates isolate each suite/engine's output directory, retain JSON results/screenshots and fail interrupted test processes instead of treating a missing exit code as success. Fresh CI on these harness changes is separate from the verified implementation checkpoint above.
 
-Local browser tests use deterministic API fixtures. They do not certify every real provider, export worker, device hardware, microphone/camera permission, or all Research lifecycle operations. Viewports and touch emulation are not physical-device certification. Full live-provider checks above are reported separately from fixture-based browser checks.
+Local browser tests use deterministic API fixtures. Real production checks are listed separately above. Viewports and touch emulation are not physical-device certification, and this audit does not certify every provider, microphone/camera permission or all Research lifecycle/worker operations.
+
+Local Firefox content-process crashes and missing WebKit system libraries were infrastructure limitations; they were not counted as passes. Official engine tests succeeded in CI after installing the dependencies there.
 
 ## Commands
 

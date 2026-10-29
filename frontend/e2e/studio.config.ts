@@ -1,9 +1,19 @@
 import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: ".",
+  outputDir: `../test-results/studio-${process.env.RESPONSIVE_BROWSER || "chromium"}`,
   testMatch: "studio.spec.ts",
   timeout: 60000,
   workers: 1,
+  reporter: [
+    ["list"],
+    [
+      "json",
+      {
+        outputFile: `test-results/studio-${process.env.RESPONSIVE_BROWSER || "chromium"}/results.json`,
+      },
+    ],
+  ],
   use: {
     browserName: (process.env.RESPONSIVE_BROWSER || "chromium") as
       "chromium" | "firefox" | "webkit",
