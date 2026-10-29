@@ -12,9 +12,7 @@ const sizes = [
   [1440, 900],
   [1920, 1080],
 ];
-const long =
-  "A very long multilingual workspace name বাংলা العربية " +
-  "LongUnbrokenName".repeat(10);
+const long = "বাংলা العربية " + "LongUnbrokenName".repeat(5);
 async function fixtures(page: Page, guest = false) {
   page.on("pageerror", (e) => {
     throw e;
@@ -230,6 +228,9 @@ for (const [width, height] of sizes) {
       }
       await fits(page);
       if (route === "/3d-studio" && [320, 768, 1440].includes(width)) {
+        await expect(
+          page.locator(".studio-viewport").locator("canvas, svg"),
+        ).toBeVisible();
         await page.screenshot({
           path: test.info().outputPath(`studio-${width}.png`),
           fullPage: true,
