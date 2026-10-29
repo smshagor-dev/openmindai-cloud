@@ -149,7 +149,9 @@ export default function StudioViewport({
       camera.position
         .copy(center)
         .add(
-          new THREE.Vector3(1, 0.8, 1).normalize().multiplyScalar(radius * 3),
+          new THREE.Vector3(1, 0.8, 1)
+            .normalize()
+            .multiplyScalar((radius * 3) / Math.min(camera.aspect, 1)),
         );
       controls.update();
     };
@@ -175,6 +177,11 @@ export default function StudioViewport({
       const w = container.clientWidth,
         h = container.clientHeight;
       if (!w || !h) return;
+      const fitRatio = Math.min(camera.aspect, 1) / Math.min(w / h, 1);
+      camera.position
+        .sub(controls.target)
+        .multiplyScalar(fitRatio)
+        .add(controls.target);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
       renderer.setSize(w, h);

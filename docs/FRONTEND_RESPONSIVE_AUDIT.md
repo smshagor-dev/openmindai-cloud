@@ -10,7 +10,7 @@ Chat home/composer, model picker, tool menu, Settings tabs, workspace tools (Tea
 - Long component, project, assistant and account content wraps without widening the viewport; narrow control rows can wrap.
 - Settings navigation scrolls horizontally and touch controls receive larger hit areas.
 - 3D scenes fall back to a real SVG renderer when WebGL is unavailable. Orbit, zoom, labels, component inspection and GLB export remain available without requiring GPU access.
-- An accessible component selector supports keyboard inspection.
+- An accessible component selector supports keyboard inspection. Camera framing adapts to portrait aspect ratios while retaining orbit direction and relative zoom when resizing.
 - Added a Chromium/Firefox/WebKit CI matrix and responsive regression tests.
 
 ## Actual live observations
@@ -42,6 +42,7 @@ Additional local verification:
 - Clean production build and TypeScript validation passed.
 - All 235 frontend integration tests passed, zero skipped.
 - All 18 existing browser flow regressions passed: image and DOCX preview/reload/Library, research pause/reload/resume and citation drawers, at desktop/tablet/mobile sizes.
+- Final local responsive suite passed 35 cases (including both touch sizes); the full Studio suite passed 13 cases, with zero failures/skips.
 - Final test-harness updates isolate each suite/engine's output directory, retain JSON results/screenshots and fail interrupted test processes instead of treating a missing exit code as success. Fresh CI on these harness changes is separate from the verified implementation checkpoint above.
 
 Local browser tests use deterministic API fixtures. Real production checks are listed separately above. Viewports and touch emulation are not physical-device certification, and this audit does not certify every provider, microphone/camera permission or all Research lifecycle/worker operations.

@@ -43,6 +43,7 @@ try {
       "node_modules/@playwright/test/cli.js",
       "test",
       "--config=e2e/studio.config.ts",
+      ...process.argv.slice(2),
     ],
     {
       cwd,

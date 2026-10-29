@@ -1,7 +1,14 @@
 import { defineConfig } from "@playwright/test";
+import { fileURLToPath } from "node:url";
+const outputDir = fileURLToPath(
+  new URL(
+    `../test-results/studio-${process.env.RESPONSIVE_BROWSER || "chromium"}/`,
+    import.meta.url,
+  ),
+);
 export default defineConfig({
   testDir: ".",
-  outputDir: `../test-results/studio-${process.env.RESPONSIVE_BROWSER || "chromium"}`,
+  outputDir,
   testMatch: "studio.spec.ts",
   timeout: 60000,
   workers: 1,
@@ -10,7 +17,7 @@ export default defineConfig({
     [
       "json",
       {
-        outputFile: `test-results/studio-${process.env.RESPONSIVE_BROWSER || "chromium"}/results.json`,
+        outputFile: outputDir + "results.json",
       },
     ],
   ],
