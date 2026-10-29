@@ -262,7 +262,7 @@ async function proxy(
       url.searchParams.set("after", after);
     const page = request.nextUrl.searchParams.get("page");
     if (page && /^\d{1,6}$/.test(page)) url.searchParams.set("page", page);
-    for (const key of ["q", "project_id", "archived", "kind"]) {
+    for (const key of ["q", "project_id", "archived", "kind", "trash"]) {
       const value = request.nextUrl.searchParams.get(key);
       if (value && value.length <= 100) url.searchParams.set(key, value);
     }

@@ -6,6 +6,9 @@ import tempfile
 import time
 import unittest
 import uuid
+import os
+import threading
+from unittest.mock import patch
 from pathlib import Path
 import struct
 import trimesh
@@ -65,6 +68,19 @@ class MeshTests(unittest.TestCase):
         with self.assertRaises(ValueError): parameters(known, {'octree_resolution': 1000000})
         with self.assertRaises(ValueError): parameters(known, {'shell': 'unsafe'})
 
+    def test_native_scene_visibility_transforms_and_composition(self):
+        node = {'id': 'body', 'label': 'Body', 'shape': 'box', 'position': [3, 0, 0], 'rotation': [0, 0, 0], 'scale': [2, 1, 1], 'color': '#4488ff'}
+        document = {'title': 'Robot', 'description': 'Test', 'nodes': [node, {**node, 'id': 'hidden', 'hidden': True}], 'edges': []}
+        source = json.dumps(document).encode()
+        output, stats = mesh.execute(source, 'json', 'export', {'format': 'glb'})
+        self.assertEqual(stats['faces'], 12)
+        self.assertAlmostEqual(mesh.load(output, 'glb').bounds[0][0], 2)
+        combined, stats = mesh.compose(json.dumps([{'data': base64.b64encode(output).decode(), 'format': 'glb'}] * 2).encode())
+        self.assertEqual(stats['faces'], 24)
+        self.assertTrue(combined.startswith(b'glTF'))
+        document['nodes'][1]['hidden'] = 'false'
+        with self.assertRaises(ValueError): mesh.load(json.dumps(document).encode(), 'json')
+
 
 class WorkerTests(unittest.TestCase):
     def setUp(self):
@@ -120,6 +136,56 @@ class WorkerTests(unittest.TestCase):
         payload = self.payload(); payload.update(engine='hunyuan3d-mini', operation='generate', params={})
         self.assertEqual(self.signed('POST', '/jobs', payload).status_code, 422)
         self.assertEqual(self.signed('GET', '/jobs/' + payload['id']).status_code, 404)
+
+    def test_idempotent_retry_survives_storage_pressure(self):
+        payload = self.payload()
+        self.assertEqual(self.signed('POST', '/jobs', payload).status_code, 202)
+        self.assertEqual(self.wait(payload['id'])['status'], 'completed')
+        with patch.dict(os.environ, {'STUDIO_WORKER_STORAGE_BYTES': '1'}):
+            self.assertEqual(self.signed('POST', '/jobs', payload).status_code, 202)
+            self.assertEqual(self.signed('POST', '/jobs', self.payload()).status_code, 507)
+
+    def test_cancelled_queued_job_never_executes_or_exports(self):
+        gate = threading.Event()
+        blocker = self.app.state.worker.executor.submit(gate.wait)
+        try:
+            payload = self.payload()
+            self.assertEqual(self.signed('POST', '/jobs', payload).status_code, 202)
+            result = self.signed('POST', '/jobs/' + payload['id'] + '/cancel', {})
+            self.assertEqual(result.json()['status'], 'cancelled')
+        finally:
+            gate.set()
+            blocker.result(timeout=5)
+        self.app.state.worker.executor.submit(lambda: None).result(timeout=5)
+        self.assertEqual(self.signed('GET', '/jobs/' + payload['id']).json()['status'], 'cancelled')
+        self.assertEqual(self.signed('GET', '/jobs/' + payload['id'] + '/artifact').status_code, 409)
+
+    def test_restart_marks_interrupted_work_failed(self):
+        from .server import State
+        job = str(uuid.uuid4())
+        with self.app.state.worker.db() as db:
+            db.execute('INSERT INTO jobs VALUES (?,?,?,?,NULL,NULL,?)', (job, 'hash', 'running', '{}', time.time()))
+        recovered = State(Path(self.temp.name))
+        try:
+            self.assertEqual(recovered.get(job)['status'], 'failed')
+            self.assertEqual(recovered.get(job)['error'], 'worker_interrupted')
+        finally:
+            recovered.executor.shutdown(wait=True)
+
+    def test_cancellation_at_artifact_publication_cannot_complete(self):
+        payload = self.payload()
+        replace = Path.replace
+        def cancel_before_publication(path, target):
+            result = replace(path, target)
+            if path.name == payload['id'] + '.partial':
+                with self.app.state.worker.db() as db:
+                    db.execute("UPDATE jobs SET status='cancel_requested' WHERE id=?", (payload['id'],))
+            return result
+        with patch.object(Path, 'replace', cancel_before_publication):
+            self.assertEqual(self.signed('POST', '/jobs', payload).status_code, 202)
+            self.assertEqual(self.wait(payload['id'])['status'], 'cancelled')
+        self.assertEqual(self.signed('GET', '/jobs/' + payload['id'] + '/artifact').status_code, 409)
+        self.assertFalse((Path(self.temp.name) / (payload['id'] + '.artifact')).exists())
 
     def test_invalid_checksum_and_mesh_report_failure(self):
         payload = self.payload(); payload['input']['sha256'] = '0' * 64

@@ -52,7 +52,7 @@ async function mockWorkbench(
     return route.fulfill({ json: { data: [] } });
   });
 }
-for (const width of [1440, 375]) {
+for (const width of [1440, 768, 375, 320]) {
   for (const mode of ["object", "architecture"] as const) {
     test(`3D ${mode}: generate, export, reopen and delete at ${width}px`, async ({
       page,
@@ -87,6 +87,8 @@ for (const width of [1440, 375]) {
             : [],
       };
       let exists = false;
+      let savedVersion = 1;
+      let savedScene = structuredClone(scene);
       await mockWorkbench(page, (body) => {
         expect(body.mode).toBe(mode);
         exists = true;
@@ -96,6 +98,25 @@ for (const width of [1440, 375]) {
           list = new URL(req.url()).pathname.endsWith("3d-scenes");
         if (new URL(req.url()).pathname.endsWith("/uploads"))
           return route.fulfill({ json: { data: [] } });
+        if (new URL(req.url()).pathname.endsWith("/revisions"))
+          return route.fulfill({
+            json: { data: [{ version: 1, scene: JSON.stringify(scene) }] },
+          });
+        if (req.method() === "PUT") {
+          const input = req.postDataJSON();
+          expect(input.version).toBe(savedVersion);
+          savedScene = input.scene;
+          savedVersion++;
+          return route.fulfill({
+            json: {
+              id: 1,
+              mode,
+              prompt: "A robot with a camera",
+              scene: savedScene,
+              version: savedVersion,
+            },
+          });
+        }
         if (req.method() === "POST") {
           expect(req.postDataJSON().mode).toBe(mode);
           exists = true;
@@ -111,7 +132,13 @@ for (const width of [1440, 375]) {
         return route.fulfill({
           json: list
             ? { data: exists ? [{ id: 1, title: scene.title, mode }] : [] }
-            : { id: 1, mode, prompt: "A robot with a camera", scene },
+            : {
+                id: 1,
+                mode,
+                prompt: "A robot with a camera",
+                scene: savedScene,
+                version: savedVersion,
+              },
         });
       });
       page.on("dialog", (dialog) => dialog.accept());
@@ -146,10 +173,34 @@ for (const width of [1440, 375]) {
       for await (const chunk of stream!) chunks.push(Buffer.from(chunk));
       expect(Buffer.concat(chunks).subarray(0, 4).toString()).toBe("glTF");
       await page.getByRole("button", { name: "Reset view" }).click();
+      await page
+        .getByRole("spinbutton", { name: "position X", exact: true })
+        .fill("4");
+      await page.getByRole("button", { name: "Undo", exact: true }).click();
+      await expect(
+        page.getByRole("spinbutton", { name: "position X", exact: true }),
+      ).toHaveValue("0");
+      await page.getByRole("button", { name: "Redo", exact: true }).click();
+      await page.getByRole("button", { name: "Save scene revision" }).click();
+      await expect(page.getByLabel("Previous revisions")).toBeVisible();
+      expect(savedScene.nodes[0].position[0]).toBe(4);
+      const overflowing = await page.evaluate(() =>
+        Array.from(document.querySelectorAll("body *"))
+          .filter(
+            (element) => element.getBoundingClientRect().right > innerWidth + 1,
+          )
+          .map((element) => ({
+            tag: element.tagName,
+            className: element.className,
+            width: element.getBoundingClientRect().width,
+          }))
+          .slice(0, 20),
+      );
       expect(
         await page.evaluate(
           () => document.documentElement.scrollWidth <= innerWidth,
         ),
+        JSON.stringify(overflowing),
       ).toBe(true);
       await page
         .getByRole("button", { name: "New scene", exact: true })
@@ -158,6 +209,9 @@ for (const width of [1440, 375]) {
         .getByRole("button", { name: "Delivery robot", exact: true })
         .click();
       await expect(page.locator("canvas")).toBeVisible();
+      await expect(
+        page.getByRole("spinbutton", { name: "position X", exact: true }),
+      ).toHaveValue("4");
       await page
         .getByRole("button", { name: "Delete Delivery robot", exact: true })
         .click();

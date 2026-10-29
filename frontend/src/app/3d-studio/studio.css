@@ -135,8 +135,33 @@
 }
 .studio-modes {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 18px;
+}
+.studio-tools,
+.studio-editor,
+.studio-workbench,
+.studio-workbench *,
+.studio-editor * {
+  box-sizing: border-box;
+  min-width: 0;
+}
+.studio-shell button {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.studio-references {
+  grid-template-columns: minmax(0, 1fr);
+}
+.studio-upload-label,
+.studio-upload-label input {
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+.studio-references small {
+  overflow-wrap: anywhere;
 }
 .studio-modes button[aria-pressed="true"] {
   background: #345078;

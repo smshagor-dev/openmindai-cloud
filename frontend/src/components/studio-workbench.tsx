@@ -25,6 +25,7 @@ export default function Workbench({
 }) {
   const [tab, setTab] = useState("library"),
     [assets, setAssets] = useState<Asset[]>([]),
+    [trash, setTrash] = useState<Asset[]>([]),
     [jobs, setJobs] = useState<Job[]>([]),
     [tracked, setTracked] = useState<string | null>(null),
     [error, setError] = useState(""),
@@ -43,18 +44,22 @@ export default function Workbench({
     [projectTitle, setProjectTitle] = useState("");
   const completed = useRef(new Set<string>());
   const refresh = useCallback(async () => {
-    const [a, j, p] = await Promise.all([
+    const [a, j, p, deleted] = await Promise.all([
       workbenchApi("/assets"),
       workbenchApi("/jobs"),
       workbenchApi("/projects"),
+      workbenchApi("/assets?trash=1"),
     ]);
     setAssets(a.data);
+    setTrash(deleted.data);
     setJobs(j.data);
     setProjects(p.data);
     return { assets: a.data as Asset[], jobs: j.data as Job[] };
   }, []);
   useEffect(() => {
-    refresh().catch((e) => setError(e instanceof Error ? e.message : "Workbench unavailable."));
+    refresh().catch((e) =>
+      setError(e instanceof Error ? e.message : "Workbench unavailable."),
+    );
   }, [refresh]);
   useEffect(() => {
     if (jobId) setTracked(jobId);
@@ -297,15 +302,40 @@ export default function Workbench({
                 </button>
               ))}
           </div>
+          <details>
+            <summary>Trash ({trash.length})</summary>
+            {trash.map((asset) => (
+              <p key={asset.id}>
+                {asset.name}{" "}
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await workbenchApi(
+                        `/assets/${asset.id}/restore`,
+                        "POST",
+                        {},
+                      );
+                      await refresh();
+                    } catch (e) {
+                      setError(String(e));
+                    }
+                  }}
+                >
+                  Restore
+                </button>
+              </p>
+            ))}
+          </details>
           {selectedAsset && (
             <>
               <h4>Selected asset: {selectedAsset.name}</h4>
               <div className="studio-tool-row">
                 <button
                   type="button"
-                  disabled={!undo.length}
+                  disabled={!undo.length && !selectedAsset.parent_id}
                   onClick={() => {
-                    const id = undo.at(-1)!,
+                    const id = undo.at(-1) || selectedAsset.parent_id!,
                       asset = assets.find((a) => a.id === id);
                     if (asset) {
                       setRedo((r) => [...r, selectedAsset.id]);

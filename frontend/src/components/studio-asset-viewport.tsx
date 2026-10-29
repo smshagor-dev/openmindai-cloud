@@ -1,5 +1,11 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
+import type { StudioScene } from "@/lib/studio-scene";
+const ProceduralViewport = dynamic(
+  () => import("@/components/studio-viewport"),
+  { ssr: false },
+);
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OBJLoader } from "three/addons/loaders/OBJLoader.js";
@@ -14,10 +20,28 @@ export default function AssetViewport({ asset }: { asset: Asset }) {
     [error, setError] = useState(""),
     [ready, setReady] = useState(false),
     [selected, setSelected] = useState(""),
-    [compatible, setCompatible] = useState(false);
+    [compatible, setCompatible] = useState(false),
+    [nativeScene, setNativeScene] = useState<StudioScene | null>(null);
   useEffect(() => {
     let disposed = false;
-    let cleanup = () => {};
+    const cleaners: (() => void)[] = [];
+    const cleanup = () => {
+      while (cleaners.length) cleaners.pop()?.();
+    };
+    const disposeObject = (object: THREE.Object3D) =>
+      object.traverse((o) => {
+        if (o instanceof THREE.Mesh) {
+          o.geometry.dispose();
+          for (const material of Array.isArray(o.material)
+            ? o.material
+            : [o.material]) {
+            for (const value of Object.values(material))
+              if (value instanceof THREE.Texture) value.dispose();
+            material.dispose();
+          }
+        }
+      });
+    setNativeScene(null);
     setReady(false);
     setError("");
     setSelected("");
@@ -29,6 +53,13 @@ export default function AssetViewport({ asset }: { asset: Asset }) {
         let object: THREE.Object3D;
         if (format === "json") {
           const manifest = JSON.parse(new TextDecoder().decode(bytes));
+          if (Array.isArray(manifest.nodes) && Array.isArray(manifest.edges)) {
+            if (!disposed) {
+              setNativeScene(manifest as StudioScene);
+              setReady(true);
+            }
+            return;
+          }
           if (
             manifest.schema !== "openmind.scene/1" ||
             typeof manifest.glb !== "string"
@@ -60,11 +91,10 @@ export default function AssetViewport({ asset }: { asset: Asset }) {
           );
         }
         if (disposed) {
-          object.traverse((o) => {
-            if (o instanceof THREE.Mesh) o.geometry.dispose();
-          });
+          disposeObject(object);
           return;
         }
+        cleaners.push(() => disposeObject(object));
         const container = host.current!;
         let renderer: THREE.WebGLRenderer | SVGRenderer;
         let svg = false;
@@ -76,6 +106,10 @@ export default function AssetViewport({ asset }: { asset: Asset }) {
           renderer.setClearColor(new THREE.Color("#101722"), 1);
           svg = true;
         }
+        cleaners.push(() => {
+          if (renderer instanceof THREE.WebGLRenderer) renderer.dispose();
+          renderer.domElement.remove();
+        });
         let triangles = 0;
         object.traverse((o) => {
           if (o instanceof THREE.Mesh)
@@ -93,6 +127,15 @@ export default function AssetViewport({ asset }: { asset: Asset }) {
               const source = Array.isArray(o.material)
                 ? o.material[0]
                 : o.material;
+              for (const original of Array.isArray(o.material)
+                ? o.material
+                : [o.material]) {
+                cleaners.push(() => {
+                  for (const value of Object.values(original))
+                    if (value instanceof THREE.Texture) value.dispose();
+                  original.dispose();
+                });
+              }
               o.material = new THREE.MeshLambertMaterial({
                 color: source.color || 0xa6c8ed,
                 side: THREE.DoubleSide,
@@ -120,6 +163,7 @@ export default function AssetViewport({ asset }: { asset: Asset }) {
           camera,
           renderer.domElement as HTMLElement,
         );
+        cleaners.push(() => controls.dispose());
         controls.target.copy(center);
         reset.current = () => {
           camera.position
@@ -142,6 +186,7 @@ export default function AssetViewport({ asset }: { asset: Asset }) {
           render();
         }
         const observer = new ResizeObserver(resize);
+        cleaners.push(() => observer.disconnect());
         observer.observe(container);
         controls.addEventListener("change", render);
         reset.current();
@@ -161,24 +206,12 @@ export default function AssetViewport({ asset }: { asset: Asset }) {
           setSelected(hit?.object.name || (hit ? "Mesh part" : ""));
         };
         renderer.domElement.addEventListener("pointerup", pick);
-        cleanup = () => {
-          observer.disconnect();
-          controls.dispose();
-          renderer.domElement.removeEventListener("pointerup", pick);
-          object.traverse((o) => {
-            if (o instanceof THREE.Mesh) {
-              o.geometry.dispose();
-              for (const material of Array.isArray(o.material)
-                ? o.material
-                : [o.material])
-                material.dispose();
-            }
-          });
-          if (renderer instanceof THREE.WebGLRenderer) renderer.dispose();
-          renderer.domElement.remove();
-        };
+        cleaners.push(() =>
+          renderer.domElement.removeEventListener("pointerup", pick),
+        );
         setReady(true);
       } catch (e) {
+        cleanup();
         if (!disposed)
           setError(e instanceof Error ? e.message : "Could not preview model.");
       }
@@ -200,7 +233,14 @@ export default function AssetViewport({ asset }: { asset: Asset }) {
       </div>
       {error && <p role="alert">{error}</p>}
       {!ready && !error && <p role="status">Loading validated geometry…</p>}
-      <div className="studio-viewport studio-asset-viewport" ref={host} />
+      {nativeScene ? (
+        <ProceduralViewport
+          scene={nativeScene}
+          architecture={nativeScene.edges.length > 0}
+        />
+      ) : (
+        <div className="studio-viewport studio-asset-viewport" ref={host} />
+      )}
       {compatible && ready && (
         <small>
           Compatible geometry preview. Texture rendering requires WebGL.

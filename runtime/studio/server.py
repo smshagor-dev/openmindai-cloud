@@ -118,7 +118,14 @@ class State:
                 path = self.root / (job + '.artifact')
                 temporary = path.with_suffix('.partial')
                 temporary.write_bytes(data); os.chmod(temporary, 0o600); temporary.replace(path)
-                self.update(job, 'completed', {'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest(), 'format': fmt, 'metadata': metadata})
+                result = {'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest(), 'format': fmt, 'metadata': metadata}
+                with self.db() as db:
+                    changed = db.execute("UPDATE jobs SET status='completed',result=?,error=NULL,updated=? WHERE id=? AND status='running'",
+                                         (json.dumps(result), time.time(), job)).rowcount
+                    if not changed:
+                        db.execute("UPDATE jobs SET status='cancelled',updated=? WHERE id=? AND status='cancel_requested'", (time.time(), job))
+                if not changed:
+                    path.unlink(missing_ok=True)
                 return
             self.update(job, 'failed', error='worker_timeout')
         finally:
@@ -189,12 +196,13 @@ def create_app(key=None, root=None):
         except (ValueError, KeyError, TypeError):
             raise HTTPException(422, 'Invalid input or unavailable engine')
         serialized = json.dumps(payload, sort_keys=True, separators=(',', ':')); digest = hashlib.sha256(serialized.encode()).hexdigest()
-        if sum(p.stat().st_size for p in state.root.iterdir() if p.is_file()) + len(serialized) + mesh.MAX_BYTES > int(os.environ.get('STUDIO_WORKER_STORAGE_BYTES', '1000000000')):
-            raise HTTPException(507, 'Worker storage is full')
         with state.db() as db:
+            db.execute('BEGIN IMMEDIATE')
             existing = db.execute('SELECT hash FROM jobs WHERE id=?', (payload['id'],)).fetchone()
             if existing and existing['hash'] != digest: raise HTTPException(409, 'Idempotency conflict')
             if not existing:
+                if sum(p.stat().st_size for p in state.root.iterdir() if p.is_file()) + len(serialized) + mesh.MAX_BYTES > int(os.environ.get('STUDIO_WORKER_STORAGE_BYTES', '1000000000')):
+                    raise HTTPException(507, 'Worker storage is full')
                 if db.execute("SELECT count(*) FROM jobs WHERE status IN ('queued','running')").fetchone()[0] >= 20:
                     raise HTTPException(429, 'Worker queue is full')
                 db.execute('INSERT INTO jobs VALUES (?,?,?,?,NULL,NULL,?)', (payload['id'], digest, 'queued', serialized, time.time()))

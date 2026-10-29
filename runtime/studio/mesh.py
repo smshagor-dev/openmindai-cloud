@@ -198,6 +198,7 @@ def procedural(document):
     for node in nodes:
         if not isinstance(node, dict) or set(node) - {'id','label','shape','position','rotation','scale','color','hidden'}:
             raise ValueError('Invalid scene node')
+        if 'hidden' in node and type(node['hidden']) is not bool: raise ValueError('Invalid visibility')
         identity = node.get('id'); label = node.get('label')
         if not isinstance(identity, str) or not re.fullmatch('[a-zA-Z0-9_-]{1,60}', identity) or identity in positions or not isinstance(label, str) or len(label) > 100:
             raise ValueError('Invalid scene identity')

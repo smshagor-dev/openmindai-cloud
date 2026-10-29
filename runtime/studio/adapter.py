@@ -31,12 +31,16 @@ def main():
     if not generator.is_downloaded(): raise RuntimeError('Installed weights are incomplete')
     # The container has no network and a read-only root; upstream automatic
     # repair/download code cannot install new dependencies during a user job.
-    generator.load()
-    output = Path(generator.generate(Path('/input/source').read_bytes(), parameters(known, request['params']), progress_cb=None, cancel_event=threading.Event())).resolve(strict=True)
-    if not output.is_relative_to(Path('/output')) or output.is_symlink(): raise RuntimeError('Unsafe adapter output')
-    from runtime.studio.mesh import execute
-    data, _ = execute(output.read_bytes(), output.suffix.removeprefix('.').lower(), 'import', {})
-    Path('/output/mesh.glb').write_bytes(data)
-    generator.unload()
+    try:
+        generator.load()
+        candidate = Path(generator.generate(Path('/input/source').read_bytes(), parameters(known, request['params']), progress_cb=None, cancel_event=threading.Event()))
+        if candidate.is_symlink(): raise RuntimeError('Unsafe adapter output')
+        output = candidate.resolve(strict=True)
+        if not output.is_relative_to(Path('/output')): raise RuntimeError('Unsafe adapter output')
+        from runtime.studio.mesh import execute
+        data, _ = execute(output.read_bytes(), output.suffix.removeprefix('.').lower(), 'import', {})
+        Path('/output/mesh.glb').write_bytes(data)
+    finally:
+        generator.unload()
 
 if __name__ == '__main__': main()
