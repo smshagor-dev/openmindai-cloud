@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
+import { SVGRenderer } from "three/addons/renderers/SVGRenderer.js";
 import {
   CSS2DRenderer,
   CSS2DObject,
@@ -21,31 +21,45 @@ export default function StudioViewport({
     );
   const [selected, setSelected] = useState<string | null>(null),
     [error, setError] = useState(""),
-    [exporting, setExporting] = useState(false);
+    [exporting, setExporting] = useState(false),
+    [compatibility, setCompatibility] = useState(false),
+    [ready, setReady] = useState(false);
   useEffect(() => {
     if (!host.current) return;
     const container = host.current;
     setError("");
     setSelected(null);
-    let renderer: THREE.WebGLRenderer;
+    setReady(false);
+    let renderer: THREE.WebGLRenderer | SVGRenderer;
+    let fallback = false;
     try {
       renderer = new THREE.WebGLRenderer({ antialias: true });
     } catch {
-      setError(
-        "WebGL is unavailable. Enable hardware acceleration or download scene JSON.",
+      renderer = new SVGRenderer();
+      renderer.setQuality("low");
+      renderer.setPrecision(2);
+      renderer.domElement.setAttribute("role", "img");
+      renderer.domElement.setAttribute(
+        "aria-label",
+        "Compatibility 3D preview",
       );
-      return;
+      fallback = true;
     }
+    setCompatibility(fallback);
     const world = new THREE.Scene();
     world.background = new THREE.Color("#101722");
     const camera = new THREE.PerspectiveCamera(45, 1, 0.05, 1000);
-    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    if (renderer instanceof THREE.WebGLRenderer)
+      renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     container.appendChild(renderer.domElement);
     const labels = new CSS2DRenderer();
     labels.domElement.className = "studio-label-layer";
     container.appendChild(labels.domElement);
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
+    const controls = new OrbitControls(
+      camera,
+      fallback ? container : (renderer.domElement as HTMLCanvasElement),
+    );
+    controls.enableDamping = !fallback;
     world.add(new THREE.HemisphereLight(0xffffff, 0x34415e, 3));
     const light = new THREE.DirectionalLight(0xffffff, 4);
     light.position.set(10, 20, 10);
@@ -65,7 +79,7 @@ export default function StudioViewport({
     for (const node of scene.nodes) {
       const geometry =
         node.shape === "sphere"
-          ? new THREE.SphereGeometry(0.5, 24, 16)
+          ? new THREE.SphereGeometry(0.5, fallback ? 12 : 24, fallback ? 8 : 16)
           : node.shape === "cylinder"
             ? new THREE.CylinderGeometry(0.5, 0.5, 1, 24)
             : node.shape === "cone"
@@ -135,7 +149,9 @@ export default function StudioViewport({
       camera.position
         .copy(center)
         .add(
-          new THREE.Vector3(1, 0.8, 1).normalize().multiplyScalar(radius * 3),
+          new THREE.Vector3(1, 0.8, 1)
+            .normalize()
+            .multiplyScalar((radius * 3) / Math.min(camera.aspect, 1)),
         );
       controls.update();
     };
@@ -143,6 +159,8 @@ export default function StudioViewport({
     actions.current = {
       reset,
       export: async () => {
+        const { GLTFExporter } =
+          await import("three/addons/exporters/GLTFExporter.js");
         const result = await new GLTFExporter().parseAsync(model, {
           binary: true,
         });
@@ -150,14 +168,25 @@ export default function StudioViewport({
         downloadScene(result, "openmind-scene.glb", "model/gltf-binary");
       },
     };
+    setReady(true);
+    const renderFrame = () => {
+      renderer.render(world, camera);
+      labels.render(world, camera);
+    };
     const resize = () => {
       const w = container.clientWidth,
         h = container.clientHeight;
       if (!w || !h) return;
+      const fitRatio = Math.min(camera.aspect, 1) / Math.min(w / h, 1);
+      camera.position
+        .sub(controls.target)
+        .multiplyScalar(fitRatio)
+        .add(controls.target);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
       renderer.setSize(w, h);
       labels.setSize(w, h);
+      renderFrame();
     };
     const observer = new ResizeObserver(resize);
     observer.observe(container);
@@ -180,27 +209,32 @@ export default function StudioViewport({
       const hit = ray.intersectObjects(meshes)[0];
       setSelected(hit ? String(hit.object.userData.nodeId) : null);
     };
-    renderer.domElement.addEventListener("pointerdown", pointerDown);
-    renderer.domElement.addEventListener("pointerup", click);
-    renderer.setAnimationLoop(() => {
-      controls.update();
-      renderer.render(world, camera);
-      labels.render(world, camera);
-    });
+    container.addEventListener("pointerdown", pointerDown);
+    container.addEventListener("pointerup", click);
+    if (renderer instanceof THREE.WebGLRenderer) {
+      renderer.setAnimationLoop(() => {
+        controls.update();
+        renderFrame();
+      });
+    } else {
+      controls.addEventListener("change", renderFrame);
+    }
     return () => {
       actions.current = null;
       observer.disconnect();
-      renderer.setAnimationLoop(null);
+      if (renderer instanceof THREE.WebGLRenderer)
+        renderer.setAnimationLoop(null);
+      controls.removeEventListener("change", renderFrame);
       controls.dispose();
-      renderer.domElement.removeEventListener("pointerdown", pointerDown);
-      renderer.domElement.removeEventListener("pointerup", click);
+      container.removeEventListener("pointerdown", pointerDown);
+      container.removeEventListener("pointerup", click);
       world.traverse((obj) => {
         const m = obj as THREE.Mesh;
         m.geometry?.dispose();
         if (Array.isArray(m.material)) m.material.forEach((x) => x.dispose());
         else m.material?.dispose();
       });
-      renderer.dispose();
+      if (renderer instanceof THREE.WebGLRenderer) renderer.dispose();
       container.replaceChildren();
     };
   }, [scene, architecture]);
@@ -208,6 +242,12 @@ export default function StudioViewport({
   return (
     <section className="studio-viewer" aria-label="Interactive 3D preview">
       <div className="studio-viewport" ref={host} />
+      {compatibility && (
+        <p className="studio-compatibility" role="status">
+          Compatibility preview · WebGL unavailable. Orbit, inspect and GLB
+          export remain available.
+        </p>
+      )}
       {error && (
         <p role="alert" className="studio-preview-error">
           {error}
@@ -216,7 +256,7 @@ export default function StudioViewport({
       <div className="studio-viewer-tools">
         <button onClick={() => actions.current?.reset()}>Reset view</button>
         <button
-          disabled={exporting || !!error}
+          disabled={exporting || !ready}
           onClick={async () => {
             setExporting(true);
             try {
@@ -231,6 +271,21 @@ export default function StudioViewport({
           {exporting ? "Exporting…" : "Download GLB"}
         </button>
       </div>
+      <label className="studio-inspect">
+        Inspect component
+        <select
+          aria-label="Inspect component"
+          value={selected ?? ""}
+          onChange={(event) => setSelected(event.target.value || null)}
+        >
+          <option value="">Choose a component</option>
+          {scene.nodes.map((part) => (
+            <option key={part.id} value={part.id}>
+              {part.label}
+            </option>
+          ))}
+        </select>
+      </label>
       {node && (
         <aside className="studio-node">
           <strong>{node.label}</strong>

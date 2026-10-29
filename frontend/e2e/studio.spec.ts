@@ -1,109 +1,146 @@
 import { test, expect } from "@playwright/test";
-for (const width of [1440, 375]) {
-  for (const mode of ["object", "architecture"] as const) {
-    test(`3D ${mode}: generate, export, reopen and delete at ${width}px`, async ({
-      page,
-    }) => {
-      await page.setViewportSize({ width, height: 1000 });
-      const scene = {
-        title: "Delivery robot",
-        description: "Procedural test scene",
-        nodes: [
-          {
-            id: "body",
-            label: "Body",
-            shape: "box",
-            position: [0, 1, 0],
-            rotation: [0, 0, 0],
-            scale: [2, 1, 1],
-            color: "#4488ff",
-          },
-          {
-            id: "camera",
-            label: "Camera",
-            shape: "sphere",
-            position: [3, 1, 0],
-            rotation: [0, 0, 0],
-            scale: [1, 1, 1],
-            color: "#44ff88",
-          },
-        ],
-        edges:
-          mode === "architecture"
-            ? [{ from: "body", to: "camera", label: "Telemetry" }]
-            : [],
-      };
-      let exists = false;
-      await page.route("**/api/backend/3d-scenes**", async (route) => {
-        const req = route.request(),
-          list = new URL(req.url()).pathname.endsWith("3d-scenes");
-        if (req.method() === "POST") {
-          expect(req.postDataJSON().mode).toBe(mode);
-          exists = true;
-          return route.fulfill({
-            status: 201,
-            json: { id: 1, mode, prompt: "A robot with a camera", scene },
+for (const compatibility of [false, true]) {
+  for (const width of [1440, 768, 320]) {
+    for (const mode of ["object", "architecture"] as const) {
+      test(`3D ${mode} ${compatibility ? "compatibility" : "default renderer"}: generate, export, reopen and delete at ${width}px`, async ({
+        page,
+      }) => {
+        await page.setViewportSize({ width, height: 1000 });
+        if (compatibility)
+          await page.addInitScript(() => {
+            const original = HTMLCanvasElement.prototype.getContext;
+            HTMLCanvasElement.prototype.getContext = function (
+              this: HTMLCanvasElement,
+              type: string,
+              ...args: unknown[]
+            ) {
+              if (
+                type === "webgl" ||
+                type === "webgl2" ||
+                type === "experimental-webgl"
+              )
+                return null;
+              return (original as Function).apply(this, [type, ...args]);
+            } as typeof original;
           });
-        }
-        if (req.method() === "DELETE") {
-          exists = false;
-          return route.fulfill({ status: 204 });
-        }
-        return route.fulfill({
-          json: list
-            ? { data: exists ? [{ id: 1, title: scene.title, mode }] : [] }
-            : { id: 1, mode, prompt: "A robot with a camera", scene },
+        const scene = {
+          title: "Delivery robot",
+          description: "Procedural test scene",
+          nodes: [
+            {
+              id: "body",
+              label: "Body",
+              shape: "box",
+              position: [0, 1, 0],
+              rotation: [0, 0, 0],
+              scale: [2, 1, 1],
+              color: "#4488ff",
+            },
+            {
+              id: "camera",
+              label: "Camera",
+              shape: "sphere",
+              position: [3, 1, 0],
+              rotation: [0, 0, 0],
+              scale: [1, 1, 1],
+              color: "#44ff88",
+            },
+          ],
+          edges:
+            mode === "architecture"
+              ? [{ from: "body", to: "camera", label: "Telemetry" }]
+              : [],
+        };
+        let exists = false;
+        await page.route("**/api/backend/3d-scenes**", async (route) => {
+          const req = route.request(),
+            list = new URL(req.url()).pathname.endsWith("3d-scenes");
+          if (req.method() === "POST") {
+            expect(req.postDataJSON().mode).toBe(mode);
+            exists = true;
+            return route.fulfill({
+              status: 201,
+              json: { id: 1, mode, prompt: "A robot with a camera", scene },
+            });
+          }
+          if (req.method() === "DELETE") {
+            exists = false;
+            return route.fulfill({ status: 204 });
+          }
+          return route.fulfill({
+            json: list
+              ? { data: exists ? [{ id: 1, title: scene.title, mode }] : [] }
+              : { id: 1, mode, prompt: "A robot with a camera", scene },
+          });
         });
-      });
-      page.on("dialog", (dialog) => dialog.accept());
-      const errors: string[] = [];
-      page.on("pageerror", (e) => errors.push(e.message));
-      await page.goto("/3d-studio");
-      if (mode === "architecture")
-        await page
-          .getByRole("button", { name: "Architecture", exact: true })
-          .click();
-      await page.getByRole("textbox").fill("A robot with a camera");
-      await page.getByRole("button", { name: "Generate scene" }).click();
-      await expect(
-        page.getByRole("heading", { name: "Delivery robot" }),
-      ).toBeVisible();
-      await expect(page.locator("canvas")).toBeVisible();
-      if (mode === "architecture")
+        page.on("dialog", (dialog) => dialog.accept());
+        const errors: string[] = [];
+        page.on("pageerror", (e) => errors.push(e.message));
+        await page.goto("/3d-studio");
+        if (mode === "architecture")
+          await page
+            .getByRole("button", { name: "Architecture", exact: true })
+            .click();
+        await page.getByRole("textbox").fill("A robot with a camera");
+        await page.getByRole("button", { name: "Generate scene" }).click();
         await expect(
-          page.locator(".studio-label").filter({ hasText: "Telemetry" }),
+          page.getByRole("heading", { name: "Delivery robot" }),
         ).toBeVisible();
-      const download = page.waitForEvent("download");
-      await page
-        .getByRole("button", { name: "Download GLB", exact: true })
-        .click();
-      const file = await download;
-      expect(file.suggestedFilename()).toBe("openmind-scene.glb");
-      const stream = await file.createReadStream();
-      const chunks: Buffer[] = [];
-      for await (const chunk of stream!) chunks.push(Buffer.from(chunk));
-      expect(Buffer.concat(chunks).subarray(0, 4).toString()).toBe("glTF");
-      await page.getByRole("button", { name: "Reset view" }).click();
-      expect(
-        await page.evaluate(
-          () => document.documentElement.scrollWidth <= innerWidth,
-        ),
-      ).toBe(true);
-      await page
-        .getByRole("button", { name: "New scene", exact: true })
-        .click();
-      await page
-        .getByRole("button", { name: "Delivery robot", exact: true })
-        .click();
-      await expect(page.locator("canvas")).toBeVisible();
-      await page
-        .getByRole("button", { name: "Delete Delivery robot", exact: true })
-        .click();
-      await expect(
-        page.getByRole("heading", { name: "Delivery robot" }),
-      ).toHaveCount(0);
-      expect(errors).toEqual([]);
-    });
+        if (compatibility)
+          await expect(
+            page.getByRole("img", { name: "Compatibility 3D preview" }),
+          ).toBeVisible();
+        else
+          await expect(
+            page.locator(".studio-viewport").locator("canvas, svg"),
+          ).toBeVisible();
+        if (mode === "architecture")
+          await expect(
+            page.locator(".studio-label").filter({ hasText: "Telemetry" }),
+          ).toBeVisible();
+        await page
+          .getByRole("combobox", { name: "Inspect component" })
+          .selectOption("body");
+        await expect(page.locator(".studio-node strong")).toHaveText("Body");
+        const download = page.waitForEvent("download");
+        await page
+          .getByRole("button", { name: "Download GLB", exact: true })
+          .click();
+        const file = await download;
+        expect(file.suggestedFilename()).toBe("openmind-scene.glb");
+        const stream = await file.createReadStream();
+        const chunks: Buffer[] = [];
+        for await (const chunk of stream!) chunks.push(Buffer.from(chunk));
+        expect(Buffer.concat(chunks).subarray(0, 4).toString()).toBe("glTF");
+        await page.getByRole("button", { name: "Reset view" }).click();
+        expect(
+          await page.evaluate(
+            () => document.documentElement.scrollWidth <= innerWidth,
+          ),
+        ).toBe(true);
+        await page
+          .getByRole("button", { name: "New scene", exact: true })
+          .click();
+        await page
+          .getByRole("button", { name: "Delivery robot", exact: true })
+          .click();
+        if (compatibility)
+          await expect(
+            page.getByRole("img", { name: "Compatibility 3D preview" }),
+          ).toBeVisible();
+        else
+          await expect(
+            page.locator(".studio-viewport").locator("canvas, svg"),
+          ).toBeVisible();
+        await page
+          .getByRole("button", { name: "Delete Delivery robot", exact: true })
+          .click();
+        await expect(
+          page.getByRole("heading", { name: "Delivery robot" }),
+        ).toHaveCount(0);
+        expect(errors).toEqual([]);
+      });
+    }
   }
 }
 test("3D Studio exposes authentication and provider failures", async ({

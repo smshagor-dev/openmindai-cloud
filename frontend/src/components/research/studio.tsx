@@ -1,4 +1,5 @@
 "use client";
+import WorkspaceWelcome from "../workspace-welcome";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
@@ -753,15 +754,7 @@ export default function ResearchStudio() {
           </section>
         ) : !id ? (
           <section className="rs-chat-home">
-            <span className="rs-home-mark">
-              <Orbit size={30} />
-            </span>
-            <span className="rs-eyebrow">OpenMind Research Studio</span>
-            <h1>Where does your curiosity lead?</h1>
-            <p>
-              Explore the literature. Follow the evidence. Build your
-              manuscript.
-            </p>
+            <WorkspaceWelcome title="What would you like to research?" />
             <ResearchComposer
               value={question}
               onChange={setQuestion}

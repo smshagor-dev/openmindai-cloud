@@ -1,4 +1,5 @@
 "use client";
+import WorkspaceWelcome from "@/components/workspace-welcome";
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import {
@@ -79,9 +80,9 @@ export default function StudioPage() {
         <a href="/" className="studio-back">
           <ArrowLeft size={16} /> OpenMind Cloud
         </a>
-        <h1>
+        <div className="studio-title">
           <Box size={24} /> 3D Studio
-        </h1>
+        </div>
         <button
           disabled={busy || loading}
           onClick={() => {
@@ -134,18 +135,16 @@ export default function StudioPage() {
           ))}
         </div>
       </aside>
-      <section className="studio-main">
-        <header>
-          <span className="studio-eyebrow">OPENMIND CLOUD · 3D STUDIO</span>
-          <h2>
-            {saved ? saved.scene.title : "Turn an idea into a new dimension."}
-          </h2>
-          <p>
-            {saved
-              ? saved.scene.description
-              : "Describe an object or map a system. Explore the result in an interactive 3D workspace."}
-          </p>
-        </header>
+      <section className={`studio-main ${saved ? "" : "studio-startup"}`}>
+        {saved ? (
+          <header>
+            <span className="studio-eyebrow">OPENMIND CLOUD · 3D STUDIO</span>
+            <h1>{saved.scene.title}</h1>
+            <p>{saved.scene.description}</p>
+          </header>
+        ) : (
+          <WorkspaceWelcome title="What would you like to create?" />
+        )}
         {error && (
           <div role="alert" className="studio-error">
             {error}
@@ -176,29 +175,7 @@ export default function StudioPage() {
               </button>
             </div>
           </>
-        ) : (
-          <section className="studio-empty">
-            <div className="studio-orb">
-              <Box size={72} strokeWidth={1} />
-            </div>
-            <h3>Your idea, in three dimensions</h3>
-            <p>
-              Build with procedural shapes or explore connected services in
-              space.
-            </p>
-            <div className="studio-examples">
-              {examples[mode].map((text) => (
-                <button
-                  disabled={busy}
-                  key={text}
-                  onClick={() => setPrompt(text)}
-                >
-                  {text}
-                </button>
-              ))}
-            </div>
-          </section>
-        )}
+        ) : null}
         <form className="studio-composer" onSubmit={generate}>
           <div className="studio-modes" role="group" aria-label="Scene type">
             {(["object", "architecture"] as const).map((value) => (
@@ -257,6 +234,19 @@ export default function StudioPage() {
             dimensions are illustrative.
           </small>
         </form>
+        {!saved && (
+          <div className="studio-examples">
+            {examples[mode].map((text) => (
+              <button
+                disabled={busy}
+                key={text}
+                onClick={() => setPrompt(text)}
+              >
+                {text}
+              </button>
+            ))}
+          </div>
+        )}
       </section>
     </main>
   );
