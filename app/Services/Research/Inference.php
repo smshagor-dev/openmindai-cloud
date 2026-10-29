@@ -11,6 +11,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Laravel\Sanctum\PersonalAccessToken;
+use Symfony\Component\HttpKernel\Exception\HttpException;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
 class Inference
 {
@@ -53,7 +55,7 @@ class Inference
                 $request->setUserResolver(fn () => $user);
                 $response = app(OpenMindAiGatewayController::class)->mobileChat($request, app(HostedCodeAgents::class), app(ApiCreditUsage::class));
                 if ($response->getStatusCode() === 429) {
-                    throw new \Symfony\Component\HttpKernel\Exception\HttpException(429, 'provider_rate_limit', null, ['Retry-After' => max(1, (int) $response->headers->get('Retry-After', 60))]);
+                    throw new HttpException(429, 'provider_rate_limit', null, ['Retry-After' => max(1, (int) $response->headers->get('Retry-After', 60))]);
                 }
                 if ($response->getStatusCode() !== 200) {
                     throw new \RuntimeException('provider_unavailable');
@@ -69,7 +71,7 @@ class Inference
                 $ctx->event('model.completed', ['model' => $slug, 'usage' => $body['usage'] ?? null]);
 
                 return $out;
-            } catch (\Symfony\Component\HttpKernel\Exception\HttpExceptionInterface $e) {
+            } catch (HttpExceptionInterface $e) {
                 if ($e->getStatusCode() === 429 && $e->getMessage() !== 'Research token reservation limit reached.') {
                     throw $e;
                 }

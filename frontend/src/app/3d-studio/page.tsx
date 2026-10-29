@@ -80,6 +80,12 @@ export default function StudioPage() {
       setMode(result.mode);
       setPrompt(result.prompt);
       setSelectedUploads(result.upload_ids || []);
+      setReferences((old) => [
+        ...(result.uploads || []),
+        ...old.filter(
+          (file) => !result.uploads?.some((linked) => linked.id === file.id),
+        ),
+      ]);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load scene.");
     } finally {

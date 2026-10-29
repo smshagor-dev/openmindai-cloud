@@ -17,6 +17,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
 class ResearchLiteratureRecoveryTest extends TestCase
@@ -232,7 +233,7 @@ class ResearchLiteratureRecoveryTest extends TestCase
         $task = Task::where('run_id', $run->id)->sole();
         $checkpoint = ['retained' => 'accepted work'];
         $task->update(['checkpoint' => $checkpoint]);
-        $this->mock(Inference::class)->shouldReceive('json')->once()->andThrow(new \Symfony\Component\HttpKernel\Exception\HttpException(429, 'provider_rate_limit', null, ['Retry-After' => 35]));
+        $this->mock(Inference::class)->shouldReceive('json')->once()->andThrow(new HttpException(429, 'provider_rate_limit', null, ['Retry-After' => 35]));
         (new ExecuteTask($task->id))->handle();
         $task->refresh();
         $this->assertSame('pending', $task->status);

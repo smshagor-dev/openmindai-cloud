@@ -9,6 +9,7 @@ use App\Services\HostedCodeAgents;
 use App\Services\MobileVisionPayload;
 use App\Services\MultilingualPrompt;
 use App\Services\NvidiaModelProbe;
+use App\Services\NvidiaRequestRate;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -183,7 +184,7 @@ class OpenMindAiGatewayController
                 429, 'Your monthly API allowance has been reached.');
             abort_if($limit !== null && $usedModel >= $limit, 429, 'This model has reached its monthly allowance.');
 
-            \App\Services\NvidiaRequestRate::reserve();
+            NvidiaRequestRate::reserve();
             $upstream = Http::withToken($key)->acceptJson()->connectTimeout(10)->timeout(120)
                 ->withOptions(['allow_redirects' => false])
                 ->post('https://'.$origin.$model->api_path, $payload);
@@ -304,7 +305,7 @@ class OpenMindAiGatewayController
                 && in_array($agent->provider_model, ['nvidia/nemotron-3.5-lightning-30b-a3b', 'nvidia/nemotron-3-ultra-550b-a55b'], true)) {
                 $payload['chat_template_kwargs'] = ['enable_thinking' => false];
             }
-            \App\Services\NvidiaRequestRate::reserve();
+            NvidiaRequestRate::reserve();
             $upstream = Http::withToken($key)->accept($stream ? 'text/event-stream' : 'application/json')
                 ->connectTimeout(10)->timeout(120)->withOptions(['allow_redirects' => false, 'stream' => $stream])
                 ->post('https://integrate.api.nvidia.com/v1/chat/completions', $payload);

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\OpenMindAiGatewayController;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -52,14 +53,14 @@ class StudioUploadTest extends TestCase
         $this->actor();
         $id = $this->postJson('/api/v1/3d-scenes/uploads', ['name' => 'reference.md', 'data' => base64_encode('Blue body'), 'text' => 'Blue body'])->assertCreated()->json('id');
         $scene = $this->scene();
-        $this->mock(\App\Http\Controllers\OpenMindAiGatewayController::class)->shouldReceive('mobileChat')->once()->andReturnUsing(function ($request) use ($scene) {
+        $this->mock(OpenMindAiGatewayController::class)->shouldReceive('mobileChat')->once()->andReturnUsing(function ($request) use ($scene) {
             $this->assertStringContainsString('untrusted', $request->input('messages.0.content'));
             $this->assertStringContainsString('Blue body', $request->input('messages.1.content'));
 
             return response()->json(['choices' => [['message' => ['content' => json_encode($scene)]]]]);
         });
         $saved = $this->postJson('/api/v1/3d-scenes', ['mode' => 'object', 'prompt' => 'Use my reference', 'upload_ids' => [$id]])->assertCreated()->assertJsonPath('upload_ids.0', $id)->json('id');
-        $this->getJson('/api/v1/3d-scenes/'.$saved)->assertOk()->assertJsonPath('upload_ids.0', $id);
+        $this->getJson('/api/v1/3d-scenes/'.$saved)->assertOk()->assertJsonPath('upload_ids.0', $id)->assertJsonPath('uploads.0.name', 'reference.md')->assertJsonMissingPath('uploads.0.private_path')->assertJsonMissingPath('uploads.0.text');
     }
 
     public function test_invalid_uploads_are_rejected_without_storage(): void

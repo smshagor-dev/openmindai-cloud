@@ -222,13 +222,11 @@ test("uploads Markdown privately and exports GLB using compatible preview withou
     });
   });
   await page.goto("/3d-studio");
-  await page
-    .locator("input[type=file]")
-    .setInputFiles({
-      name: "robot.md",
-      mimeType: "text/markdown",
-      buffer: Buffer.from("# Blue body"),
-    });
+  await page.locator("input[type=file]").setInputFiles({
+    name: "robot.md",
+    mimeType: "text/markdown",
+    buffer: Buffer.from("# Blue body"),
+  });
   await expect(
     page.getByText("robot.md", { exact: true }).last(),
   ).toBeVisible();
@@ -248,5 +246,8 @@ test("uploads Markdown privately and exports GLB using compatible preview withou
     .getByRole("button", { name: "Reference cube", exact: true })
     .click();
   await expect(page.locator(".studio-viewport svg")).toBeVisible();
+  await page
+    .getByText("Saved references (1 selected)", { exact: true })
+    .click();
   await expect(page.getByRole("checkbox", { name: "robot.md" })).toBeChecked();
 });

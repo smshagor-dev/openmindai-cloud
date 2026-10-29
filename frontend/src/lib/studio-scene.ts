@@ -19,6 +19,7 @@ export type SavedScene = {
   prompt: string;
   scene: StudioScene;
   upload_ids?: number[];
+  uploads?: { id: number; name: string; mime: string; bytes: number }[];
 };
 export async function studioApi(path = "", method = "GET", body?: unknown) {
   const response = await fetch(`/api/backend/3d-scenes${path}`, {

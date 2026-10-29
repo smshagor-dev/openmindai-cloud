@@ -84,6 +84,7 @@ class ExecuteTask implements ShouldQueue
                     });
                 } catch (StaleExecution) {
                 }
+
                 return;
             }
             try {
