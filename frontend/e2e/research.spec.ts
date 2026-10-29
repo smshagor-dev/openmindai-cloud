@@ -273,7 +273,7 @@ test("new research starts directly from the chat composer", async ({
   });
   await page.goto("/research-studio");
   await expect(
-    page.getByRole("heading", { name: "Where does your curiosity lead?" }),
+    page.getByRole("heading", { name: "What would you like to research?" }),
   ).toBeVisible();
   const topic = "مراجعة الأدبيات حول الملاحة البصرية للروبوتات";
   await page

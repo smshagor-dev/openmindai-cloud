@@ -48,12 +48,12 @@
   border-right: 1px solid #2a3548;
 }
 .studio-back,
-.studio-sidebar h1 {
+.studio-sidebar .studio-title {
   display: flex;
   align-items: center;
   gap: 10px;
 }
-.studio-sidebar h1 {
+.studio-sidebar .studio-title {
   font-size: 23px;
   margin: 0;
 }
@@ -70,7 +70,7 @@
   min-width: 0;
   margin: auto;
 }
-.studio-main header h2 {
+.studio-main header h1 {
   font-size: clamp(26px, 3vw, 40px);
   font-weight: 500;
   letter-spacing: -0.035em;

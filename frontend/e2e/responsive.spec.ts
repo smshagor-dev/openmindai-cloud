@@ -174,6 +174,7 @@ for (const [width, height] of sizes) {
     await page.setViewportSize({ width, height });
     await fixtures(page);
     await page.goto("/");
+    await expect(page.locator('a.sidebar-action[href="/3d-studio"]')).toHaveCSS("text-decoration-line", "none");
     await expect(
       page.getByRole("button", { name: "Open settings", exact: true }),
     ).toBeVisible();
@@ -256,6 +257,20 @@ for (const [width, height] of sizes) {
         await expect(
           page.getByRole("heading", { name: long, exact: true }),
         ).toBeVisible();
+      if (route === "/research-studio" || route === "/3d-studio") {
+        await expect(page.locator(".workspace-welcome")).toBeVisible();
+        const composer = page.locator(route === "/3d-studio" ? ".studio-composer" : ".rs-chat-composer");
+        await expect(composer).toBeVisible();
+        expect(await composer.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+        await fits(page);
+        if ([320, 768, 1440].includes(width))
+          await page.screenshot({
+            path: test
+              .info()
+              .outputPath(`startup-${route.slice(1)}-${width}.png`),
+            fullPage: true,
+          });
+      }
       if (route === "/3d-studio") {
         await page.getByRole("button", { name: long, exact: true }).click();
         await expect(

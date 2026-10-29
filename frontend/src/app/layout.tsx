@@ -9,6 +9,7 @@ import "./globals.css";
 import "./chat-theme.css";
 import "./motion.css";
 import "./responsive.css";
+import "./workspace-welcome.css";
 export const metadata: Metadata = {
   title: "OpenMindAI | Your AI Workspace",
   icons: { icon: "/openmindai-logo.png", apple: "/openmindai-logo.png" },
