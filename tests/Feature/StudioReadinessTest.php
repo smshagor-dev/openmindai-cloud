@@ -35,6 +35,9 @@ class StudioReadinessTest extends TestCase
         $this->assertFalse($result['gpu_infrastructure_ready']);
         $this->artisan('studio:preflight')->assertExitCode(0);
         $this->artisan('studio:preflight --require-gpu')->assertExitCode(1);
+        config(['queue.connections.database.retry_after' => 90]);
+        $this->assertFalse(app(Readiness::class)->inspect()['cpu_infrastructure_ready']);
+        $this->assertFalse(app(Readiness::class)->inspect()['queue']['configuration_ready']);
     }
 
     public function test_unsafe_transport_is_rejected_before_connecting(): void

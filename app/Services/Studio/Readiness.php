@@ -22,13 +22,16 @@ class Readiness
             }
         }
         $gpuReady = array_filter($engines, fn ($ready, $id) => $ready && ! in_array($id, ['procedural', 'architecture'], true), ARRAY_FILTER_USE_BOTH);
+        $queueReady = config('queue.connections.database.driver') === 'database'
+            && (int) config('queue.connections.database.retry_after') > 180;
 
         return [
             'schema' => ['ready' => ! $missing, 'missing_tables' => $missing],
             'worker' => ['transport_ready' => (bool) $transport, 'credentials_configured' => $credentials, 'ready' => $workerReady],
             'engines' => $engines,
-            'cpu_infrastructure_ready' => ! $missing && $workerReady && config('queue.connections.database.driver') === 'database',
-            'gpu_infrastructure_ready' => ! $missing && $workerReady && count($gpuReady) > 0,
+            'queue' => ['configuration_ready' => $queueReady, 'consumer_liveness_verified' => false],
+            'cpu_infrastructure_ready' => ! $missing && $workerReady && $queueReady,
+            'gpu_infrastructure_ready' => ! $missing && $workerReady && $queueReady && count($gpuReady) > 0,
             'scope' => 'Read-only infrastructure checks. Queue consumer liveness, real inference, persistence, export reopening and release acceptance require separate smoke evidence.',
         ];
     }

@@ -7,7 +7,9 @@ import {
   Box,
   Layers3,
   LoaderCircle,
+  Moon,
   Plus,
+  Sun,
   Trash2,
 } from "lucide-react";
 import { downloadScene, studioApi, type SavedScene } from "@/lib/studio-scene";
@@ -54,7 +56,8 @@ export default function StudioPage() {
     [engine, setEngine] = useState("auto"),
     [engineParams, setEngineParams] = useState<Record<string, unknown>>({}),
     [jobId, setJobId] = useState<string | null>(null),
-    [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
+    [selectedAsset, setSelectedAsset] = useState<Asset | null>(null),
+    [light, setLight] = useState(false);
   const pending = useRef(false);
   async function refresh() {
     const [data, uploads] = await Promise.all([
@@ -65,6 +68,11 @@ export default function StudioPage() {
     setReferences(uploads.data);
   }
   useEffect(() => {
+    try {
+      setLight(localStorage.getItem("studio-theme") === "light");
+    } catch {
+      /* Storage can be disabled by the browser. */
+    }
     refresh().catch((e) => setError(e.message));
     workbenchApi("/engines")
       .then(setCapabilities)
@@ -136,7 +144,7 @@ export default function StudioPage() {
     }
   }
   return (
-    <main className="studio-shell">
+    <main className={`studio-shell${light ? " studio-light" : ""}`}>
       <aside className="studio-sidebar">
         <a href="/" className="studio-back">
           <ArrowLeft size={16} /> OpenMind Cloud
@@ -144,6 +152,21 @@ export default function StudioPage() {
         <div className="studio-title">
           <Box size={24} /> 3D Studio
         </div>
+        <button
+          type="button"
+          aria-label={light ? "Use dark theme" : "Use light theme"}
+          onClick={() => {
+            setLight(!light);
+            try {
+              localStorage.setItem("studio-theme", light ? "dark" : "light");
+            } catch {
+              /* Keep the in-memory preference. */
+            }
+          }}
+        >
+          {light ? <Moon size={16} /> : <Sun size={16} />}{" "}
+          {light ? "Dark theme" : "Light theme"}
+        </button>
         <button
           disabled={busy || loading}
           onClick={() => {
@@ -337,7 +360,9 @@ export default function StudioPage() {
           <label htmlFor="scene-prompt">
             {mode === "object"
               ? "Describe your object, materials and proportions"
-              : "Describe your services, layers and connections"}
+              : mode === "architecture"
+                ? "Describe your services, layers and connections"
+                : "Describe your 3D model or architecture"}
           </label>
           <textarea
             id="scene-prompt"

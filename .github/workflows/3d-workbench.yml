@@ -19,5 +19,11 @@ jobs:
       - run: pip install -r runtime/studio/requirements.txt httpx==0.28.1
       - run: python -m unittest runtime.studio.test_studio -v
       - run: python -m runtime.studio.bridge_smoke
+      - name: Validate bounded worker deployment configuration
+        env:
+          STUDIO_CPU_IMAGE: openmind-studio-cpu-test
+          STUDIO_CPU_DIGEST: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          STUDIO_WORKER_KEY: fixture-only-key-not-used-for-production
+        run: docker compose -f runtime/studio/compose.yaml config --quiet
       - run: docker build -f runtime/studio/Dockerfile -t openmind-studio-cpu-test .
       - run: docker run --rm --network none --memory 1g --cpus 2 --pids-limit 128 --read-only --tmpfs /tmp:rw,nosuid,size=256m openmind-studio-cpu-test python -m unittest runtime.studio.test_studio -v
