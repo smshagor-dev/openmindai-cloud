@@ -883,6 +883,13 @@
   float: none;
   margin-left: auto;
 }
-.studio-frame .rs-chat .rs-main {
+/* flow-root only for the home view's floated alert buttons. An open project
+   keeps its flex column so the conversation scrolls inside the frame and the
+   composer stays on screen. */
+.studio-frame .rs-chat:not(.rs-has-project) .rs-main {
   display: flow-root;
+}
+.studio-frame .rs-has-project .rs-main {
+  display: flex;
+  flex-direction: column;
 }

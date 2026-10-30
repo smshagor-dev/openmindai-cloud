@@ -86,7 +86,8 @@ export default function StudioPage() {
     [error, setError] = useState(""),
     [references, setReferences] = useState<StudioReference[]>([]),
     [selectedUploads, setSelectedUploads] = useState<number[]>([]),
-    [uploading, setUploading] = useState(false);
+    [uploading, setUploading] = useState(false),
+    [forceNew, setForceNew] = useState(false);
   const [capabilities, setCapabilities] = useState<Capabilities | null>(null),
     [engine, setEngine] = useState("auto"),
     [engineParams, setEngineParams] = useState<Record<string, unknown>>({}),
@@ -146,12 +147,31 @@ export default function StudioPage() {
     setError("");
     setPanel("create");
   }
+  // With a scene open, the composer edits it; "New scene instead" opts out.
+  const editing = Boolean(saved && !selectedAsset && !forceNew);
   async function generate(e?: React.FormEvent) {
     e?.preventDefault();
     if (pending.current || prompt.trim().length < 5) return;
     pending.current = true;
     setBusy(true);
     setError("");
+    if (editing && saved) {
+      try {
+        const result: SavedScene = await studioApi(`/${saved.id}/edit`, "POST", {
+          prompt,
+          version: saved.version ?? 1,
+        });
+        setSaved(result);
+        setPrompt("");
+        await refresh();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Could not update the scene.");
+      } finally {
+        pending.current = false;
+        setBusy(false);
+      }
+      return;
+    }
     const payload = JSON.stringify({
       mode,
       engine,
@@ -182,6 +202,8 @@ export default function StudioPage() {
           setSaved(scene);
           setSelectedAsset(null);
           setMode(scene.mode);
+          setPrompt("");
+          setForceNew(false);
           pending.current = false;
           submission.current = null;
           await refresh();
@@ -222,6 +244,7 @@ export default function StudioPage() {
       setSelectedAsset(null);
       setMode(result.mode);
       setPrompt("");
+      setForceNew(false);
       setSelectedUploads(result.upload_ids || []);
       setReferences((old) => [
         ...(result.uploads || []),
@@ -437,6 +460,20 @@ export default function StudioPage() {
             )}
             <div className="studio-composer-area">
               <form className="composer" onSubmit={generate}>
+                {saved && !selectedAsset && (
+                  <div className="studio-edit-target">
+                    <span>
+                      {editing ? `Editing “${saved.scene.title}”` : "Creating a new scene"}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => setForceNew(editing)}
+                    >
+                      {editing ? "New scene instead" : "Edit current scene"}
+                    </button>
+                  </div>
+                )}
                 <textarea
                   ref={promptRef}
                   aria-label="Describe your scene"
@@ -447,7 +484,9 @@ export default function StudioPage() {
                   rows={2}
                   disabled={!interactive || busy}
                   placeholder={
-                    mode === "object"
+                    editing
+                      ? "Describe what to change — e.g. make the body red and add an antenna"
+                      : mode === "object"
                       ? "Describe an object, its materials and proportions"
                       : mode === "architecture"
                         ? "Describe services, layers and connections"
@@ -498,7 +537,7 @@ export default function StudioPage() {
                 )}
                 {busy && (
                   <p className="muted tool-progress" role="status" aria-live="polite">
-                    <TypingIndicator label="Building your scene — this can take a few minutes" />
+                    <TypingIndicator label={editing ? "Updating your scene" : "Building your scene — this can take a few minutes"} />
                   </p>
                 )}
                 <div className="composer-toolbar">
@@ -652,7 +691,7 @@ export default function StudioPage() {
                     <button
                       type="submit"
                       className="send-button"
-                      aria-label="Generate scene"
+                      aria-label={editing ? "Apply changes to scene" : "Generate scene"}
                       disabled={
                         !interactive ||
                         busy ||

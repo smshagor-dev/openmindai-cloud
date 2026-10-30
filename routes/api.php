@@ -123,6 +123,7 @@ Route::prefix('v1')->middleware('verified-mobile-ip')->group(function () {
         Route::get('3d-scenes/{id}', [SceneStudioController::class, 'show']);
         Route::delete('3d-scenes/{id}', [SceneStudioController::class, 'delete']);
         Route::put('3d-scenes/{id}', [SceneStudioController::class, 'update'])->whereNumber('id');
+        Route::post('3d-scenes/{id}/edit', [SceneStudioController::class, 'edit'])->whereNumber('id')->middleware('throttle:chat');
         Route::get('3d-scenes/{id}/revisions', [SceneStudioController::class, 'revisions'])->whereNumber('id');
         // User-owned Mobile sessions share hosted quota accounting; no client secret.
         Route::get('mobile/models', [OpenMindAiGatewayController::class, 'mobileModels']);

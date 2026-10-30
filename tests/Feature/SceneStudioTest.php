@@ -107,6 +107,34 @@ class SceneStudioTest extends TestCase
         $this->assertSame([], $scene['edges']);
     }
 
+    public function test_written_change_request_edits_the_open_scene_as_a_revision(): void
+    {
+        $owner = $this->user();
+        Sanctum::actingAs($owner, ['user']);
+        $original = $this->scene();
+        $edited = $original;
+        $edited['nodes'][0]['color'] = '#ff0000';
+        $edited['nodes'][] = ['id' => 'antenna', 'label' => 'Antenna', 'shape' => 'cone', 'position' => [0, 2, 0], 'rotation' => [0, 0, 0], 'scale' => [0.1, 0.4, 0.1], 'color' => '#ffffff'];
+        $sent = [];
+        $this->mock(OpenMindAiGatewayController::class)->shouldReceive('mobileChat')->twice()
+            ->andReturnUsing(function ($input) use (&$sent, $original, $edited) {
+                $sent[] = $input->input('messages');
+
+                return response()->json(['choices' => [['message' => ['content' => json_encode(count($sent) === 1 ? $original : $edited)]]]]);
+            });
+        $id = $this->postJson('/api/v1/3d-scenes', ['mode' => 'object', 'prompt' => 'A robot'])->assertCreated()->json('id');
+        $this->postJson("/api/v1/3d-scenes/$id/edit", ['prompt' => 'Make the body red and add an antenna', 'version' => 1])
+            ->assertOk()->assertJsonPath('version', 2)->assertJsonPath('scene.nodes.0.color', '#ff0000')->assertJsonCount(2, 'scene.nodes');
+        $payload = json_decode(collect($sent[1])->where('role', 'user')->pluck('content')->implode(''), true);
+        $this->assertSame('Make the body red and add an antenna', $payload['requested_changes']);
+        $this->assertSame('body', $payload['current_scene']['nodes'][0]['id']);
+        $this->getJson("/api/v1/3d-scenes/$id/revisions")->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.version', 1);
+        // A stale version is rejected before any model call.
+        $this->postJson("/api/v1/3d-scenes/$id/edit", ['prompt' => 'Make it blue', 'version' => 1])->assertStatus(409);
+        Sanctum::actingAs($this->user(), ['user']);
+        $this->postJson("/api/v1/3d-scenes/$id/edit", ['prompt' => 'Make it blue', 'version' => 2])->assertNotFound();
+    }
+
     public function test_scene_rejects_dangling_edges_and_executable_fields(): void
     {
         $scene = $this->scene();

@@ -484,3 +484,29 @@
     transition: none !important;
   }
 }
+
+/* Shown above the composer while a scene is open: prompts edit that scene. */
+.studio-edit-target {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: -4px 4px 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.studio-edit-target span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.studio-edit-target button {
+  flex: none;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+}
