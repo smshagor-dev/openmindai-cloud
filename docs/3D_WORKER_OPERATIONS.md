@@ -22,6 +22,14 @@ The GPU orchestration account must have permission to run its restricted contain
 
 ## Verification and recovery
 
+### Release preflight
+
+Run `php artisan studio:preflight` after additive migrations and private worker configuration. A nonzero exit means the CPU infrastructure is not ready. `php artisan studio:preflight --require-gpu` additionally requires at least one catalog engine with verified installation, approved rights and actual inference smoke. Output contains booleans and engine IDs, never worker keys, URLs or request content. These checks inspect schema and signed capabilities; they do not certify queue consumer liveness or replace a real user workflow.
+
+`runtime/studio/compose.yaml` supplies a bounded non-root CPU deployment with persistent state, read-only root, loopback-only ingress and rotated logs. Supply `STUDIO_CPU_IMAGE` as the operator-approved image repository, `STUDIO_CPU_DIGEST` as its 64-character SHA-256 digest and `STUDIO_WORKER_KEY` through the host's secret/environment manager. The compose template does not install Docker, create TLS, provision GPUs or enable models. The image reference always includes `@sha256:`; Docker rejects invalid digests. Keep the loopback socket behind the private HTTPS ingress described above.
+
+Release sequence: preserve the database/config/uploads backup; deploy the exact green application and frontend SHA; apply additive migrations; start the private worker and Studio queue consumer; run preflight; then exercise authenticated procedural and Architecture generation, reference upload/private download, mesh import/edit/version/export/reopen and cancellation with two accounts to check ownership. Run actual image-to-mesh inference for every engine being enabled. Record output hashes, model revisions, hardware and observed duration. A green CPU preflight permits only the tested CPU scope; it is not full GPU production acceptance. If any required smoke fails, retain the old application release and leave the new worker/engine disabled.
+
 Run Python worker tests, the real signed PHP/HTTPS CPU bridge, backend ownership/idempotency/cancellation tests, frontend build/integration and browser acceptance before release. Repeat actual mesh generation for each enabled GPU family/quantization, inspect outputs in an independent viewer, test cancellation and process restart, and record hardware, immutable versions, time, output hash and observed errors. Fixture provider tests do not replace these checks.
 
 Worker interruption marks an active local execution failed rather than guessing success. Queued jobs resume. Laravel uses stable job IDs for retries and verifies artifact hash/size before private publication; late cancellation cannot publish a new output. A procedural call interrupted without a persisted scene fails with an uncertain outcome and is not automatically billed again. Inspect and deliberately create a new request after review when needed.

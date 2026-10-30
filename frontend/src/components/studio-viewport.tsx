@@ -1,9 +1,9 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
-import { SVGRenderer } from "three/addons/renderers/SVGRenderer.js";
+
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
+import { SVGRenderer } from "three/addons/renderers/SVGRenderer.js";
 import {
   CSS2DRenderer,
   CSS2DObject,
@@ -38,6 +38,13 @@ export default function StudioViewport({
     } catch {
       renderer = new SVGRenderer();
       renderer.setClearColor(new THREE.Color("#101722"), 1);
+      renderer.setQuality("low");
+      renderer.setPrecision(2);
+      renderer.domElement.setAttribute("role", "img");
+      renderer.domElement.setAttribute(
+        "aria-label",
+        "Compatibility 3D preview",
+      );
       svg = true;
     }
     setCompatible(svg);
@@ -76,7 +83,7 @@ export default function StudioViewport({
       if (node.hidden) continue;
       const geometry =
         node.shape === "sphere"
-          ? new THREE.SphereGeometry(0.5, 24, 16)
+          ? new THREE.SphereGeometry(0.5, svg ? 12 : 24, svg ? 8 : 16)
           : node.shape === "cylinder"
             ? new THREE.CylinderGeometry(0.5, 0.5, 1, 24)
             : node.shape === "cone"
@@ -107,7 +114,11 @@ export default function StudioViewport({
         );
     }
     for (const edge of scene.edges) {
-      if (scene.nodes.find((n) => n.id === edge.from)?.hidden || scene.nodes.find((n) => n.id === edge.to)?.hidden) continue;
+      if (
+        scene.nodes.find((n) => n.id === edge.from)?.hidden ||
+        scene.nodes.find((n) => n.id === edge.to)?.hidden
+      )
+        continue;
       const from = scene.nodes.find((n) => n.id === edge.from)!,
         to = scene.nodes.find((n) => n.id === edge.to)!;
       const start = new THREE.Vector3(...from.position),
@@ -146,7 +157,9 @@ export default function StudioViewport({
       camera.position
         .copy(center)
         .add(
-          new THREE.Vector3(1, 0.8, 1).normalize().multiplyScalar(radius * 3),
+          new THREE.Vector3(1, 0.8, 1)
+            .normalize()
+            .multiplyScalar((radius * 3) / Math.min(camera.aspect, 1)),
         );
       controls.update();
     };
@@ -158,6 +171,8 @@ export default function StudioViewport({
     actions.current = {
       reset,
       export: async () => {
+        const { GLTFExporter } =
+          await import("three/addons/exporters/GLTFExporter.js");
         const exportModel = model.clone(true);
         const converted: THREE.Material[] = [];
         exportModel.traverse((object) => {
@@ -185,15 +200,25 @@ export default function StudioViewport({
       },
     };
     setReady(true);
+    const renderFrame = () => {
+      renderer.render(world, camera);
+      labels.render(world, camera);
+    };
     const resize = () => {
       dirty = true;
       const w = container.clientWidth,
         h = container.clientHeight;
       if (!w || !h) return;
+      const fitRatio = Math.min(camera.aspect, 1) / Math.min(w / h, 1);
+      camera.position
+        .sub(controls.target)
+        .multiplyScalar(fitRatio)
+        .add(controls.target);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
       renderer.setSize(w, h);
       labels.setSize(w, h);
+      renderFrame();
     };
     const observer = new ResizeObserver(resize);
     observer.observe(container);
@@ -289,6 +314,21 @@ export default function StudioViewport({
           {exporting ? "Exporting…" : "Download GLB"}
         </button>
       </div>
+      <label className="studio-inspect">
+        Inspect component
+        <select
+          aria-label="Inspect component"
+          value={selected ?? ""}
+          onChange={(event) => setSelected(event.target.value || null)}
+        >
+          <option value="">Choose a component</option>
+          {scene.nodes.map((part) => (
+            <option key={part.id} value={part.id}>
+              {part.label}
+            </option>
+          ))}
+        </select>
+      </label>
       {node && (
         <aside className="studio-node">
           <strong>{node.label}</strong>

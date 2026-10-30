@@ -1,4 +1,5 @@
 "use client";
+import WorkspaceWelcome from "./workspace-welcome";
 import type {ResearchMetadata} from "@/lib/research-status";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
@@ -1648,11 +1649,7 @@ export default function ChatWorkspace() {
         }}>
           {messages.length === 0 && !loadingChat && !pendingCreation && inlineMedia.length === 0 ? (
             <section className="welcome">
-              <div className="welcome-identity">
-                <Image src="/openmindai-logo.png" width={36} height={36} alt="" />
-                <strong>OpenMindAI</strong>
-              </div>
-              <h1>What can I help with?</h1>
+              <WorkspaceWelcome title="What can I help with?" />
             </section>
           ) : (
             <div className="thread">

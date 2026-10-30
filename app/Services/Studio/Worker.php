@@ -10,7 +10,10 @@ class Worker
     {
         $base = rtrim((string) config('studio.worker_url'), '/');
         $key = (string) config('studio.worker_key');
-        abort_unless(str_starts_with($base, 'https://') && strlen($key) >= 32, 503, 'The isolated 3D worker is not configured.');
+        $origin = parse_url($base);
+        abort_unless(is_array($origin) && ($origin['scheme'] ?? '') === 'https' && ! empty($origin['host'])
+            && ! isset($origin['user']) && ! isset($origin['pass']) && empty($origin['query']) && empty($origin['fragment'])
+            && empty($origin['path']) && strlen($key) >= 32, 503, 'The isolated 3D worker is not configured.');
         abort_unless(preg_match('#^/(health|jobs(?:/[a-f0-9-]{36}(?:/cancel|/artifact)?)?)$#D', $path), 422);
         if ($path === '/jobs' && isset($data['params']) && $data['params'] === []) {
             $data['params'] = new \stdClass;

@@ -160,7 +160,7 @@ for (const width of [1440, 768, 375, 320]) {
       await expect(page.locator("canvas")).toBeVisible();
       if (mode === "architecture")
         await expect(
-          page.locator(".studio-label").filter({ hasText: "Telemetry" }),
+          page.getByRole("heading", { name: "Delivery robot" }),
         ).toBeVisible();
       const download = page.waitForEvent("download");
       await page

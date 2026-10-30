@@ -43,6 +43,7 @@ try {
       "node_modules/@playwright/test/cli.js",
       "test",
       "--config=e2e/studio.config.ts",
+      ...process.argv.slice(2),
     ],
     {
       cwd,
@@ -50,8 +51,9 @@ try {
       stdio: "inherit",
     },
   );
-  const [code] = await once(tests, "exit");
-  process.exitCode = code || 0;
+  const [code, signal] = await once(tests, "exit");
+  if (signal) console.error(`Browser tests were interrupted by ${signal}.`);
+  process.exitCode = code ?? 1;
 } finally {
   child.kill("SIGTERM");
 }

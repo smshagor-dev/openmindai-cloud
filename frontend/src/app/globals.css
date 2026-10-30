@@ -118,6 +118,7 @@ button {
   color: var(--text);
 }
 .sidebar-action {
+  text-decoration: none;
   display: flex;
   align-items: center;
   gap: 12px;

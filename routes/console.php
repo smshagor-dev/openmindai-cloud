@@ -242,3 +242,10 @@ Artisan::command('studio:recover', function () {
         });
 });
 Schedule::command('studio:recover')->everyMinute()->withoutOverlapping();
+
+Artisan::command('studio:preflight {--require-gpu : Require at least one verified GPU engine}', function () {
+    $status = app(App\Services\Studio\Readiness::class)->inspect();
+    $this->line(json_encode($status, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+
+    return $status[$this->option('require-gpu') ? 'gpu_infrastructure_ready' : 'cpu_infrastructure_ready'] ? 0 : 1;
+})->purpose('Inspect private 3D worker readiness without exposing credentials or generating artifacts.');
