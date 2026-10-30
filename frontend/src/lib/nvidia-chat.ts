@@ -701,7 +701,7 @@ export async function nvidiaChat(
               stream: true,
               temperature: 0.6,
               // Explicit output budget avoids the provider's short default on code requests.
-              max_tokens: inlineImage ? 4096 : 16384,
+              max_tokens: inlineImage ? 8192 : 16384,
               ...(inlineImage ? {
                 chat_template_kwargs: {enable_thinking: false},
               } : {}),

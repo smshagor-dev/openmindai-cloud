@@ -248,7 +248,8 @@ class OpenMindAiGatewayController
             'tools.*.function.description' => 'sometimes|string|max:1000',
             'tools.*.function.parameters' => 'required|array',
             'stream' => 'sometimes|boolean',
-            'max_tokens' => 'sometimes|integer|min:1|max:8192',
+            // 16384 is the output budget the web chat already uses with these models.
+            'max_tokens' => 'sometimes|integer|min:1|max:16384',
             'temperature' => 'sometimes|numeric|min:0|max:1',
             'chat_template_kwargs' => 'sometimes|array:enable_thinking',
             'chat_template_kwargs.enable_thinking' => 'sometimes|boolean',
@@ -274,7 +275,8 @@ class OpenMindAiGatewayController
         abort_if($hasImages && ! MobileVisionPayload::supports($agent), 422, 'Select a vision-capable model to read images.');
         $key = (string) config('models.nvidia_key');
         abort_unless(strlen($key) >= 12, 503, 'NVIDIA_API_KEY is not configured on the Laravel server.');
-        $lock = Cache::lock('openmindai:gateway:'.$user->id, 240);
+        // Longer than the slowest provider timeout below, so a running request keeps its lock.
+        $lock = Cache::lock('openmindai:gateway:'.$user->id, 360);
         abort_unless($lock->get(), 429, 'Another model request is already in progress.');
         $held = true;
         try {
@@ -292,7 +294,7 @@ class OpenMindAiGatewayController
                 'model' => $agent->provider_model,
                 'messages' => $hasImages ? MobileVisionPayload::providerMessages($data['messages'])
                     : (($mobile || $firstParty) ? MultilingualPrompt::apply($data['messages']) : $data['messages']),
-                'max_tokens' => $data['max_tokens'] ?? 2048,
+                'max_tokens' => $data['max_tokens'] ?? 8192,
                 'stream' => $stream,
             ];
             if (isset($data['tools'])) {
@@ -315,7 +317,7 @@ class OpenMindAiGatewayController
             }
             NvidiaRequestRate::reserve();
             $upstream = Http::withToken($key)->accept($stream ? 'text/event-stream' : 'application/json')
-                ->connectTimeout(10)->timeout($request->attributes->get('studio_reference_vision') === true ? 30 : 120)->withOptions(['allow_redirects' => false, 'stream' => $stream])
+                ->connectTimeout(10)->timeout($request->attributes->get('studio_reference_vision') === true ? 30 : ($request->attributes->get('research_literature_json') === true || $request->attributes->get('studio_scene_json') === true ? 300 : 120))->withOptions(['allow_redirects' => false, 'stream' => $stream])
                 ->post('https://integrate.api.nvidia.com/v1/chat/completions', $payload);
             if (! $upstream->successful()) {
                 $code = $upstream->status();

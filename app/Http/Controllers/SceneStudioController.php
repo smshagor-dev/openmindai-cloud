@@ -133,7 +133,7 @@ class SceneStudioController
         }
         // The gateway reports a missing key or disabled model itself.
         $input = Request::create('/api/v1/mobile/chat/completions', 'POST', [
-            'model' => app(SceneModel::class)->pick()?->slug ?? 'openmindai-ultra', 'stream' => false, 'max_tokens' => 8192, 'temperature' => 0.2,
+            'model' => app(SceneModel::class)->pick()?->slug ?? 'openmindai-ultra', 'stream' => false, 'max_tokens' => 16384, 'temperature' => 0.2,
             'messages' => $messages,
         ]);
         $input->attributes->set('studio_scene_json', true);
