@@ -9,6 +9,46 @@ import {
   CSS2DObject,
 } from "three/addons/renderers/CSS2DRenderer.js";
 import { downloadScene, type StudioScene } from "@/lib/studio-scene";
+
+const PREVIEW_VIEWS: [string, [number, number, number]][] = [
+  ["preview_front.png", [0, 0.15, 1]],
+  ["preview_back.png", [0, 0.15, -1]],
+  ["preview_side.png", [1, 0.15, 0]],
+  ["preview_isometric.png", [1, 0.8, 1]],
+];
+async function renderPreviews(group: THREE.Group) {
+  const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+  renderer.setSize(768, 768, false);
+  const stage = new THREE.Scene();
+  stage.background = new THREE.Color("#e9edf2");
+  stage.add(new THREE.HemisphereLight(0xffffff, 0x5a6478, 2.2));
+  const key = new THREE.DirectionalLight(0xffffff, 2.6);
+  key.position.set(4, 8, 6);
+  stage.add(key);
+  const copy = group.clone(true);
+  stage.add(copy);
+  const box = new THREE.Box3().setFromObject(copy),
+    center = box.getCenter(new THREE.Vector3()),
+    radius = Math.max(box.getSize(new THREE.Vector3()).length() / 2, 0.5);
+  const camera = new THREE.PerspectiveCamera(35, 1, 0.01, radius * 20);
+  const files: Record<string, Uint8Array> = {};
+  try {
+    for (const [name, direction] of PREVIEW_VIEWS) {
+      camera.position.copy(center).add(
+        new THREE.Vector3(...direction).normalize().multiplyScalar(radius * 3.4),
+      );
+      camera.lookAt(center);
+      renderer.render(stage, camera);
+      const blob = await new Promise<Blob | null>((done) =>
+        renderer.domElement.toBlob(done, "image/png"),
+      );
+      if (blob) files[name] = new Uint8Array(await blob.arrayBuffer());
+    }
+  } finally {
+    renderer.dispose();
+  }
+  return files;
+}
 export default function StudioViewport({
   scene,
   architecture,
@@ -17,12 +57,16 @@ export default function StudioViewport({
   architecture: boolean;
 }) {
   const host = useRef<HTMLDivElement>(null),
-    actions = useRef<{ reset: () => void; export: () => Promise<void> } | null>(
-      null,
-    );
+    actions = useRef<{
+      reset: () => void;
+      export: () => Promise<void>;
+      pack: () => Promise<void>;
+    } | null>(null);
   const [selected, setSelected] = useState<string | null>(null),
     [error, setError] = useState(""),
     [exporting, setExporting] = useState(false),
+    [packing, setPacking] = useState(false),
+    [stats, setStats] = useState<{ parts: number; triangles: number } | null>(null),
     [compatible, setCompatible] = useState(false),
     [ready, setReady] = useState(false);
   useEffect(() => {
@@ -208,7 +252,49 @@ export default function StudioViewport({
         if (!(result instanceof ArrayBuffer)) throw new Error("Export failed");
         downloadScene(result, "openmind-scene.glb", "model/gltf-binary");
       },
+      // Game-engine bundle: low-poly flat parts as FBX + GLB, a Blender build
+      // script, scene source and front/back/side/isometric previews.
+      pack: async () => {
+        const [{ GLTFExporter }, { zipSync, strToU8 }, asset] = await Promise.all([
+          import("three/addons/exporters/GLTFExporter.js"),
+          import("fflate"),
+          import("@/lib/studio-asset"),
+        ]);
+        const parts = asset.assetParts(scene);
+        const group = asset.lowPolyGroup(scene);
+        try {
+          const glb = await new GLTFExporter().parseAsync(group, { binary: true });
+          if (!(glb instanceof ArrayBuffer)) throw new Error("Export failed");
+          const files: Record<string, Uint8Array> = {
+            "model.glb": new Uint8Array(glb),
+            "model.fbx": strToU8(asset.sceneToFbx(scene)),
+            "build_in_blender.py": strToU8(asset.sceneToBlenderScript(scene)),
+            "scene.json": strToU8(JSON.stringify(scene, null, 2)),
+          };
+          const previews = svg ? {} : await renderPreviews(group);
+          Object.assign(files, previews);
+          files["README.txt"] = strToU8(
+            asset.assetReadme(scene, parts, Object.keys(previews)),
+          );
+          const slug =
+            scene.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") ||
+            "openmind-asset";
+          downloadScene(zipSync(files), `${slug}-game-asset.zip`, "application/zip");
+        } finally {
+          parts.forEach((part) => part.geometry.dispose());
+          group.traverse((obj) => {
+            const m = obj as THREE.Mesh;
+            m.geometry?.dispose();
+            (m.material as THREE.Material | undefined)?.dispose?.();
+          });
+        }
+      },
     };
+    import("@/lib/studio-asset").then((asset) => {
+      const parts = asset.assetParts(scene);
+      setStats({ parts: parts.length, triangles: asset.triangleCount(parts) });
+      parts.forEach((part) => part.geometry.dispose());
+    });
     setReady(true);
     const renderFrame = () => {
       renderer.render(world, camera);
@@ -323,7 +409,31 @@ export default function StudioViewport({
         >
           {exporting ? "Exporting…" : "Download GLB"}
         </button>
+        {!architecture && (
+          <button
+            disabled={packing || !ready}
+            title="FBX + GLB for Unity, Blender build script, scene JSON and front/back/side/isometric previews"
+            onClick={async () => {
+              setPacking(true);
+              try {
+                await actions.current?.pack();
+              } catch {
+                setError("Asset pack export failed. GLB and scene JSON are still available.");
+              } finally {
+                setPacking(false);
+              }
+            }}
+          >
+            {packing ? "Packing…" : "Game asset pack"}
+          </button>
+        )}
       </div>
+      {stats && !architecture && (
+        <p className="studio-asset-stats">
+          Low-poly export: {stats.triangles.toLocaleString()} triangles ·{" "}
+          {stats.parts} parts · FBX, GLB, Blender
+        </p>
+      )}
       <label className="studio-inspect">
         Inspect component
         <select
