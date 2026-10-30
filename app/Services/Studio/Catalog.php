@@ -2,7 +2,6 @@
 
 namespace App\Services\Studio;
 
-use App\Services\HostedCodeAgents;
 use Illuminate\Support\Facades\Cache;
 
 class Catalog
@@ -11,11 +10,10 @@ class Catalog
     {
         $catalog = json_decode(file_get_contents(base_path('runtime/studio/catalog.json')), true, 64, JSON_THROW_ON_ERROR);
         $health = config('studio.queue_enabled') ? Cache::remember('studio:worker-health:'.hash('sha256', config('studio.worker_url').config('studio.worker_key')), 15, fn () => app(Worker::class)->health()) : ['ready' => false, 'reason' => 'worker_queue_not_enabled', 'engines' => []];
-        $models = app(HostedCodeAgents::class)->enabled();
-        $reasoning = (bool) config('models.nvidia_key') && $models->contains(fn ($m) => $m->slug === 'openmindai-ultra' && $m->last_test_status === 'success');
+        $reasoning = app(SceneModel::class)->pick() !== null;
         $builtins = [];
         foreach (['procedural' => 'Procedural 3D', 'architecture' => '3D Architecture'] as $id => $name) {
-            $builtins[] = ['id' => $id, 'name' => $name, 'kind' => 'scene', 'input' => 'text', 'output' => 'scene', 'available' => $reasoning, 'reason' => $reasoning ? null : 'verified_scene_model_required'];
+            $builtins[] = ['id' => $id, 'name' => $name, 'kind' => 'scene', 'input' => 'text', 'output' => 'scene', 'available' => $reasoning, 'reason' => $reasoning ? null : 'scene_model_required'];
         }
         foreach ($catalog['engines'] as &$engine) {
             $runtime = collect($health['engines'] ?? [])->firstWhere('id', $engine['id']);

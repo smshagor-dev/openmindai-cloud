@@ -537,12 +537,13 @@ export default function StudioPage() {
                           }}
                         >
                           <option value="auto">Auto (recommended)</option>
-                          {capabilities?.data.map((item) => (
-                            <option key={item.id} value={item.id} disabled={!item.available}>
-                              {item.name}
-                              {item.available ? "" : " — unavailable"}
-                            </option>
-                          ))}
+                          {capabilities?.data
+                            .filter((item) => item.available)
+                            .map((item) => (
+                              <option key={item.id} value={item.id}>
+                                {item.name}
+                              </option>
+                            ))}
                         </select>
                       </label>
                       {engineInfo?.parameters?.map((parameter) => (

@@ -6,6 +6,7 @@ use App\Http\Controllers\OpenMindAiGatewayController;
 use App\Models\StudioJob;
 use App\Models\User;
 use App\Services\Studio\Catalog;
+use App\Services\Studio\SceneModel;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
@@ -22,7 +23,7 @@ class StudioCpanelTest extends TestCase
         parent::setUp();
         Queue::fake();
         Storage::fake('local');
-        config(['studio.scene_execution' => 'direct', 'studio.queue_enabled' => false, 'studio.worker_url' => '', 'studio.worker_key' => '']);
+        config(['studio.scene_execution' => 'direct', 'studio.queue_enabled' => false, 'studio.worker_url' => '', 'studio.worker_key' => '', 'models.nvidia_key' => 'synthetic-nvidia-key']);
         $user = User::create(['name' => 'cPanel fixture', 'email' => 'cpanel@example.test', 'password' => 'FixturePassword123']);
         $user->forceFill(['email_verified_at' => now()])->save();
         Sanctum::actingAs($user, ['user']);
@@ -69,6 +70,34 @@ class StudioCpanelTest extends TestCase
         $this->assertDatabaseCount('studio_scenes', 0);
         $this->assertSame('failed', StudioJob::first()->status);
         Queue::assertNothingPushed();
+    }
+
+    public function test_fresh_install_scene_engines_need_no_admin_model_test(): void
+    {
+        // Seeded models start untested on a new cPanel install.
+        DB::table('hosted_code_agents')->whereIn('slug', ['openmindai-super', 'openmindai-ultra', 'openmindai-lite'])->update(['last_test_status' => null]);
+        $catalog = app(Catalog::class);
+        $model = app(SceneModel::class);
+        $this->assertTrue(collect($catalog->all()['data'])->firstWhere('id', 'procedural')['available']);
+        $this->assertSame('openmindai-ultra', $model->pick()->slug);
+
+        DB::table('hosted_code_agents')->where('slug', 'openmindai-ultra')->update(['last_test_status' => 'failed']);
+        $this->assertSame('openmindai-super', $model->pick()->slug);
+        DB::table('hosted_code_agents')->where('slug', 'openmindai-super')->update(['last_test_status' => 'invalid_request']);
+        $this->assertSame('openmindai-lite', $model->pick()->slug);
+
+        config(['models.nvidia_key' => '']);
+        $this->assertNull($model->pick());
+        $this->assertFalse(collect($catalog->all()['data'])->firstWhere('id', 'procedural')['available']);
+    }
+
+    public function test_mesh_prompt_falls_back_to_a_procedural_scene_without_a_gpu_worker(): void
+    {
+        DB::table('hosted_code_agents')->where('slug', 'openmindai-ultra')->update(['enabled' => true, 'api_ready' => true, 'api_protocol' => 'chat', 'last_test_status' => null]);
+        $this->postJson('/api/v1/3d-studio/route', ['mode' => 'auto', 'engine' => 'auto', 'prompt' => 'A realistic reading chair'])
+            ->assertOk()->assertJson(['engine' => 'procedural', 'output' => 'scene', 'reason' => 'procedural_fallback']);
+        $this->postJson('/api/v1/3d-studio/route', ['mode' => 'auto', 'engine' => 'auto', 'prompt' => 'Users -> API -> database'])
+            ->assertOk()->assertJson(['engine' => 'architecture', 'reason' => 'deterministic_intent']);
     }
 
     public function test_cpanel_preflight_does_not_require_an_external_worker(): void

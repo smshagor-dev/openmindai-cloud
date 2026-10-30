@@ -100,9 +100,15 @@
 .studio-shell:not(.is-empty) .studio-composer-area {
   position: sticky;
   bottom: 0;
+  z-index: 5;
+  max-width: none;
   margin-top: auto;
-  padding: 12px 0 16px;
-  background: var(--bg);
+  padding: 24px 0 16px;
+  background: linear-gradient(to bottom, transparent, var(--bg) 24px);
+}
+.studio-shell:not(.is-empty) .studio-composer-area > * {
+  max-width: 768px;
+  margin-inline: auto;
 }
 .studio-composer-area .composer textarea {
   display: block;

@@ -28,6 +28,11 @@ export default function StudioViewport({
   useEffect(() => {
     if (!host.current) return;
     const container = host.current;
+    // Match the workspace theme tokens (chat-theme.css).
+    const theme = getComputedStyle(container);
+    const token = (name: string, fallback: string) =>
+      new THREE.Color(theme.getPropertyValue(name).trim() || fallback);
+    const surface = token("--panel", "#303030");
     setError("");
     setSelected(null);
     setReady(false);
@@ -37,7 +42,7 @@ export default function StudioViewport({
       renderer = new THREE.WebGLRenderer({ antialias: true });
     } catch {
       renderer = new SVGRenderer();
-      renderer.setClearColor(new THREE.Color("#101722"), 1);
+      renderer.setClearColor(surface, 1);
       renderer.setQuality("low");
       renderer.setPrecision(2);
       renderer.domElement.setAttribute("role", "img");
@@ -49,7 +54,7 @@ export default function StudioViewport({
     }
     setCompatible(svg);
     const world = new THREE.Scene();
-    world.background = new THREE.Color("#101722");
+    world.background = surface;
     const camera = new THREE.PerspectiveCamera(45, 1, 0.05, 1000);
     if (renderer instanceof THREE.WebGLRenderer)
       renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -149,7 +154,12 @@ export default function StudioViewport({
     const box = new THREE.Box3().setFromObject(model),
       center = box.getCenter(new THREE.Vector3()),
       radius = Math.max(box.getSize(new THREE.Vector3()).length() / 2, 2);
-    const grid = new THREE.GridHelper(radius * 4, 40, 0x38506a, 0x223247);
+    const grid = new THREE.GridHelper(
+      radius * 4,
+      40,
+      token("--ui-outline", "#424242"),
+      token("--border", "#3b3b3b"),
+    );
     grid.position.y = box.min.y - 0.05;
     world.add(grid);
     const reset = () => {

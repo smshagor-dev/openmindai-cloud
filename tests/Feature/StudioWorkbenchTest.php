@@ -68,7 +68,9 @@ class StudioWorkbenchTest extends TestCase
         $this->postJson('/api/v1/3d-studio/route', ['mode' => 'auto', 'prompt' => 'Laravel microservice architecture'])->assertOk()->assertJsonPath('engine', 'architecture');
         $this->postJson('/api/v1/3d-studio/route', ['mode' => 'object', 'prompt' => 'Laravel microservice architecture'])->assertOk()->assertJsonPath('engine', 'procedural');
         $this->postJson('/api/v1/3d-studio/route', ['mode' => 'architecture', 'engine' => 'procedural', 'prompt' => 'A service map'])->assertUnprocessable();
-        $this->postJson('/api/v1/3d-studio/route', ['mode' => 'auto', 'prompt' => 'A realistic robot'])->assertStatus(503);
+        // No verified GPU mesh worker: a mesh-style prompt still gets a procedural scene.
+        $this->postJson('/api/v1/3d-studio/route', ['mode' => 'auto', 'prompt' => 'A realistic robot'])->assertOk()->assertJson(['engine' => 'procedural', 'reason' => 'procedural_fallback']);
+        $this->postJson('/api/v1/3d-studio/route', ['mode' => 'object', 'engine' => 'hunyuan3d-mini', 'prompt' => 'A realistic robot'])->assertStatus(503);
         $this->postJson('/api/v1/3d-studio/route', ['mode' => 'auto', 'prompt' => 'A robot', 'upload_ids' => [987]])->assertNotFound();
     }
 

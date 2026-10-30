@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\StudioJob;
 use App\Services\ApiCreditUsage;
 use App\Services\HostedCodeAgents;
+use App\Services\Studio\SceneModel;
 use App\Services\StudioReferences;
 use App\Services\StudioScene;
 use Illuminate\Http\Request;
@@ -80,8 +81,9 @@ class SceneStudioController
             foreach (mb_str_split(json_encode(['mode' => $data['mode'], 'prompt' => $data['prompt'], 'references' => $references], JSON_UNESCAPED_UNICODE), 14000) as $part) {
                 $messages[] = ['role' => 'user', 'content' => $part];
             }
+            // The gateway reports a missing key or disabled model itself.
             $input = Request::create('/api/v1/mobile/chat/completions', 'POST', [
-                'model' => 'openmindai-ultra', 'stream' => false, 'max_tokens' => 8192, 'temperature' => 0.2,
+                'model' => app(SceneModel::class)->pick()?->slug ?? 'openmindai-ultra', 'stream' => false, 'max_tokens' => 8192, 'temperature' => 0.2,
                 'messages' => $messages,
             ]);
             $input->attributes->set('studio_scene_json', true);
