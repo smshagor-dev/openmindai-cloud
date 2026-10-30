@@ -31,6 +31,7 @@ export default function ResearchResponse({
   animate = false,
   streaming = false,
   reducedMotion = false,
+  statusLabel,
 }: {
   content: string;
   sources?: Source[];
@@ -40,6 +41,7 @@ export default function ResearchResponse({
   animate?: boolean;
   streaming?: boolean;
   reducedMotion?: boolean;
+  statusLabel?: string;
 }) {
   const [drawer, setDrawer] = useState(false),
     [selected, setSelected] = useState<string | null>(null),
@@ -87,6 +89,7 @@ export default function ResearchResponse({
         animate={animate && status !== "complete"}
         streaming={streaming}
         reducedMotion={reducedMotion}
+        statusLabel={statusLabel}
       />
       {safeSources.length > 0 && (
         <div className="web-source-summary" aria-label="Answer sources">

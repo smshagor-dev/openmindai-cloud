@@ -1758,6 +1758,7 @@ export default function ChatWorkspace() {
                           content={message.content}
                           animate={Boolean(message.animate) && index === messages.length - 1}
                           streaming={message.status === "generating" && busy && index === messages.length - 1}
+                          statusLabel={busy && index === messages.length - 1 ? researchProgress || undefined : undefined}
                           reducedMotion={Boolean(preferences?.reduced_motion)}
                           onRendered={
                             index === messages.length - 1
@@ -2047,11 +2048,6 @@ ${source.read_status === "read" ? "Page read" : "Snippet only"}`,
             {memoryNotice && (
               <p role="status" className="muted">
                 {memoryNotice}
-              </p>
-            )}
-            {busy && (deepResearch || researchProgress) && (
-              <p className="muted tool-progress" role="status">
-                <TypingIndicator label={researchProgress || "Researching sources"} />
               </p>
             )}
             <div className="composer-toolbar">
