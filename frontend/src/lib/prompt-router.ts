@@ -79,7 +79,7 @@ function chooseChatModel(text: string, cfg: RouterConfig, opt: Options): string 
   return cfg.fastModel || cfg.defaultModel || FAST;
 }
 
-function researchIntent(text: string, opt: Options): {webSearch?: boolean; deepResearch?: boolean} {
+export function researchIntent(text: string, opt: Options = {}): {webSearch?: boolean; deepResearch?: boolean} {
   if (opt.allowTools === false || opt.hasImage) return {};
   if (opt.deepResearch) return {webSearch: true, deepResearch: true};
   if (opt.webSearch) return {webSearch: true};

@@ -138,3 +138,30 @@ test('native search outages persist failure events and anchored links read the s
   assert.doesNotMatch(output,/private provider detail/);
   assert.equal(finish.sources[0].read_status,'read');
 });
+
+test('Auto grounds "latest news" prompts with web tools and survives brief status outages', async () => {
+  const source='https://nvidianews.nvidia.com/news/latest';
+  const delay=value=>new Promise(resolve=>setTimeout(()=>resolve(value),120));
+  const inference=[call('web_search',{query:'NVIDIA news today'},'search1'),call('read_page',{url:source},'read1'),sse({content:`NVIDIA announced new products today. [1](${source})`},'stop')];
+  const requests=[]; let statusChecks=0;
+  const response=await nvidiaChat(JSON.stringify({message:'latest news about NVIDIA today'}),
+    'user-session','https://backend/api/v1',new AbortController().signal,{
+      pollMs:40,config:{apiKey:'fixture-only',bridgeKey:'k'.repeat(32),model:'nvidia/nemotron-3.5-lightning-30b-a3b'},
+      fetcher:async (url,init) => {
+        const body=JSON.parse(init.body); requests.push({url,body});
+        if(url.endsWith('/begin')) return Response.json({ticket:'a'.repeat(64),messages:[{role:'user',content:'latest news about NVIDIA today'}],conversation_id:1,user_message_id:2,message_id:3,sources:[]});
+        if(url.endsWith('/tool')) return Response.json(body.action==='search'?{sources:[{url:source,title:'NVIDIA Newsroom'},{url:'https://accounts.google.com/ServiceLogin',title:'Sign in - Google Accounts'}]}:{url:source,read_status:'read',page_text:'NVIDIA announced new products today.'});
+        if(url.endsWith('/chat/completions')) return delay(inference.shift());
+        // Two transient failures in a row must not stop generation.
+        if(url.endsWith('/status')) return ++statusChecks<=2?new Response('busy',{status:503}):Response.json({cancelled:false});
+        if(url.endsWith('/checkpoint')||url.endsWith('/finish')) return Response.json({stored:true});
+        throw Error('Unexpected request');
+      }
+    });
+  const output=await response.text();
+  assert.doesNotMatch(output,/could not be checked/);
+  assert.match(output,/NVIDIA announced/);
+  assert.ok(statusChecks>=2,'status was polled during generation');
+  assert.deepEqual(requests.filter(r=>r.url.endsWith('/tool')).map(r=>r.body.action),['search','read']);
+  assert.equal(requests.find(r=>r.url.endsWith('/finish')).body.status,'complete');
+});
