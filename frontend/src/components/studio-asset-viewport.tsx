@@ -96,6 +96,11 @@ export default function AssetViewport({ asset }: { asset: Asset }) {
         }
         cleaners.push(() => disposeObject(object));
         const container = host.current!;
+        // Match the workspace theme tokens (chat-theme.css).
+        const surface = new THREE.Color(
+          getComputedStyle(container).getPropertyValue("--panel").trim() ||
+            "#303030",
+        );
         let renderer: THREE.WebGLRenderer | SVGRenderer;
         let svg = false;
         try {
@@ -103,7 +108,7 @@ export default function AssetViewport({ asset }: { asset: Asset }) {
           renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
         } catch {
           renderer = new SVGRenderer();
-          renderer.setClearColor(new THREE.Color("#101722"), 1);
+          renderer.setClearColor(surface, 1);
           svg = true;
         }
         cleaners.push(() => {
@@ -144,7 +149,7 @@ export default function AssetViewport({ asset }: { asset: Asset }) {
           });
         setCompatible(svg);
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color("#101722");
+        scene.background = surface;
         scene.add(new THREE.AmbientLight(0xffffff, 1.5));
         const light = new THREE.DirectionalLight(0xffffff, 3);
         light.position.set(5, 8, 4);

@@ -45,6 +45,7 @@ export function ResearchComposer({
   onMode?: (mode: string) => void;
 }) {
   return (
+    <>
     <form
       className="rs-chat-composer"
       onSubmit={(e) => {
@@ -128,12 +129,13 @@ export function ResearchComposer({
           <ArrowUp size={18} />
         </button>
       </div>
-      <p className="rs-composer-hint">
-        {initial
-          ? "Your language, sources and research decisions stay with the project."
-          : "Enter to send · Shift + Enter for a new line"}
-      </p>
     </form>
+    <p className="rs-composer-hint">
+      {initial
+        ? "Your language, sources and research decisions stay with the project."
+        : "Enter to send · Shift + Enter for a new line"}
+    </p>
+    </>
   );
 }
 

@@ -114,9 +114,9 @@
   max-width: 100%;
   flex: 1 1 140px;
   padding: 8px;
-  border: 1px solid #496181;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: #182130;
+  background: var(--bg);
   color: inherit;
   text-overflow: ellipsis;
 }

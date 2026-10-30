@@ -1,27 +1,6 @@
-/* Same neutral palette as the chat workspace (chat-theme.css). */
 .rs.rs-chat {
-  --bg: #212121;
-  --sidebar: #171717;
-  --panel: #303030;
-  --panel2: #2f2f2f;
-  --line: #3b3b3b;
-  --outline: #424242;
-  --text: #ececec;
-  --muted: #b4b4b4;
-  --accent: #ececec;
   padding: 64px 0 0 218px;
   font-family: inherit;
-}
-.rs.rs-chat.rs-light {
-  --bg: #fff;
-  --sidebar: #f9f9f9;
-  --panel: #f4f4f4;
-  --panel2: #ececec;
-  --line: #e5e5e5;
-  --outline: #e3e3e3;
-  --text: #0d0d0d;
-  --muted: #6b6b6b;
-  --accent: #0d0d0d;
 }
 .rs-chat h1,
 .rs-chat h2,
@@ -801,4 +780,109 @@
   .rs-has-project .rs-main {
     height: calc(100dvh - 60px);
   }
+}
+
+/* Inside the shared workspace frame (components/studio-frame.tsx) the frame
+   owns the sidebar and top bar, so the studio fills the scrollable body. */
+.studio-frame .rs.rs-chat {
+  padding: 0;
+  min-height: 100%;
+}
+.studio-frame .rs.rs-has-project,
+.studio-frame .rs-has-project .rs-main {
+  height: 100%;
+}
+.studio-frame .rs-toolbar {
+  top: 0;
+}
+.studio-frame .rs-assistant {
+  top: 64px;
+}
+.studio-frame .rs-chat-home .workspace-welcome h1 {
+  font-size: clamp(27px, 3vw, 34px);
+}
+
+/* Composer and alerts styled like the chat home composer. */
+.studio-frame .rs-chat .rs-chat-composer {
+  border: 1px solid var(--ui-outline);
+  border-radius: 28px;
+  background: var(--panel);
+  padding: 17px 14px 10px;
+  box-shadow: 0 3px 16px #00000009;
+}
+.studio-frame .rs-chat .rs-chat-composer textarea {
+  resize: none;
+  min-height: 38px;
+  padding: 0 8px;
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--text);
+  outline: none;
+}
+.studio-frame .rs-chat .rs-chat-composer textarea::placeholder {
+  color: var(--muted);
+}
+.studio-frame .rs-chat-composer-actions {
+  margin-top: 10px;
+}
+.studio-frame .rs-chat-composer-actions > div > span {
+  padding: 9px 10px;
+  font-size: 13px;
+}
+.studio-frame .rs-chat .rs-chat-send {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--text);
+  color: var(--ui-inverse);
+}
+.studio-frame .rs-chat .rs-chat-send:disabled {
+  background: var(--ui-outline);
+  color: var(--muted);
+  opacity: 1;
+}
+.studio-frame .rs-composer-hint {
+  margin: 14px 0 0;
+  font-size: 10px;
+}
+.studio-frame .rs-home-details {
+  display: block;
+  margin: 6px auto 0;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+}
+.studio-frame .rs-home-details:hover:not(:disabled) {
+  background: var(--ui-hover);
+  color: var(--text);
+}
+.studio-frame .rs-chat .rs-main > .rs-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  max-width: 768px;
+  margin: 16px auto;
+  padding: 8px 8px 8px 16px;
+  border: 1px solid color-mix(in srgb, #ef4444 35%, var(--border));
+  border-radius: 14px;
+  background: color-mix(in srgb, #ef4444 10%, var(--bg));
+  font-size: 13px;
+}
+.studio-frame .rs-error > a {
+  order: 2;
+  color: var(--text);
+  text-decoration: underline;
+}
+.studio-frame .rs-error > button {
+  order: 3;
+  float: none;
+  margin-left: auto;
+}
+.studio-frame .rs-chat .rs-main {
+  display: flow-root;
 }
