@@ -124,9 +124,22 @@ export async function runConversationTools(options: ConversationToolOptions) {
   let text = "";
   for (let continuation = 0; continuation < 3; continuation++) {
     const result = await agent.stream({messages,abortSignal:options.signal});
+    // Text written before a tool call is the model narrating its plan (for
+    // example restating the request). Hold each step's opening text briefly and
+    // drop it when that step ends in tool calls; real answers still stream.
+    let pending = "", flowing = false;
+    const emit = (value: string) => {text += value; options.delta(value);};
     for await (const part of result.fullStream) {
       options.signal.throwIfAborted();
-      if (part.type === "text-delta" && (!options.webSearchSelected || searchDeclined || (searched && (hasSearchResults || readEvidence) && readAttempted))) {text += part.text; options.delta(part.text);}
+      if (part.type === "start-step") {pending = ""; flowing = false;}
+      if (part.type === "text-delta" && (!options.webSearchSelected || searchDeclined || (searched && (hasSearchResults || readEvidence) && readAttempted))) {
+        if (flowing) emit(part.text);
+        else if ((pending += part.text).length > 400) {flowing = true; emit(pending); pending = "";}
+      }
+      if (part.type === "finish-step") {
+        if (part.finishReason !== "tool-calls" && pending) emit(pending);
+        pending = ""; flowing = false;
+      }
       if (part.type === "error") throw new Error("NVIDIA tool conversation failed.");
     }
     const reason = await result.finishReason;

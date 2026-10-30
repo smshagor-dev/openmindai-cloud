@@ -270,8 +270,20 @@
   position: absolute;
   top: 14px;
   left: 14px;
+  right: 14px;
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
+  pointer-events: none;
+}
+.studio-viewer-tools button {
+  pointer-events: auto;
+}
+.studio-asset-stats {
+  padding: 8px 16px 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 .studio-viewer-tools button {
   background: var(--ui-elevated);

@@ -130,3 +130,16 @@ test('cancellation during search outage prevents retry and fallback',async()=>{
  fetcher:async()=>call('web_search',{query:'Person name'},'s'),web:async()=>{searches++;controller.abort();throw Error('cancelled');}}));
  assert.equal(searches,1);
 });
+
+test("planning text before a tool call is not shown, while the final answer streams",async()=>{
+ const text=[];
+ const narrate=new Response(`data: ${JSON.stringify({choices:[{delta:{content:"[User request] Write a palindrome checker.\n\nI'll produce a short function."}}]})}\n\ndata: ${JSON.stringify({choices:[{delta:{tool_calls:[{index:0,id:"s1",type:"function",function:{name:"ask_specialist",arguments:JSON.stringify({model:"code",task:"palindrome"})}}]},finish_reason:"tool_calls"}]})}\n\ndata: [DONE]\n\n`,{headers:{"Content-Type":"text/event-stream"}});
+ const responses=[narrate,Response.json({choices:[{message:{content:"def is_palindrome(s): ..."}}]}),sse({content:"Here is the function."},"stop")];
+ const result=await runConversationTools({...base(),fetcher:async()=>responses.shift(),delta:chunk=>text.push(chunk)});
+ assert.equal(text.join(""),"Here is the function.");
+ assert.equal(result.text,"Here is the function.");
+ const long="Answer ".repeat(80);
+ const streamed=[];
+ await runConversationTools({...base(),fetcher:async()=>sse({content:long},"stop"),delta:chunk=>streamed.push(chunk)});
+ assert.equal(streamed.join(""),long);
+});

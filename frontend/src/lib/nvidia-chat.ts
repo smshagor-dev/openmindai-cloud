@@ -5,7 +5,7 @@ import { withPromptUnderstanding } from "./prompt-understanding.ts";
 import { runConversationTools } from "./conversation-tools.ts";
 import { generateHostedImage } from "./hosted-image.ts";
 import { hostedMediaRequest } from "./hosted-media.ts";
-import { generationIntent, generationNeedsContext } from "./prompt-router.ts";
+import { generationIntent, generationNeedsContext, researchIntent } from "./prompt-router.ts";
 import { parseInlineImage, imageMessage } from "./vision-input.ts";
 import {
   ResearchToolUnavailableError,
@@ -193,7 +193,12 @@ export async function nvidiaChat(
   if (!selected && !isAuto && !input.resume_message_id && !options.config)
     return Response.json({message: "Unknown hosted model."}, {status: 404});
   const eligibleModels = automaticModels(catalog);
-  const coordinator = input.web_search && !input.deep_research
+  // Auto must not answer "latest/today/news" questions from model memory: such
+  // prompts get the same grounded web tools as a manual Web search selection.
+  const autoWebSearch = isAuto && !input.web_search && !input.deep_research && !inlineImage &&
+    !input.resume_message_id && typeof input.message === "string" && Boolean(researchIntent(input.message).webSearch);
+  const webSearchSelected = Boolean(input.web_search) || autoWebSearch;
+  const coordinator = webSearchSelected && !input.deep_research
     ? automaticWebCoordinator(eligibleModels) : automaticCoordinator(eligibleModels);
   if (isAuto && !input.resume_message_id && !coordinator)
     return Response.json({message:"No healthy automatic model is available. Retest or configure a chat model."}, {status:503});
@@ -402,19 +407,25 @@ export async function nvidiaChat(
         // Mark image turns non-resumable before inference so a failed request
         // cannot resume without the transient image, even with zero output.
         if (inlineImage) await saveCheckpoint();
+        // A slow or briefly unavailable status endpoint (timeouts, 429, 5xx on
+        // shared hosting) must not kill a long research run; only an ended
+        // session or repeated failures stop generation.
+        let statusFailures = 0;
         poll = setInterval(async () => {
           if (polling) return;
           polling = true;
           try {
-            const r = await backend("status", { ticket: lease.ticket }, 5000);
-            if (!r.ok) throw new Error("Session ended");
+            const r = await backend("status", { ticket: lease.ticket }, 10000);
+            if ([401, 403, 404, 410].includes(r.status)) statusFailures = 3;
+            if (!r.ok) throw new Error("Session status unavailable");
             const s = await r.json();
+            statusFailures = 0;
             if (s.cancelled) {
               cancelled = true;
               upstreamAbort.abort();
             }
           } catch {
-            if (!upstreamAbort.signal.aborted) {
+            if (!upstreamAbort.signal.aborted && ++statusFailures >= 3) {
               failure =
                 "Backend session could not be checked. Generation stopped.";
               upstreamAbort.abort();
@@ -467,7 +478,7 @@ export async function nvidiaChat(
           } else await runConversationTools({
             model:activeModel, apiKey:config.apiKey, fetcher, messages:requestedGeneration
               ? [...generationMessages,{role:"system",content:`The user requested a generated ${requestedGeneration.kind}, format ${requestedGeneration.format || "docx"}. Use the conversation and attached evidence, perform requested research before creating the file, and use create_artifact. Never claim the file exists without a successful tool result.`}]
-              : generationMessages, webSearchSelected:Boolean(input.web_search),
+              : generationMessages, webSearchSelected,
             signal:AbortSignal.any([upstreamAbort.signal, AbortSignal.timeout(240000)]), specialists:automaticSpecialists(eligibleModels, activeModel),
             progress: label => emit("research", {label, sources:lease.sources}),
             delta: text => {content += text; emit("delta", {content:text});},

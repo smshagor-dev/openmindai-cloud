@@ -29,7 +29,7 @@ export function serverRouterConfig(apiKey: string, defaultModel?: string): Route
 export function catalogRouterConfig(cfg: RouterConfig, catalog: {slug: string; provider: string}[]): RouterConfig {
   const pick = (slugs: string[], fallback: string) => slugs.map((slug) => catalog.find((model) => model.slug === slug)?.provider).find(Boolean) || fallback;
   const first = catalog[0]?.provider || cfg.defaultModel || FAST;
-  const fast = pick(["openmindai-lite", "nvidia-deepseek-v4.1-flash", "openmindai-super"], first);
+  const fast = pick(["openmindai-super", "openmindai-ultra", "nvidia-deepseek-v4.1-flash", "openmindai-lite"], first);
   const reasoning = pick(["openmindai-ultra", "openmindai-super", "nvidia-nemotron-3-super-120b-a12b", "nvidia-gpt-oss-20b"], fast);
   return {...cfg, defaultModel: fast, fastModel: fast, reasoningModel: reasoning, classifierModel: fast,
     visionModel: pick(["openmindai-super", "nvidia-muse-glimmer-30b", "nvidia-llama-3.2-90b-vision-instruct", "nvidia-llama-3.2-11b-vision-instruct"], reasoning),
@@ -79,7 +79,7 @@ function chooseChatModel(text: string, cfg: RouterConfig, opt: Options): string 
   return cfg.fastModel || cfg.defaultModel || FAST;
 }
 
-function researchIntent(text: string, opt: Options): {webSearch?: boolean; deepResearch?: boolean} {
+export function researchIntent(text: string, opt: Options = {}): {webSearch?: boolean; deepResearch?: boolean} {
   if (opt.allowTools === false || opt.hasImage) return {};
   if (opt.deepResearch) return {webSearch: true, deepResearch: true};
   if (opt.webSearch) return {webSearch: true};

@@ -29,6 +29,12 @@ export function evidenceUrl(value: unknown): string | null {
       (u.port && !["80", "443"].includes(u.port))
     )
       return null;
+    // Sign-in walls are never evidence (search engines sometimes return them).
+    if (
+      /^(accounts\.google\.com|login\.microsoftonline\.com|login\.live\.com|appleid\.apple\.com|auth\.|login\.|signin\.)/.test(host) ||
+      /^\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?(?:log-?in|sign-?in|signup|sign-up|auth|oauth2?|sso)(?:\/|$)/i.test(u.pathname)
+    )
+      return null;
     u.hash = "";
     for (const k of [...u.searchParams.keys()])
       if (/^(utm_|fbclid$|gclid$)/i.test(k)) u.searchParams.delete(k);

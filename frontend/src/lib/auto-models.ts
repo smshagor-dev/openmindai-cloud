@@ -18,7 +18,9 @@ function preferred<T extends AutomaticModel>(models: T[], slugs: string[]): T | 
   return undefined;
 }
 export function automaticCoordinator<T extends AutomaticModel>(models: T[]): T | undefined {
-  return preferred(automaticModels(models), ['openmindai-lite', 'openmindai-ultra', 'nvidia-gpt-oss-20b', 'nvidia-step-5-preview', 'openmindai-super']);
+  // Super answers first (~4-5s) and writes correct Bangla/Banglish; Lite is fast
+  // but produced garbled Bengali in live tests, so it is only a last resort.
+  return preferred(automaticModels(models), ['openmindai-super', 'openmindai-ultra', 'nvidia-gpt-oss-20b', 'nvidia-step-5-preview', 'openmindai-lite']);
 }
 export function automaticWebCoordinator<T extends AutomaticModel>(models: T[]): T | undefined {
   // Selected search favors the verified reasoning model; ordinary Auto chat
@@ -30,7 +32,7 @@ export function automaticReasoner<T extends AutomaticModel>(models: T[]): T | un
   return preferred(automaticModels(models), ['openmindai-ultra', 'nvidia-step-5-preview', 'nvidia-gpt-oss-20b', 'openmindai-lite']);
 }
 const capabilities: Record<string,string> = {
-  'openmindai-lite': 'General conversation, writing, summaries and multilingual translation. Answer simple requests directly.',
+  'openmindai-super': 'General conversation, writing, summaries and multilingual answers including Bangla. Answer simple requests directly.',
   'openmindai-ultra': 'Complex reasoning, detailed analysis, architecture, research synthesis and difficult coding.',
   'nvidia-laguna-xs-2.1': 'Coding specialist: implementation, debugging, refactoring, tests and code review.',
   'nvidia-gpt-oss-20b': 'Mathematics, logic, proofs and general reasoning.',
