@@ -62,5 +62,6 @@ document.getElementById('reset-password-form').addEventListener('submit', async 
     }
 });
 </script>
+<script src="{{ asset('js/password-visibility.js') }}" defer></script>
 </body>
 </html>

@@ -2,7 +2,7 @@
 
 OpenMindAI uses Next.js as its trusted API client. Laravel owns login,
 quota checks, task records, private file storage, and authenticated downloads.
-The existing NVIDIA_API_KEY stays exclusively on the Next.js server. The
+The NVIDIA_API_KEY stays exclusively on the Next.js server; never expose it in browser JavaScript. The
 existing FRONTEND_CHAT_BRIDGE_KEY (32+ characters) must match on Next.js
 and Laravel. No new public browser credentials are required.
 
@@ -17,8 +17,8 @@ and Laravel. No new public browser credentials are required.
 | Video creation | media/video | Cosmos3 Nano text-to-video | MP4 |
 | Live voice | Voice panel, Live workspace | Hosted transcription + chat stream + browser speech synthesis | Conversation text/history |
 
-Source-controlled endpoints are fixed; the browser cannot supply arbitrary
-provider URLs, model IDs or API keys. Each supported request uses the existing
+Source-controlled provider endpoints are fixed in Laravel; the browser cannot
+supply arbitrary provider URLs, model IDs or API keys. Each supported request uses the existing
 HttpOnly login cookie and an origin-checked Next.js API route. The Next.js
 server calls a protected Laravel begin/complete/fail bridge; Laravel stores
 results under private storage/app, subject to account ownership, daily usage
@@ -31,9 +31,12 @@ endpoint. The frontend converts compatible recorded/uploaded audio into
 browser codecs produce an error instead of a false success. Alternative
 languages require a compatible ASR model and language-specific routing.
 
-Speech generation currently selects a documented en-US Magpie voice. Generated
-WAV is saved privately. Other languages/voices require an explicit selection
-and availability verification; do not assume Bengali support. Live voice
+Speech generation now offers documented English (en-US), Spanish (es-US)
+and French (fr-FR) voices, selected from the Media studio. The server maps
+each locale to its allowed voice and rejects unsupported languages before
+reserving user quota. Generated WAV is saved privately. Additional languages
+and voices require verified endpoint support; Bengali is not supported by
+this hosted voice configuration. Live voice
 has a hosted speech-to-text fallback when the separate private warm voice
 runtime is unavailable. Chat responses are played back with the browser's
 speech synthesis; this is sequential turn-taking, not native duplex streaming.
@@ -55,8 +58,11 @@ binary payloads up to 20 MB.
 
 ## Hosting
 
-- Set NVIDIA_API_KEY, FRONTEND_CHAT_BRIDGE_KEY, LARAVEL_API_URL and FRONTEND_URL
-  on the Next.js server, and the matching bridge key on Laravel.
+- On the Next.js server set NVIDIA_API_KEY, LARAVEL_API_URL pointing to
+  https://cloud.openmindai.org/api/v1 and FRONTEND_CHAT_BRIDGE_KEY.
+  On Laravel set the identical FRONTEND_CHAT_BRIDGE_KEY.
+  Do not use NEXT_PUBLIC_ with any secret; Laravel independently handles
+  chat history, authenticated usage limits and private media storage.
 - Run the existing Laravel migrations (media_tasks and media_daily_usage),
   config cache and scheduler. All media tasks use the same existing quotas.
 - Allow request bodies up to 11 MB for transcription uploads and up to 28 MB
@@ -68,8 +74,14 @@ binary payloads up to 20 MB.
   endpoints. Do not forward provider error response bodies to clients.
 
 The API bridge makes the request synchronously; a short-lived shared-hosting
-process or timeout can interrupt a long-running provider call. Failed calls
-are marked failed where possible; the scheduler handles abandoned tasks.
+process or timeout can interrupt a long-running provider call. If the browser
+cancels after Laravel creates a task, the Next.js bridge will not start further
+inference or save a late provider result, and it attempts to mark the task
+failed. This prevents cancelled work from being reported as complete, but it
+does not guarantee that a provider has stopped billing or running an already
+accepted request. Deleting a task while generation is in progress removes
+its private record and rejects later attempts to save output. The scheduler
+handles abandoned tasks when a process exits before recording failure.
 Production-grade long video jobs may require a durable background worker.
 
 ## Verification before production
@@ -91,3 +103,27 @@ Official references:
 - https://build.nvidia.com/nvidia/parakeet-ctc-1_1b-asr/api
 - https://build.nvidia.com/nvidia/magpie-tts-multilingual/api
 - https://build.nvidia.com/nvidia/cosmos3-nano/modelcard
+
+
+### Image task remains queued
+
+Image creation now uses Laravel's dedicated `media` database connection and the
+`media` queue. A running default queue worker does not consume these jobs.
+On the Laravel host, start a supervised worker from the application directory:
+
+```sh
+php artisan queue:work media --queue=media --sleep=3 --timeout=900 --tries=1
+```
+
+For cPanel hosts that allow cron workers, configure a guarded cron using the
+actual PHP binary and application path:
+
+```cron
+* * * * * flock -n /home/USER/openmind-media.lock /opt/cpanel/ea-php82/root/usr/bin/php /home/USER/online-model/artisan queue:work media --queue=media --stop-when-empty --max-time=900 --timeout=900 --tries=1 >> /home/USER/online-model/storage/logs/media-worker.log 2>&1
+```
+
+Keep the existing scheduler cron. After backend updates, run migrations, refresh
+configuration and restart workers. Verify a new task changes from queued to
+running to complete and that its private image downloads successfully. An
+accepted task is still processing; chat must retain its ID and must not describe
+it as a failed generation or retry it just because the provider is slow.

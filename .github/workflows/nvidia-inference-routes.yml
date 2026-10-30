@@ -1,0 +1,37 @@
+name: NVIDIA inference route validation
+on:
+  push:
+    paths:
+      - 'app/Http/Controllers/OpenMindAiGatewayController.php'
+      - 'app/Http/Controllers/CodeAgentsAdminController.php'
+      - 'app/Services/HostedCodeAgents.php'
+      - 'routes/web.php'
+      - 'database/migrations/2026_10_21_000008_nvidia_verified_inference_routes.php'
+      - 'tests/Feature/NvidiaInferenceRoutesTest.php'
+      - '.github/workflows/nvidia-inference-routes.yml'
+  pull_request:
+    paths:
+      - 'app/Http/Controllers/OpenMindAiGatewayController.php'
+      - 'app/Http/Controllers/CodeAgentsAdminController.php'
+      - 'app/Services/HostedCodeAgents.php'
+      - 'routes/web.php'
+      - 'database/migrations/2026_10_21_000008_nvidia_verified_inference_routes.php'
+      - 'tests/Feature/NvidiaInferenceRoutesTest.php'
+      - '.github/workflows/nvidia-inference-routes.yml'
+jobs:
+  model-routing:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php: ['8.2', '8.3']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mbstring, pdo_sqlite, curl, xml
+          coverage: none
+      - run: composer install --no-interaction --prefer-dist
+      - run: cp .env.example .env
+      - run: php artisan test --filter='NvidiaInferenceRoutesTest|NvidiaModelCatalogAdminTest|OpenMindAiGatewayTest|CloudApiAuthResponseTest'
+      - run: php artisan route:cache && php artisan view:cache && php artisan config:cache

@@ -4,7 +4,7 @@
 @section('content')
 <div class="admin-page-heading"><div><span class="eyebrow">AI OPERATIONS</span><h1>Media model snapshots</h1><p>Import revision-pinned model files for image, vision, transcription, speech and video runtimes.</p></div><div class="heading-actions"><a href="/admin/models" class="subtle-label">← Chat model library</a></div></div>
 <div class="muted-note" style="margin-bottom:21px"><strong>Runtime compatibility matters.</strong> Verified safetensors and configuration files can be downloaded. Python and pickle weights are excluded. A downloaded snapshot does not install an inference engine or guarantee suitable hardware.</div>
-<form class="admin-card" method="get" action="/admin/model-bundles/inspect" style="margin-bottom:23px">
+<form class="admin-card admin-discovery-form" method="get" action="/admin/model-bundles/inspect">
     <div class="section-separator"><h2>Inspect Hugging Face snapshot</h2><p>Choose a repository and the intended runtime purpose.</p></div>
     <div class="form-fields"><div class="field"><label for="bundle_repo">Hugging Face repository</label><input id="bundle_repo" name="repository" placeholder="owner/repository" required maxlength="160"></div>
     <div class="field"><label for="bundle_purpose">Runtime purpose</label><select id="bundle_purpose" name="purpose">@foreach(['image','vision','transcription','speech','video'] as $kind)<option value="{{ $kind }}">{{ ucfirst($kind) }}</option>@endforeach</select></div></div>

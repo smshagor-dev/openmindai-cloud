@@ -1,0 +1,45 @@
+name: Cosmos hosted generation contract
+on:
+  push:
+    paths:
+      - 'app/Http/Controllers/NvidiaCosmosController.php'
+      - 'app/Http/Controllers/CodeAgentsAdminController.php'
+      - 'app/Jobs/RunCosmosGeneration.php'
+      - 'app/Services/HostedCodeAgents.php'
+      - 'app/Http/Controllers/OpenMindAiGatewayController.php'
+      - 'routes/api.php'
+      - 'routes/console.php'
+      - 'database/migrations/2026_10_21_000009_cosmos_generations.php'
+      - 'database/migrations/2026_10_21_000010_enable_cosmos3_hosted_media.php'
+      - 'tests/Feature/CosmosHostedGenerationTest.php'
+      - '.github/workflows/cosmos-hosted-media.yml'
+  pull_request:
+    paths:
+      - 'app/Http/Controllers/NvidiaCosmosController.php'
+      - 'app/Http/Controllers/CodeAgentsAdminController.php'
+      - 'app/Jobs/RunCosmosGeneration.php'
+      - 'app/Services/HostedCodeAgents.php'
+      - 'app/Http/Controllers/OpenMindAiGatewayController.php'
+      - 'routes/api.php'
+      - 'routes/console.php'
+      - 'database/migrations/2026_10_21_000009_cosmos_generations.php'
+      - 'database/migrations/2026_10_21_000010_enable_cosmos3_hosted_media.php'
+      - 'tests/Feature/CosmosHostedGenerationTest.php'
+      - '.github/workflows/cosmos-hosted-media.yml'
+jobs:
+  generation:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php: ['8.2', '8.3']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mbstring, pdo_sqlite, curl, xml
+          coverage: none
+      - run: composer install --no-interaction --prefer-dist
+      - run: cp .env.example .env
+      - run: php artisan test --filter='CosmosHostedGenerationTest|NvidiaInferenceRoutesTest|OpenMindAiGatewayTest'
+      - run: php artisan route:cache && php artisan view:cache && php artisan config:cache

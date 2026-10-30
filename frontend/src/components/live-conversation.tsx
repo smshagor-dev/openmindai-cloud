@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, ApiError, streamChat, type Model, type Message } from "@/lib/api";
 import { VoiceActivity, takeSentence } from "@/lib/live-voice";
 import { audioAsWavBase64 } from "@/lib/audio-file";
+import { playAudioUntilFinished } from "@/lib/audio-playback";
 import ResponseMarkdown from "./response-markdown";
 const encode = (blob: Blob) =>
   new Promise<string>((resolve, reject) => {
@@ -57,6 +58,7 @@ export default function LiveConversation({
     speaking = useRef(false),
     playbackEpoch = useRef(0),
     generatedPlayer = useRef<HTMLAudioElement | null>(null),
+    generatedAbort = useRef<AbortController | null>(null),
     generatedUrl = useRef<string | null>(null),
     mode = useRef(0),
     vad = useRef(new VoiceActivity());
@@ -104,6 +106,8 @@ export default function LiveConversation({
   function interrupt() {
     ++playbackEpoch.current;
     if (typeof speechSynthesis !== "undefined") speechSynthesis.cancel();
+    generatedAbort.current?.abort();
+    generatedAbort.current = null;
     generatedPlayer.current?.pause();
     generatedPlayer.current = null;
     if (generatedUrl.current) URL.revokeObjectURL(generatedUrl.current);
@@ -170,41 +174,58 @@ export default function LiveConversation({
   async function playGeneratedSpeech(text: string, version: number) {
     if (!text.trim() || version !== epoch.current || !activeRef.current) return;
     const cleaned = text.replace(/[`*_#]/g, "").trim();
-    // The hosted voice currently supports English and a 1000-character limit.
-    if (cleaned.length > 1000 || /[^\x00-\x7F]/.test(cleaned)) {
+    // This voice is English-only; use the browser voice for other languages
+    // instead of sending unsupported text to the hosted speech service.
+    if (cleaned.length > 1000 || Array.from(cleaned).some((letter) => letter.codePointAt(0)! > 127)) {
       speak(cleaned, version);
       return;
     }
     const playback = playbackEpoch.current;
-    const result = await api<{ id: number }>(
-      "media/speech", "POST", { kind: "speech", prompt: cleaned },
-    );
-    if (playback !== playbackEpoch.current || version !== epoch.current) return;
-    const response = await fetch("/api/backend/media/" + result.id + "/output", { cache: "no-store" });
-    if (!response.ok) throw new Error("Voice audio could not be loaded.");
-    const blob = await response.blob();
-    if (playback !== playbackEpoch.current || version !== epoch.current) return;
-    const url = URL.createObjectURL(blob);
-    generatedUrl.current = url;
-    const player = new Audio(url);
-    generatedPlayer.current = player;
-    speaking.current = true;
+    const controller = new AbortController();
+    generatedAbort.current = controller;
+    let url: string | null = null;
+    let player: HTMLAudioElement | null = null;
+    let fallback = false;
     try {
-      await player.play();
-      await new Promise<void>(resolve => {
-        const end = () => resolve();
-        player.addEventListener("ended", end, { once: true });
-        player.addEventListener("error", end, { once: true });
-        player.addEventListener("pause", end, { once: true });
-        // Interrupt and cleanup are handled by the session epoch.
+      const result = await api<{ id: number }>(
+        "media/speech", "POST", { kind: "speech", prompt: cleaned },
+        controller.signal,
+      );
+      if (controller.signal.aborted || playback !== playbackEpoch.current ||
+          version !== epoch.current) return;
+
+      const response = await fetch("/api/backend/media/" + result.id + "/output", {
+        cache: "no-store", signal: controller.signal,
       });
+      if (!response.ok || response.headers.get("content-type")?.split(";")[0] !== "audio/wav")
+        throw new Error("Generated audio could not be loaded.");
+      const blob = await response.blob();
+      if (!blob.size || blob.size > 20000000)
+        throw new Error("Invalid generated audio.");
+      if (controller.signal.aborted || playback !== playbackEpoch.current ||
+          version !== epoch.current) return;
+
+      url = URL.createObjectURL(blob);
+      generatedUrl.current = url;
+      player = new Audio(url);
+      generatedPlayer.current = player;
+      speaking.current = true;
+      await playAudioUntilFinished(player, controller.signal);
+    } catch {
+      if (!controller.signal.aborted && playback === playbackEpoch.current &&
+          version === epoch.current && activeRef.current) fallback = true;
     } finally {
+      if (generatedAbort.current === controller) generatedAbort.current = null;
       if (generatedPlayer.current === player) generatedPlayer.current = null;
-      if (generatedUrl.current === url) {
+      if (url && generatedUrl.current === url) {
         URL.revokeObjectURL(url);
         generatedUrl.current = null;
       }
       speaking.current = false;
+    }
+    if (fallback) {
+      setError("Generated voice is unavailable. Using your browser voice instead.");
+      speak(cleaned, version);
     }
   }
   async function processQueue(version: number) {

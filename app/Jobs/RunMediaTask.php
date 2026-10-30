@@ -27,7 +27,7 @@ class RunMediaTask implements ShouldQueue
     public function handle(): void
     {
         $task = MediaTask::find($this->taskId);
-        if (! $task || ! MediaTask::whereKey($task->id)->where('status', 'queued')->update(['status' => 'running', 'updated_at' => now()])) {
+        if (! $task || ! MediaTask::whereKey($task->id)->where('status', 'queued')->update(['status' => 'running', 'progress_percent' => $task->kind === 'image' ? 28 : 0, 'progress_stage' => $task->kind === 'image' ? 'generating' : 'queued', 'updated_at' => now()])) {
             return;
         }
         $path = null;
@@ -56,12 +56,22 @@ class RunMediaTask implements ShouldQueue
                     throw new \RuntimeException('Invalid media output.');
                 }
                 $actual = (new \finfo(FILEINFO_MIME_TYPE))->buffer($raw);
-                if ($actual !== $expected[$task->kind] && ! ($task->kind === 'speech' && $actual === 'audio/x-wav')) {
+                // PHP/fileinfo can report ZIP archives as octet-stream on some
+                // platforms. Verify the ZIP structure independently instead of
+                // accepting an arbitrary binary labelled application/zip.
+                $validZip = $task->kind === 'code'
+                    && str_starts_with($raw, "PK\x03\x04")
+                    && str_contains(substr($raw, -65557), "PK\x05\x06");
+                if (($task->kind === 'code' && ! $validZip) || ($task->kind !== 'code' && $actual !== $expected[$task->kind] && ! ($task->kind === 'speech' && $actual === 'audio/x-wav'))) {
                     throw new \RuntimeException('Invalid output format.');
                 }
                 $path = 'media/'.$task->user_id.'/'.$task->id.'.output';
             } elseif (! is_string($text) || trim($text) === '' || strlen($text) > 100000) {
                 throw new \RuntimeException('Invalid text output.');
+            }
+            if ($task->kind === 'image') {
+                MediaTask::whereKey($task->id)->where('status', 'running')
+                    ->update(['progress_percent' => 90, 'progress_stage' => 'finalizing']);
             }
             DB::transaction(function () use ($task, $raw, $path, $data, $text, $artifacts) {
                 $current = MediaTask::lockForUpdate()->find($task->id);
@@ -71,7 +81,7 @@ class RunMediaTask implements ShouldQueue
                 if ($path) {
                     Storage::disk('local')->put($path, $raw);
                 }
-                $current->update(['status' => 'complete', 'artifacts' => $artifacts, 'result_text' => $text, 'output_path' => $path, 'output_mime' => $path ? $data['mime'] : null, 'bytes' => strlen($raw ?? '') + strlen($text ?? '') + strlen(json_encode($artifacts))]);
+                $current->update(['status' => 'complete', 'progress_percent' => $task->kind === 'image' ? 100 : 0, 'progress_stage' => $task->kind === 'image' ? 'complete' : 'queued', 'artifacts' => $artifacts, 'result_text' => $text, 'output_path' => $path, 'output_mime' => $path ? $data['mime'] : null, 'bytes' => strlen($raw ?? '') + strlen($text ?? '') + strlen(json_encode($artifacts))]);
             });
         } catch (Throwable $e) {
             if ($path) {
@@ -93,7 +103,7 @@ class RunMediaTask implements ShouldQueue
             if ($task->input_path) {
                 Storage::disk('local')->delete($task->input_path);
             }
-            $task->update(['status' => 'failed', 'error' => 'The self-hosted engine could not complete this task. Check its availability, model compatibility and memory.', 'input_path' => null, 'bytes' => 0]);
+            $task->update(['status' => 'failed', 'progress_stage' => $task->kind === 'image' ? 'failed' : 'queued', 'error' => 'The self-hosted engine could not complete this task. Check its availability, model compatibility and memory.', 'input_path' => null, 'bytes' => 0]);
         }
     }
 }

@@ -122,7 +122,7 @@ class SmtpSettingsTest extends TestCase
         $this->post('/admin/smtp-settings/test', [
             'current_password' => 'StrongPassword123',
             'recipient' => 'outside@example.com',
-        ])->assertRedirect();
+        ])->assertRedirect()->assertSessionHasNoErrors();
         Mail::assertSentCount(1);
         $this->assertNotNull(SmtpSetting::findOrFail(1)->last_tested_at);
         $this->assertSame('owner@example.com', $admin->email);

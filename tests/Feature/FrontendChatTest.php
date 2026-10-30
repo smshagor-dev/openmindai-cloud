@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
+use App\Services\AdminSettings;
 use App\Services\HostedChatActivity;
 use App\Services\WebResearch;
 use App\Services\WebSearch;
@@ -101,16 +102,16 @@ class FrontendChatTest extends TestCase
         $user = $this->authenticate();
         $request = Request::create('/api/v1/chat');
         $request->setUserResolver(fn () => $user);
-        config(['models.daily_limit' => 0]);
+        app(AdminSettings::class)->save(['chat_daily_limit' => '0']);
         $this->assertCount(1, (RateLimiter::limiter('chat'))($request));
-        config(['models.daily_limit' => 2]);
+        app(AdminSettings::class)->save(['chat_daily_limit' => '2']);
         $this->assertCount(2, (RateLimiter::limiter('chat'))($request));
     }
 
     public function test_daily_limit_blocks_new_requests_but_allows_an_active_turn_to_finish(): void
     {
         $this->authenticate();
-        config(['models.daily_limit' => 1]);
+        app(AdminSettings::class)->save(['chat_daily_limit' => '1']);
         $r = $this->postJson('/api/v1/chat/frontend/begin', ['message' => 'First request'], $this->headers())->assertOk();
         $this->postJson('/api/v1/chat/frontend/status', ['ticket' => $r->json('ticket')], $this->headers())->assertOk();
         $this->postJson('/api/v1/chat/frontend/finish', ['ticket' => $r->json('ticket'), 'content' => 'Complete answer', 'status' => 'complete'], $this->headers())->assertOk();
@@ -127,6 +128,37 @@ class FrontendChatTest extends TestCase
         $saved = Message::find($r->json('message_id'));
         $this->assertSame(hash('sha256', $answer), hash('sha256', $saved->content));
         $this->assertArrayNotHasKey('page_text', $saved->sources[0]);
+    }
+
+    public function test_finished_source_passages_and_pdf_provenance_survive_the_real_history_endpoint(): void
+    {
+        $this->authenticate();
+        Http::preventStrayRequests();
+        $begin = $this->postJson('/api/v1/chat/frontend/begin', ['message' => 'Evidence persistence', 'deep_research' => true, 'conversation_tools' => true], $this->headers())->assertOk();
+        $source = ['url' => 'https://example.org/paper.pdf', 'title' => 'Paper', 'citation' => 1, 'read_status' => 'read', 'provider' => 'fixture', 'retrieved_at' => now()->toIso8601String(), 'mime' => 'application/pdf', 'final_url' => 'https://example.org/paper.pdf', 'duplicate_of' => null, 'passages' => [['id' => 'p1', 'text' => 'Selected বাংলা evidence', 'page' => 24]], 'pdf' => ['total_pages' => 24, 'sampled_pages' => [1, 24], 'partial' => true, 'ocr' => false], 'page_text' => 'Raw page must not persist', 'private_field' => 'Not approved metadata'];
+        $this->postJson('/api/v1/chat/frontend/finish', ['ticket' => $begin->json('ticket'), 'content' => 'Report [1]', 'status' => 'complete', 'sources' => [$source]], $this->headers())->assertOk();
+        $saved = Message::findOrFail($begin->json('message_id'))->sources[0];
+        $this->assertSame('Selected বাংলা evidence', $saved['passages'][0]['text']);
+        $this->assertSame(24, $saved['passages'][0]['page']);
+        $this->assertSame([1, 24], $saved['pdf']['sampled_pages']);
+        $this->assertSame('fixture', $saved['provider']);
+        $this->assertArrayNotHasKey('page_text', $saved);
+        $this->assertArrayNotHasKey('private_field', $saved);
+        $this->getJson('/api/v1/conversations/'.$begin->json('conversation_id'))->assertOk()
+            ->assertJsonPath('messages.data.1.sources.0.passages.0.page', 24)
+            ->assertJsonPath('messages.data.1.sources.0.passages.0.text', 'Selected বাংলা evidence')
+            ->assertJsonPath('messages.data.1.sources.0.pdf.total_pages', 24);
+    }
+
+    public function test_finish_rejects_oversized_or_malformed_provenance_before_overwriting_saved_evidence(): void
+    {
+        $this->authenticate();
+        Http::preventStrayRequests();
+        $begin = $this->postJson('/api/v1/chat/frontend/begin', ['message' => 'Bounded evidence', 'deep_research' => true, 'conversation_tools' => true], $this->headers())->assertOk();
+        foreach ([['passages' => array_fill(0, 9, ['text' => 'Evidence'])], ['passages' => [['text' => 'Evidence', 'page' => 5001]]], ['pdf' => ['sampled_pages' => 'malformed']]] as $invalid) {
+            $this->postJson('/api/v1/chat/frontend/finish', ['ticket' => $begin->json('ticket'), 'content' => 'Invalid', 'status' => 'complete', 'sources' => [['url' => 'https://example.org/paper', 'title' => 'Paper', ...$invalid]]], $this->headers())->assertUnprocessable();
+            $this->assertSame('generating', Message::findOrFail($begin->json('message_id'))->status);
+        }
     }
 
     public function test_research_tool_requires_a_live_owned_research_lease(): void
@@ -161,6 +193,19 @@ class FrontendChatTest extends TestCase
         }
         $this->postJson('/api/v1/chat/frontend/finish', ['ticket' => $r->json('ticket'), 'content' => 'Done', 'status' => 'complete'], $this->headers())->assertOk();
         $this->postJson('/api/v1/chat/frontend/tool', $payload, $this->headers())->assertStatus(409);
+    }
+
+    public function test_native_conversation_tools_use_an_owned_active_lease_without_research_mode(): void
+    {
+        $this->authenticate();
+        $this->mock(WebSearch::class)->shouldReceive('search')->once()->with('Evidence', ['limit' => 10, 'time_range' => null])->andReturn([]);
+        $r = $this->postJson('/api/v1/chat/frontend/begin', ['message' => 'Find evidence', 'conversation_tools' => true], $this->headers())->assertOk();
+        $payload = ['ticket' => $r->json('ticket'), 'action' => 'search', 'query' => 'Evidence'];
+        $this->postJson('/api/v1/chat/frontend/tool', $payload, $this->headers())->assertOk();
+        $this->assertFalse(Message::findOrFail($r->json('message_id'))->resumable);
+        $this->postJson('/api/v1/chat/frontend/finish', ['ticket' => $r->json('ticket'), 'content' => 'Partial', 'status' => 'failed'], $this->headers())->assertOk();
+        $this->postJson('/api/v1/chat/frontend/tool', $payload, $this->headers())->assertStatus(409);
+        $this->postJson('/api/v1/chat/frontend/resume', ['message_id' => $r->json('message_id')], $this->headers())->assertStatus(409);
     }
 
     public function test_deleted_conversation_is_not_recreated_by_late_finish(): void
@@ -223,7 +268,7 @@ class FrontendChatTest extends TestCase
     public function test_resume_does_not_charge_another_daily_chat_request(): void
     {
         $this->authenticate();
-        config(['models.daily_limit' => 1]);
+        app(AdminSettings::class)->save(['chat_daily_limit' => '1']);
         $first = $this->postJson('/api/v1/chat/frontend/begin', ['message' => 'One request'], $this->headers())->assertOk();
         $this->postJson('/api/v1/chat/frontend/finish', ['ticket' => $first->json('ticket'), 'content' => '', 'status' => 'failed'], $this->headers())->assertOk();
         $this->postJson('/api/v1/chat/frontend/begin', ['message' => 'New request'], $this->headers())->assertStatus(429);

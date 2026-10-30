@@ -18,7 +18,7 @@ class WebResearchTest extends TestCase
 
     public function test_search_deduplicates_tracking_links_and_rejects_unsafe_results(): void
     {
-        config(['models.search_url' => 'https://search.example/search']);
+        config(['models.search_url' => 'https://search.example/search', 'models.public_search_fallback' => false]);
         Http::fake(['*' => Http::response(['results' => [
             ['url' => 'https://example.org/article?utm_source=x#one', 'title' => '<b>Evidence</b>', 'content' => 'A &amp; B'],
             ['url' => 'https://example.org/article', 'title' => 'Duplicate'],
@@ -32,6 +32,50 @@ class WebResearchTest extends TestCase
         $this->assertSame('Evidence', $sources[0]['title']);
         $this->assertSame('A & B', $sources[0]['snippet']);
         Http::assertSent(fn ($r) => $r['time_range'] === 'week' && $r['safesearch'] === 1);
+    }
+
+    public function test_search_portals_are_not_evidence_and_trigger_the_next_provider(): void
+    {
+        config(['models.search_url' => 'https://search.example/search', 'models.public_search_fallback' => true]);
+        Http::fake([
+            'search.example/*' => Http::response(['results' => [
+                ['url' => 'https://www.google.com/xhtml/search', 'title' => 'Google'],
+                ['url' => 'https://search.yahoo.com/', 'title' => 'Search'],
+                ['url' => 'https://www.bing.com/search?q=php', 'title' => 'Bing'],
+            ]]),
+            'www.bing.com/*' => Http::response('<rss><channel><item><title>PHP array_map</title><link>https://www.php.net/manual/en/function.array-map.php</link></item></channel></rss>'),
+        ]);
+        $sources = app(WebSearch::class)->search('PHP array_map');
+        $this->assertCount(1, $sources);
+        $this->assertSame('https://www.php.net/manual/en/function.array-map.php', $sources[0]['url']);
+        $this->assertSame('bing_rss', $sources[0]['provider']);
+        $this->assertFalse(WebSearch::isSearchPortal('https://www.google.com/about'));
+    }
+
+    public function test_generic_search_results_do_not_satisfy_a_specific_function_query(): void
+    {
+        config(['models.search_url' => null, 'models.public_search_fallback' => true]);
+        Http::fake([
+            'www.bing.com/*' => Http::response('<rss><channel><item><title>PHP homepage</title><link>https://www.php.net/</link></item></channel></rss>'),
+            'html.duckduckgo.com/*' => Http::response('<a class="result__a" href="https://www.php.net/manual/en/function.array-map.php">PHP array_map</a>'),
+        ]);
+        $sources = app(WebSearch::class)->search('PHP array_map official documentation');
+        $this->assertCount(1, $sources);
+        $this->assertSame('duckduckgo', $sources[0]['provider']);
+        $this->assertSame('https://www.php.net/manual/en/function.array-map.php', $sources[0]['url']);
+    }
+
+    public function test_unrelated_search_noise_falls_through_to_relevant_official_sources(): void
+    {
+        config(['models.search_url' => null, 'models.public_search_fallback' => true]);
+        Http::fake([
+            'www.bing.com/*' => Http::response('<rss><channel><item><title>Soup Restaurant</title><link>https://example.org/restaurant</link></item></channel></rss>'),
+            'html.duckduckgo.com/*' => Http::response('<a class="result__a" href="https://sqlite.org/wal.html">SQLite WAL concurrency</a>'),
+        ]);
+        $sources = app(WebSearch::class)->search('SQLite WAL');
+        $this->assertCount(1, $sources);
+        $this->assertSame('https://sqlite.org/wal.html', $sources[0]['url']);
+        $this->assertSame('duckduckgo', $sources[0]['provider']);
     }
 
     public function test_research_merges_queries_limits_domains_and_keeps_failed_page_labels(): void
@@ -102,5 +146,48 @@ class WebResearchTest extends TestCase
         $this->assertArrayNotHasKey('page_text', Message::find($r->json('message_id'))->sources[0]);
         $this->postJson('/api/v1/chat/frontend/finish', ['ticket' => $r->json('ticket'), 'content' => 'Report [1](https://example.org/paper)', 'status' => 'complete'], $headers)->assertOk();
         $this->assertDatabaseHas('messages', ['content' => 'Report [1](https://example.org/paper)', 'status' => 'complete']);
+    }
+
+    public function test_native_deep_research_defers_search_until_a_focused_query_is_planned(): void
+    {
+        config(['models.frontend_chat_key' => str_repeat('b', 32)]);
+        Sanctum::actingAs(User::create(['name' => 'Research', 'email' => 'native-research@example.org', 'password' => 'Password123!']));
+        Http::fake();
+        $this->mock(WebSearch::class)->shouldNotReceive('search');
+        $response = $this->postJson('/api/v1/chat/frontend/begin', [
+            'message' => 'Compare SQLite WAL with rollback journal. Write in Bangla.',
+            'deep_research' => true, 'conversation_tools' => true,
+        ], ['X-Chat-Bridge-Key' => str_repeat('b', 32)])->assertOk();
+        $this->assertSame([], $response->json('sources'));
+        Http::assertNothingSent();
+    }
+
+    public function test_search_falls_back_to_public_rss_without_exposing_primary_errors(): void
+    {
+        config(['models.search_url' => 'https://search.example/search', 'models.public_search_fallback' => true]);
+        Http::fake([
+            'https://search.example/*' => Http::response('private error', 503),
+            'https://www.bing.com/search*' => Http::response('<rss><channel><item><title>Primary evidence</title><link>https://example.org/paper?utm_source=bing</link><description>Useful summary</description></item></channel></rss>', 200, ['Content-Type' => 'application/rss+xml']),
+        ]);
+        $sources = app(WebSearch::class)->search('Evidence', ['time_range' => 'week']);
+        $this->assertSame('https://example.org/paper', $sources[0]['url']);
+        $this->assertSame('bing_rss', $sources[0]['provider']);
+        $this->assertFalse($sources[0]['time_filter_applied']);
+        Http::assertSentCount(3);
+    }
+
+    public function test_quick_search_reads_pages_and_preserves_unavailable_source_status(): void
+    {
+        $this->mock(WebSearch::class)->shouldReceive('search')->once()->andReturn([
+            ['url' => 'https://a.example/paper', 'title' => 'Read', 'snippet' => 'Snippet'],
+            ['url' => 'https://b.example/paper', 'title' => 'Unavailable', 'snippet' => 'Snippet'],
+        ]);
+        $reader = $this->mock(WebReader::class);
+        $reader->shouldReceive('read')->with('https://a.example/paper')->once()->andReturn(str_repeat('Evidence ', 30));
+        $reader->shouldReceive('read')->with('https://b.example/paper')->once()->andThrow(new \RuntimeException('Unavailable'));
+        $sources = app(WebResearch::class)->quick('Evidence');
+        $this->assertSame('read', $sources[0]['read_status']);
+        $this->assertSame('unavailable', $sources[1]['read_status']);
+        $this->assertArrayNotHasKey('page_text', app(WebResearch::class)->summaries($sources)[0]);
     }
 }

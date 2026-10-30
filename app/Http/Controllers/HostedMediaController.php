@@ -24,14 +24,14 @@ class HostedMediaController
         $this->authorizeBridge($r);
         $data = $r->validate([
             'kind' => ['required', Rule::in(['transcription', 'speech', 'document_create', 'video'])],
-            'prompt' => 'present|string|max:4000',
+            'prompt' => 'present|nullable|string|max:4000',
             'provider_model' => 'sometimes|string|max:190',
         ]);
         if (! empty($data['provider_model'])) {
             app(ApiCreditUsage::class)->connection('nvidia', $data['provider_model'], $data['kind']);
         }
         if (in_array($data['kind'], ['speech', 'document_create', 'video'], true)) {
-            abort_if(trim($data['prompt']) === '', 422, 'Enter a description.');
+            abort_if(trim((string) $data['prompt']) === '', 422, 'Enter a description.');
         }
 
         return Cache::lock('media-user:'.$r->user()->id, 15)->block(3, fn () => DB::transaction(function () use ($r, $data) {
@@ -51,7 +51,7 @@ class HostedMediaController
             abort_if((clone $query)->sum('bytes') + ($pending + 1) * 25000000 > config('media.storage_bytes'), 422, 'Media storage quota reached.');
             $task = MediaTask::create([
                 'user_id' => $id, 'kind' => $data['kind'],
-                'prompt' => $data['prompt'], 'status' => 'running',
+                'prompt' => (string) ($data['prompt'] ?? ''), 'status' => 'running',
             ]);
             $usage->increment('requests');
 
@@ -68,6 +68,7 @@ class HostedMediaController
             'mime' => 'nullable|string|max:100',
             'provider_model' => 'sometimes|string|max:190',
         ]);
+
         return DB::transaction(function () use ($r, $id, $data) {
             $task = MediaTask::where('user_id', $r->user()->id)->lockForUpdate()->findOrFail($id);
             abort_unless(in_array($task->kind, ['transcription', 'speech', 'document_create', 'video'], true) && $task->status === 'running', 409, 'Task is no longer active.');
@@ -100,7 +101,7 @@ class HostedMediaController
                 } elseif ($mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
                     abort_unless(str_starts_with($raw, 'PK'), 422, 'Invalid document archive.');
                     abort_unless(class_exists(\ZipArchive::class), 503, 'Document verification is unavailable.');
-                    $zip = new \ZipArchive();
+                    $zip = new \ZipArchive;
                     $tmp = tempnam(sys_get_temp_dir(), 'omd');
                     abort_unless($tmp !== false, 503, 'Unable to verify document.');
                     $opened = false;
@@ -140,6 +141,7 @@ class HostedMediaController
                 $connection = app(ApiCreditUsage::class)->connection('nvidia', $data['provider_model'], $task->kind);
                 app(ApiCreditUsage::class)->completed($task->user_id, $connection, 'media:'.$task->id);
             }
+
             return response()->json($task->fresh());
         });
     }
@@ -154,6 +156,7 @@ class HostedMediaController
             'error' => 'The requested media task could not be completed. Please try again later.',
             'bytes' => 0,
         ]);
+
         return response()->noContent();
     }
 }

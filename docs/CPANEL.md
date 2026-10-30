@@ -12,6 +12,55 @@ Set the domain and CLI to PHP 8.2, then follow README installation commands with
 
 Configure real SMTP so registration verification and password-reset emails arrive. Keep `APP_KEY` backed up securely; it encrypts the TOTP secrets and sessions. Configure your own inference endpoint. `HF_TOKEN` is optional for public repositories and may be required for gated files after accepting the repository license. It is used only for Hugging Face access, never for commercial inference.
 
+
+## Mobile API and Imunify360 bot protection
+
+**Known symptom:** the Flutter mobile app receives HTTP 403 from
+`https://cloud.openmindai.org/api/v1/public-config` with the response
+`Access denied by Imunify360 bot-protection. IPs used for automation should be whitelisted`.
+The hostname and Laravel route are correct, but this response is emitted by the
+hosting security layer **before Laravel can process the request**. Changing
+`.htaccess`, Laravel middleware, login credentials, OTP handling or mobile API
+keys will not reliably remove this WebShield challenge.
+
+**Required hosting-administrator action:**
+
+1. In the host's Imunify360 **Events/Incidents** and WebShield logs, inspect
+   the denied GET `/api/v1/public-config` event (time, client IP and rule).
+   Confirm whether the response comes from per-IP greylisting, the bot challenge,
+   an RBL rule, or an Under Attack Mode rule. These mechanisms require different
+   corrections.
+2. Ask the host to make first-party API requests from **real mobile apps**
+   accessible without a JavaScript/browser-cookie challenge, preferably by
+   scoping any exception to the Laravel API routes `/api/v1/*` and retaining
+   Laravel Sanctum, 2FA, OTP, user activation, server-side throttles, application
+   WAF rules and request limits. Whether path-level exceptions are available
+   depends on the particular Imunify360 module, version and hosting provider.
+3. If path-scoped WebShield exclusion is unavailable, consider **a dedicated
+   API-only hostname/virtual host** with a separately approved security policy
+   and no administration panel. Update both the web server and the mobile
+   `CloudAccount.apiBase` together. Do not repoint the app to a random
+   workaround or disable protection across the whole server.
+4. For a **short-lived, known test client**, the server administrator can
+   temporarily whitelist that client's IP under Imunify360's White List
+   and then retest. That is **not** a production solution: real customers'
+   mobile IP addresses change. A domain-wide WebShield whitelist affects
+   all paths on that hostname, potentially including the admin panel.
+5. Recheck from a real Android mobile network and a different network:
+   `GET /api/v1/public-config` must return **200 JSON** with
+   `registration_enabled`; then test `POST /api/v1/login` with a legitimate
+   test account and separately verify any unfamiliar-network OTP. Do not
+   include passwords, OTPs, bearer tokens or full IPs in public CI logs.
+
+The public-config endpoint is only a **read-only health probe**. It does not
+establish a user session. A working public-config request does not guarantee
+that POST login, OTP email delivery or the Cloud chat gateway also work.
+
+Do **not** use a fake browser user agent, solve the web challenge inside the
+mobile application, turn off SSL verification, put a provider/developer key
+in the app, or add public unauthenticated login proxy endpoints. Such
+workarounds are not safe substitutes for properly configuring the host.
+
 ## Queue and scheduler
 
 Preferred: run one persistent worker under the hosting process manager:

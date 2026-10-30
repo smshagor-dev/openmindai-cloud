@@ -2,11 +2,13 @@ import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
 import { spawn } from "node:child_process";
+import { createHash, createHmac } from "node:crypto";
 import { once } from "node:events";
 
 let backend, next, origin;
 let lastRequest;
 let logs = "";
+let mobileBackendBlocked = false;
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 before(async () => {
   backend = http
@@ -17,9 +19,35 @@ before(async () => {
         url: req.url,
         method: req.method,
         authorization: req.headers.authorization,
+        mobileIp: req.headers["x-openmind-mobile-ip"],
+        mobileTime: req.headers["x-openmind-mobile-time"],
+        mobileSignature: req.headers["x-openmind-mobile-signature"],
         body,
       };
       res.setHeader("Content-Type", "application/json");
+      if (req.url === "/api/v1/public-config") {
+        if (mobileBackendBlocked) {
+          res.statusCode = 403;
+          res.setHeader("Content-Type", "text/html");
+          return res.end("<html>Access denied by Imunify360 bot-protection</html>");
+        }
+        return res.end(JSON.stringify({
+          registration_enabled: true, site_name: "OpenMindAI",
+        }));
+      }
+      if (req.url === "/api/v1/mobile/models")
+        return res.end(JSON.stringify({
+          data: [{ id: "openmindai-lite", operation: "chat.completions", available: true }],
+        }));
+      if (req.url === "/api/v1/mobile/chat/completions") {
+        res.setHeader("Content-Type", "text/event-stream");
+        return res.end('data: {"choices":[{"delta":{"content":"Hello from Cloud"}}]}\n\ndata: [DONE]\n\n');
+      }
+      if (req.url === "/api/v1/login/verify-ip")
+        return res.end(JSON.stringify({
+          token: "fixture-mobile-verified-token",
+          user: { id: 1, name: "Test User", email: "test@example.com" },
+        }));
       if (req.url === "/api/v1/login")
         return res.end(
           JSON.stringify({
@@ -27,6 +55,18 @@ before(async () => {
             user: { id: 1, name: "Test User", email: "test@example.com" },
           }),
         );
+      if (req.url === "/api/v1/media/image-capabilities") {
+        return res.end(JSON.stringify({ enabled: true, ratios: ["1:1"] }));
+      }
+      if (req.url === "/api/v1/media/cloud-image" && req.method === "POST") {
+        res.statusCode = 202;
+        return res.end(JSON.stringify({ id: 9, status: "queued", kind: "image" }));
+      }
+      if (req.url === "/api/v1/media/9") {
+        return res.end(JSON.stringify({
+          id: 9, kind: "image", status: "complete", output_mime: "image/png",
+        }));
+      }
       if (req.url === "/api/v1/media/9/output") {
         res.setHeader("Content-Type", "image/png");
         return res.end(Buffer.from("private-png-fixture"));
@@ -57,6 +97,7 @@ before(async () => {
         return res.end(
           JSON.stringify({ title: "Public snapshot", messages: [] }),
         );
+      if (req.url === "/api/v1/guest/chat") return res.end(JSON.stringify({content: "Guest fixture response", remaining: 4}));
       if (req.url === "/api/v1/chat")
         return res.end(
           JSON.stringify({
@@ -68,6 +109,25 @@ before(async () => {
         res.statusCode = 429;
         res.setHeader("Retry-After", "25");
         return res.end(JSON.stringify({ message: "Too many requests." }));
+      }
+      if (req.url === "/api/v1/developer/keys") {
+        if (req.method === "POST") {
+          res.statusCode = 201;
+          return res.end(JSON.stringify({
+            id: 6,
+            api_key: "only-once-fixture-key",
+            base_url: "https://models.example/api/v1/openmindai",
+            expires_at: "2027-01-01T00:00:00Z"
+          }));
+        }
+        return res.end(JSON.stringify({
+          base_url: "https://models.example/api/v1/openmindai",
+          keys: []
+        }));
+      }
+      if (/^\/api\/v1\/developer\/keys\/\d+$/.test(req.url || "") && req.method === "DELETE") {
+        res.statusCode = 204;
+        return res.end();
       }
       if (req.url === "/api/v1/tokens") {
         res.setHeader("Content-Type", "text/html");
@@ -150,6 +210,8 @@ before(async () => {
         NEXT_TELEMETRY_DISABLED: "1",
         // These fixtures exercise the local backend proxy independently of .env.
         CHAT_PROVIDER: "local",
+        FRONTEND_CHAT_BRIDGE_KEY: "0123456789abcdef0123456789abcdef",
+        VERCEL: "0",
         FRONTEND_URL: origin,
         LARAVEL_API_URL: `http://127.0.0.1:${backend.address().port}/api/v1`,
       },
@@ -193,9 +255,22 @@ test("workspace renders the welcome layout", async () => {
   const r = await fetch(origin);
   const html = await r.text();
   assert.ok(html.includes("What can I help with?"));
+  assert.ok(html.includes("OpenMindAI"));
+  assert.ok(html.includes("openmindai-logo.png"));
   assert.ok(html.includes("New chat"));
   assert.ok(html.includes("Ask anything"));
 });
+test("frontend health endpoint stays JSON even without backend credentials", async () => {
+  const response = await fetch(origin + "/api/health");
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("content-type") || "", /application\/json/);
+  const health = await response.json();
+  assert.equal(health.service, "OpenMindAI frontend");
+  assert.equal(health.frontend, "ok");
+  assert.equal(health.backendConfigured, true);
+  assert.equal(JSON.stringify(health).includes("127.0.0.1"), false);
+});
+
 test("protected requests reject missing cookies", async () => {
   assert.equal((await request("me")).status, 401);
 });
@@ -342,6 +417,36 @@ test("media binary downloads preserve privacy and reject HTML", async () => {
     (await request("media/10/output", { headers: { Cookie: cookie } })).status,
     502,
   );
+});
+
+test("developer key endpoints require login and remain origin protected", async () => {
+  assert.equal((await request("developer/keys")).status, 401);
+  const auth = await login();
+  const cookie = auth.headers.get("set-cookie").split(";")[0];
+  const list = await request("developer/keys", { headers: { Cookie: cookie } });
+  assert.equal(list.status, 200);
+  assert.deepEqual((await list.json()).keys, []);
+
+  const created = await request("developer/keys", {
+    method: "POST",
+    headers: { ...headers(), Cookie: cookie },
+    body: JSON.stringify({ name: "OpenMind Studio", password: "correct" }),
+  });
+  assert.equal(created.status, 201);
+  assert.equal((await created.json()).api_key, "only-once-fixture-key");
+  assert.equal(lastRequest.authorization, "Bearer fixture-secret-token");
+  const revoked = await request("developer/keys/6", {
+    method: "DELETE",
+    headers: { ...headers(), Cookie: cookie },
+    body: "{}",
+  });
+  assert.equal(revoked.status, 204);
+  const denied = await request("developer/keys", {
+    method: "POST",
+    headers: { ...headers(), Origin: "https://evil.example", Cookie: cookie },
+    body: "{}",
+  });
+  assert.equal(denied.status, 403);
 });
 
 test("profile settings and data actions use the authenticated proxy", async () => {
@@ -579,4 +684,177 @@ test("teams, approved connectors and live input remain authenticated and origin-
       ).status,
       204,
     );
+});
+
+test("guest chat works without a token, still rejects cross-origin requests and supports conversation URLs", async () => {
+  const r = await request("guest/chat", {method: "POST", headers: headers(), body: JSON.stringify({message: "Hello"})});
+  assert.equal(r.status, 200);
+  assert.equal((await r.json()).remaining, 4);
+  assert.equal(lastRequest.authorization, undefined);
+  const crossOrigin = await request("guest/chat", {method: "POST", headers: {"Content-Type": "application/json", Origin: "https://other.example"}, body: JSON.stringify({message: "Hello"})});
+  assert.equal(crossOrigin.status, 403);
+  const conversation = await fetch(`${origin}/c/7-example-chat`);
+  assert.equal(conversation.status, 200);
+  assert.match(await conversation.text(), /OpenMindAI/);
+});
+
+
+const mobileRequest = (path, options = {}) =>
+  fetch(origin + "/api/mobile/v1/" + path, options);
+
+test("mobile gateway checks real Laravel backend status", async () => {
+  const status = await mobileRequest("status");
+  assert.equal(status.status, 200);
+  assert.deepEqual(await status.json(), { gateway: "ok", backend: "connected" });
+  const config = await mobileRequest("public-config");
+  assert.equal(config.status, 200);
+  assert.equal((await config.json()).registration_enabled, true);
+});
+
+test("mobile login returns Sanctum token, not a browser cookie", async () => {
+  const response = await mobileRequest("login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      email: "test@example.com",
+      password: "fixture-password",
+      device_name: "OpenMindAI Mobile",
+    }),
+  });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).token, "fixture-secret-token");
+  assert.equal(response.headers.get("set-cookie"), null);
+  assert.equal(lastRequest.authorization, undefined);
+  assert.ok(lastRequest.mobileIp, "signed client IP must reach Laravel");
+  assert.ok(lastRequest.mobileTime);
+  const message = [
+    lastRequest.mobileTime, lastRequest.mobileIp, "POST", "/api/v1/login",
+    createHash("sha256").update(lastRequest.body).digest("hex"),
+  ].join("\n");
+  assert.equal(lastRequest.mobileSignature,
+    createHmac("sha256", "0123456789abcdef0123456789abcdef")
+      .update(message).digest("hex"));
+  assert.match(response.headers.get("cache-control") || "", /no-store/);
+});
+
+test("mobile unfamiliar-network OTP returns a bearer session", async () => {
+  const response = await mobileRequest("login/verify-ip", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      challenge_id: "00000000-0000-4000-8000-000000000001",
+      code: "123456",
+    }),
+  });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).token, "fixture-mobile-verified-token");
+  assert.equal(response.headers.get("set-cookie"), null);
+});
+
+test("mobile APIs reject browser cookies and require a bearer token", async () => {
+  assert.equal((await mobileRequest("me")).status, 401);
+  assert.equal((await mobileRequest("mobile/models", {
+    headers: { Cookie: "openmindai_token=fixture-secret-token" },
+  })).status, 401);
+  const response = await mobileRequest("mobile/models", {
+    headers: { Authorization: "Bearer fixture-mobile-secret-token" },
+  });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).data[0].id, "openmindai-lite");
+  assert.equal(lastRequest.authorization, "Bearer fixture-mobile-secret-token");
+});
+
+test("native Cloud image requests use private authenticated media routes", async () => {
+  const token = { Authorization: "Bearer fixture-mobile-secret-token" };
+  assert.equal((await mobileRequest("media/image-capabilities")).status, 401);
+  const capabilities = await mobileRequest("media/image-capabilities",
+    { headers: token });
+  assert.equal(capabilities.status, 200);
+  assert.equal((await capabilities.json()).enabled, true);
+
+  const create = await mobileRequest("media/cloud-image", {
+    method: "POST",
+    headers: { ...token, "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt: "a dog in a park", mode: "generate", count: 1 }),
+  });
+  assert.equal(create.status, 202);
+  assert.equal((await create.json()).id, 9);
+  assert.equal(lastRequest.authorization, token.Authorization);
+
+  const status = await mobileRequest("media/9", { headers: token });
+  assert.equal((await status.json()).status, "complete");
+  const output = await mobileRequest("media/9/output", { headers: token });
+  assert.equal(output.status, 200);
+  assert.equal(output.headers.get("content-type"), "image/png");
+  assert.equal(output.headers.get("set-cookie"), null);
+  assert.match(output.headers.get("cache-control") || "", /no-store/);
+  assert.equal(await output.text(), "private-png-fixture");
+});
+
+test("media gateway rejects arbitrary paths and non-image HTML downloads", async () => {
+  const headers = { Authorization: "Bearer fixture-mobile-secret-token" };
+  assert.equal((await mobileRequest("media/../tokens",
+    { headers })).status, 404);
+  assert.equal((await mobileRequest("media/abc/output",
+    { headers })).status, 404);
+  const response = await mobileRequest("media/10/output", { headers });
+  assert.equal(response.status, 502);
+  assert.equal(JSON.stringify(await response.json()).includes("<script>"), false);
+});
+
+test("native mobile SSE streams and preserves bearer authentication", async () => {
+  const response = await mobileRequest("mobile/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer fixture-mobile-secret-token",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "openmindai-lite",
+      messages: [{ role: "user", content: "Hello" }],
+      stream: true,
+    }),
+  });
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("content-type"), /text\/event-stream/);
+  assert.match(await response.text(), /data: \[DONE\]/);
+  assert.equal(lastRequest.authorization, "Bearer fixture-mobile-secret-token");
+});
+
+test("native gateway rejects browser origins, unknown paths and oversized bodies", async () => {
+  assert.equal((await mobileRequest("login", {
+    method: "POST",
+    headers: { Origin: origin, "Content-Type": "application/json" },
+    body: "{}",
+  })).status, 403);
+  assert.equal((await mobileRequest("evil/admin-token")).status, 404);
+  assert.equal((await mobileRequest("me?url=https://evil.example", {
+    headers: { Authorization: "Bearer fixture-mobile-secret-token" },
+  })).status, 400);
+  assert.equal((await mobileRequest("login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message: "a".repeat(45000) }),
+  })).status, 413);
+});
+
+test("mobile status identifies upstream WAF blocks without returning HTML", async () => {
+  mobileBackendBlocked = true;
+  try {
+    const status = await mobileRequest("status");
+    assert.equal(status.status, 503);
+    assert.equal((await status.json()).reason, "HOSTING_FIREWALL_BLOCKED");
+    const response = await mobileRequest("public-config");
+    assert.equal(response.status, 503);
+    const data = await response.json();
+    assert.equal(data.code, "HOSTING_FIREWALL_BLOCKED");
+    assert.equal(JSON.stringify(data).includes("<html>"), false);
+  } finally {
+    mobileBackendBlocked = false;
+  }
+});
+
+test("legacy document preview requires an authenticated same-origin request", async () => {
+  const response = await fetch(`${origin}/api/document-preview`, {method: "POST", headers: headers(), body: JSON.stringify({data: "eA=="})});
+  assert.equal(response.status, 401);
 });

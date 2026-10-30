@@ -1,13 +1,23 @@
 // Server-only hosted media bridge. Browser never receives third-party credentials.
+import { readProviderJson } from "./provider-response.ts";
 export type HostedKind = "transcription" | "speech" | "video" | "document_create";
-type Work = { kind: HostedKind; prompt: string; input?: string; format?: "pdf" | "docx" };
+type Work = { kind: HostedKind; prompt: string; input?: string; format?: "pdf" | "docx"; language?: string };
 export type ProviderConfig = { apiKey: string; bridgeKey: string; chatModel?: string };
 const ASR = "https://1598d209-5e27-4d3c-8079-4751568b1081.invocation.api.nvcf.nvidia.com/v1/audio/transcriptions";
 const SPEECH = "https://877104f7-e885-42b9-8de8-f6e4c6303969.invocation.api.nvcf.nvidia.com/v1/audio/synthesize";
 const VIDEO = "https://ai.api.nvidia.com/v1/cosmos/nvidia/cosmos3-nano";
 const CHAT = "https://integrate.api.nvidia.com/v1/chat/completions";
+// The hosted service documents these locale/voice pairs. Keep provider
+// identifiers on the server, while the frontend only shows language names.
+const SPEECH_VOICES: Record<string, string> = {
+  "en-US": "Magpie-Multilingual.EN-US.Aria",
+  "es-US": "Magpie-Multilingual.ES-US.Diego",
+  "fr-FR": "Magpie-Multilingual.FR-FR.Louise",
+};
 export const hostedMediaEnabled = () =>
   !!process.env.NVIDIA_API_KEY && (process.env.FRONTEND_CHAT_BRIDGE_KEY?.length || 0) >= 32;
+export const hostedDocumentEnabled = () =>
+  (process.env.FRONTEND_CHAT_BRIDGE_KEY?.length || 0) >= 32;
 
 class WorkError extends Error {
   status: number;
@@ -63,9 +73,11 @@ async function readBounded(response: Response, limit: number): Promise<Buffer> {
   }
 }
 async function readJson(response: Response, limit: number): Promise<any> {
-  const raw = await readBounded(response, limit);
-  try { return JSON.parse(raw.toString("utf8")); }
-  catch { throw new WorkError("The media service returned an invalid response.", 502); }
+  try {
+    return await readProviderJson(response, limit);
+  } catch {
+    throw new WorkError("The media service returned an invalid or oversized response.", 502);
+  }
 }
 function validMedia(raw: Buffer, kind: HostedKind) {
   if (!raw.length || raw.length > 20000000) throw new WorkError("Invalid media output.", 502);
@@ -84,7 +96,7 @@ export async function hostedMediaRequest(
     bridgeKey: process.env.FRONTEND_CHAT_BRIDGE_KEY || "",
     chatModel: process.env.NVIDIA_MODEL || "nvidia/nemotron-3.5-lightning-30b-a3b",
   };
-  if (!config.apiKey || config.bridgeKey.length < 32)
+  if (config.bridgeKey.length < 32)
     return Response.json({ message: "Media services are not configured." }, { status: 503 });
   let job: Work;
   try { job = JSON.parse(payload); }
@@ -93,10 +105,16 @@ export async function hostedMediaRequest(
       typeof job.prompt !== "string" || job.prompt.length > 4000 ||
       (job.kind !== "transcription" && !job.prompt.trim()))
     return Response.json({ message: "Invalid media request." }, { status: 422 });
+  if (job.kind !== "document_create" && !config.apiKey)
+    return Response.json({ message: "This media engine is not configured." }, { status: 503 });
   if (job.kind === "document_create" && !["pdf", "docx"].includes(job.format || ""))
     return Response.json({ message: "Choose PDF or DOCX.", status: 422 }, { status: 422 });
   if (job.kind === "speech" && job.prompt.length > 1000)
     return Response.json({ message: "Speech text must be within 1000 characters." }, { status: 422 });
+  // Reject unknown voices before creating a task or consuming daily quota.
+  const speechLanguage = job.language ?? "en-US";
+  if (job.kind === "speech" && !Object.hasOwn(SPEECH_VOICES, speechLanguage))
+    return Response.json({ message: "This speech language is not available." }, { status: 422 });
   let input: Buffer | null = null;
   try {
     if (job.kind === "transcription") {
@@ -120,10 +138,12 @@ export async function hostedMediaRequest(
       redirect: "error", signal: AbortSignal.timeout(timeout),
     });
   const invoke = async (url: string, body: BodyInit, type?: string, timeout = 110000) => {
-    const response = await fetcher(url, {
+    const backendDocument = job.kind === "document_create" && (!options.config || !config.apiKey);
+    const response = await fetcher(backendDocument ? base + "/chat/provider" : url, {
       method: "POST", body,
       headers: {
-        Authorization: "Bearer " + config.apiKey,
+        Authorization: "Bearer " + (backendDocument ? token : config.apiKey),
+        ...(backendDocument ? { "X-Chat-Bridge-Key": config.bridgeKey } : {}),
         Accept: job.kind === "transcription" || job.kind === "document_create" || job.kind === "video" ? "application/json" : "audio/wav",
         ...(type ? { "Content-Type": type } : {}),
       },
@@ -144,12 +164,24 @@ export async function hostedMediaRequest(
   let taskId: number | null = null;
   try {
     const begin = await bridge("media/hosted/task/begin", { kind: job.kind, prompt: job.prompt, provider_model: providerModel });
-    if (!begin.ok) throw new WorkError(begin.status === 429
-      ? "Daily media request limit reached."
-      : "Cannot start a media task.", begin.status === 429 ? 429 : 503);
+    if (!begin.ok) {
+      const status = begin.status === 401 ? 401 : begin.status === 403 ? 403 :
+        begin.status === 422 ? 422 : begin.status === 429 ? 429 : 503;
+      throw new WorkError(
+        status === 401 ? "Your session expired. Please sign in again." :
+        status === 403 ? "You do not have access to this media task." :
+        status === 422 ? "This media request was rejected." :
+        status === 429 ? "Daily media request limit reached." :
+        "Cannot start a media task.",
+        status,
+      );
+    }
     const task = await begin.json();
     if (!Number.isSafeInteger(task?.id) || task.id < 1) throw new WorkError("Invalid media task.");
     taskId = task.id;
+    // An abandoned browser request must not begin costly provider inference.
+    // Keep the cleanup bridge independent of this signal so it can mark failure.
+    if (signal.aborted) throw new WorkError("Media request was cancelled.", 499);
     let completed: Record<string, string>;
     if (job.kind === "transcription") {
       const form = new FormData();
@@ -164,8 +196,8 @@ export async function hostedMediaRequest(
     } else if (job.kind === "speech") {
       const form = new FormData();
       form.set("text", job.prompt);
-      form.set("language", "en-US");
-      form.set("voice", "Magpie-Multilingual.EN-US.Aria");
+      form.set("language", speechLanguage);
+      form.set("voice", SPEECH_VOICES[speechLanguage]);
       form.set("encoding", "LINEAR_PCM");
       form.set("sample_rate_hz", "44100");
       const response = await invoke(SPEECH, form);
@@ -197,19 +229,33 @@ export async function hostedMediaRequest(
       const reply = await readJson(response, 1000000);
       const text = reply?.choices?.[0]?.message?.content;
       if (typeof text !== "string" || !text.trim()) throw new WorkError("Document generation returned no content.", 502);
-      const { renderDocx, renderPdf } = await import("./document-files");
+      const { renderDocx, renderPdf } = await import("./document-files.ts");
       const raw = job.format === "docx" ? renderDocx(text) : renderPdf(text);
       completed = { data: raw.toString("base64"), mime: job.format === "docx"
         ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document" : "application/pdf" };
     }
+    if (signal.aborted) throw new WorkError("Media request was cancelled.", 499);
     const saved = await bridge("media/" + taskId + "/hosted/task/complete", { ...completed, provider_model: providerModel }, 45000);
-    if (!saved.ok) throw new WorkError("Media created but could not be saved.");
+    if (!saved.ok) {
+      // Only propagate known actionable validation messages, never raw provider bodies.
+      const detail = await saved.json().catch(() => null);
+      if (detail?.message === "Document verification is unavailable.")
+        throw new WorkError("The backend PHP ZIP extension is required to save DOCX files. Enable it or choose PDF.", 503);
+    }
+    if (!saved.ok) throw new WorkError(
+      saved.status === 404 || saved.status === 409
+        ? "This media task was deleted or cancelled."
+        : `Media created but the backend could not save it (HTTP ${saved.status}).`,
+      saved.status === 404 || saved.status === 409 ? 409 : 503,
+    );
     const result = await saved.json();
     if (result.status !== "complete" || result.id !== taskId) throw new WorkError("Media was not saved.");
     return Response.json(result, { status: 201, headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     if (taskId) { try { await bridge("media/" + taskId + "/hosted/task/fail", {}, 12000); } catch {} }
     const failure = error instanceof WorkError ? error : new WorkError("Media generation could not be completed.");
-    return Response.json({ message: failure.message, ...(taskId ? { task_id: taskId } : {}) }, { status: failure.status });
+    return Response.json({ message: failure.message, ...(taskId ? { task_id: taskId } : {}) }, {
+      status: failure.status, headers: { "Cache-Control": "no-store" },
+    });
   }
 }

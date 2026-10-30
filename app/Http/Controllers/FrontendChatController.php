@@ -4,11 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Models\Conversation;
 use App\Models\Message;
+use App\Services\ApiCreditUsage;
 use App\Services\AutomaticMemory;
 use App\Services\ChatContext;
-use App\Services\ApiCreditUsage;
 use App\Services\HostedChatActivity;
-use App\Services\WebReader;
+use App\Services\WebEvidence;
 use App\Services\WebResearch;
 use App\Services\WebSearch;
 use Illuminate\Http\Request;
@@ -31,7 +31,7 @@ class FrontendChatController
     public function begin(Request $r, ChatContext $context)
     {
         $this->guard($r);
-        $d = $r->validate(['message' => 'required|string|max:16000', 'conversation_id' => 'nullable|integer', 'project_id' => ['nullable', 'integer', Rule::exists('projects', 'id')->where('user_id', $r->user()->id)], 'assistant_id' => ['nullable', 'integer', Rule::exists('assistants', 'id')->where('user_id', $r->user()->id)], 'attachment_ids' => 'sometimes|array|max:5', 'attachment_ids.*' => 'integer', 'temporary' => 'sometimes|boolean', 'web_search' => 'sometimes|boolean', 'deep_research' => 'sometimes|boolean', 'search_time_range' => 'sometimes|in:day,week,month,year', 'history' => 'sometimes|array|max:20', 'history.*.role' => 'required|in:user,assistant', 'history.*.content' => 'required|string|max:16000', 'provider_model' => 'sometimes|string|max:190']);
+        $d = $r->validate(['message' => 'required|string|max:16000', 'conversation_id' => 'nullable|integer', 'project_id' => ['nullable', 'integer', Rule::exists('projects', 'id')->where('user_id', $r->user()->id)], 'assistant_id' => ['nullable', 'integer', Rule::exists('assistants', 'id')->where('user_id', $r->user()->id)], 'attachment_ids' => 'sometimes|array|max:5', 'attachment_ids.*' => 'integer', 'temporary' => 'sometimes|boolean', 'web_search' => 'sometimes|boolean', 'deep_research' => 'sometimes|boolean', 'search_time_range' => 'sometimes|in:day,week,month,year', 'history' => 'sometimes|array|max:20', 'history.*.role' => 'required|in:user,assistant', 'history.*.content' => 'required|string|max:16000', 'provider_model' => 'sometimes|string|max:190', 'conversation_tools' => 'sometimes|boolean']);
         if (! empty($d['provider_model'])) {
             app(ApiCreditUsage::class)->connection('nvidia', $d['provider_model'], 'chat');
         }
@@ -62,7 +62,7 @@ class FrontendChatController
             $research = app(WebResearch::class);
             $deep = ! empty($d['deep_research']);
             $options = ['time_range' => $d['search_time_range'] ?? null];
-            $evidence = $deep ? $research->collect($d['message'], $options) : (! empty($d['web_search']) ? app(WebSearch::class)->search($d['message'], $options) : []);
+            $evidence = ! empty($d['conversation_tools']) ? [] : ($deep ? $research->collect($d['message'], $options) : (! empty($d['web_search']) ? $research->quick($d['message'], $options) : []));
             if ($evidence || ! empty($d['web_search'])) {
                 $messages[0]['content'] .= $research->prompt($evidence, $deep);
             }
@@ -77,8 +77,8 @@ class FrontendChatController
                 });
             }
             $ticket = bin2hex(random_bytes(32));
-            $assistant?->update(['inference_token' => hash('sha256', $ticket), 'inference_checkpoint' => ['messages' => $messages, 'deep_research' => $deep, 'search_time_range' => $d['search_time_range'] ?? null]]);
-            Cache::put('frontend-chat:'.hash('sha256', $ticket), ['user_id' => $r->user()->id, 'message_id' => $assistant?->id, 'user_message_id' => $question?->id, 'conversation_id' => $temporary ? null : $c->id, 'lock_owner' => $lock->owner(), 'done' => false, 'deep_research' => $deep], 600);
+            $assistant?->update(['inference_token' => hash('sha256', $ticket), 'inference_checkpoint' => ['messages' => $messages, 'deep_research' => $deep, 'search_time_range' => $d['search_time_range'] ?? null, 'conversation_tools' => ! empty($d['conversation_tools'])]]);
+            Cache::put('frontend-chat:'.hash('sha256', $ticket), ['user_id' => $r->user()->id, 'message_id' => $assistant?->id, 'user_message_id' => $question?->id, 'conversation_id' => $temporary ? null : $c->id, 'lock_owner' => $lock->owner(), 'done' => false, 'deep_research' => $deep, 'conversation_tools' => ! empty($d['conversation_tools'])], 600);
 
             return ['ticket' => $ticket, 'messages' => $messages, 'conversation_id' => $temporary ? null : $c->id, 'user_message_id' => $question?->id, 'message_id' => $assistant?->id, 'sources' => $sources, 'automatic_memory' => ! $temporary && $r->user()->automatic_memory && $r->user()->memory_enabled];
         } catch (Throwable $e) {
@@ -94,6 +94,7 @@ class FrontendChatController
         [, $lease] = $this->lease($r);
         abort_if($lease['done'], 409);
         $d = $r->validate(['state' => 'required|array']);
+        abort_if(! empty($lease['deep_research']) && strlen($r->getContent()) > 4000000, 413, 'Research checkpoint is too large.');
         if (! $lease['message_id']) {
             return ['stored' => false];
         }
@@ -103,7 +104,13 @@ class FrontendChatController
             abort_unless($m->inference_token === hash('sha256', $r->input('ticket')) && $m->status === 'generating', 409);
             $state = $m->inference_checkpoint ?? [];
             $state['progress'] = $d['state'];
-            $m->update(['inference_checkpoint' => $state]);
+            $updates = ['inference_checkpoint' => $state];
+            if (is_array($d['state']['metadata'] ?? null)) {
+                abort_if(strlen(json_encode($d['state']['metadata'], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE)) > 200000, 413, 'Research metadata is too large.');
+                $updates['research_metadata'] = $d['state']['metadata'];
+                $updates['sources'] = array_values(array_filter(array_map(fn ($source) => app(WebEvidence::class)->summary($source), array_slice($d['state']['sources'] ?? [], 0, 60))));
+            }
+            $m->update($updates);
 
             return ['stored' => true];
         });
@@ -183,18 +190,17 @@ class FrontendChatController
     public function tool(Request $r)
     {
         [, $lease] = $this->lease($r);
-        abort_unless(! $lease['done'] && ! empty($lease['deep_research']), 409);
+        abort_unless(! $lease['done'] && (! empty($lease['deep_research']) || ! empty($lease['conversation_tools'])), 409);
         abort_if($lease['message_id'] && (! Message::whereKey($lease['message_id'])->where('status', 'generating')->exists() || Cache::get('stop-message:'.$lease['message_id'])), 409, 'Research stopped.');
-        $d = $r->validate(['action' => 'required|in:search,read', 'query' => 'required_if:action,search|string|max:500', 'url' => 'required_if:action,read|string|max:2000', 'time_range' => 'nullable|in:day,week,month,year']);
+        $d = $r->validate(['action' => 'required|in:search,read', 'query' => 'required_if:action,search|string|max:500', 'url' => 'required_if:action,read|string|max:2000', 'time_range' => 'nullable|in:day,week,month,year', 'question' => 'sometimes|string|max:16000']);
         if ($d['action'] === 'search') {
             return ['sources' => app(WebSearch::class)->search($d['query'], ['limit' => 10, 'time_range' => $d['time_range'] ?? null])];
         }
         try {
             $url = WebSearch::canonicalUrl($d['url']);
             abort_unless($url, 422);
-            $text = app(WebReader::class)->read($url);
 
-            return ['url' => $url, 'page_text' => $text, 'read_status' => mb_strlen(trim($text)) >= 80 ? 'read' : 'unavailable'];
+            return app(WebEvidence::class)->read($url, $d['question'] ?? '');
         } catch (Throwable $e) {
             return ['url' => $d['url'], 'read_status' => 'unavailable'];
         }
@@ -214,7 +220,30 @@ class FrontendChatController
     public function finish(Request $r)
     {
         [$key] = $this->lease($r);
-        $d = $r->validate(['content' => 'present|nullable|string', 'sources' => 'sometimes|array', 'sources.*.url' => 'required|string|max:2000', 'sources.*.title' => 'present|nullable|string|max:200', 'sources.*.snippet' => 'sometimes|nullable|string|max:2000', 'sources.*.read_status' => 'sometimes|in:read,unavailable,snippet_only', 'sources.*.citation' => 'sometimes|integer|min:1', 'status' => 'required|in:complete,failed,cancelled', 'provider_model' => 'sometimes|string|max:190']);
+        $d = $r->validate([
+            'content' => 'present|nullable|string', 'sources' => 'sometimes|array',
+            'sources.*.url' => 'required|string|max:2000', 'sources.*.title' => 'present|nullable|string|max:200',
+            'sources.*.snippet' => 'sometimes|nullable|string|max:2000', 'sources.*.read_status' => 'sometimes|in:read,unavailable,snippet_only',
+            'sources.*.citation' => 'sometimes|integer|min:1',
+            'sources.*.provider' => 'sometimes|nullable|string|max:40',
+            'sources.*.retrieved_at' => 'sometimes|nullable|string|max:80',
+            'sources.*.mime' => 'sometimes|nullable|in:text/html,text/plain,application/pdf',
+            'sources.*.final_url' => 'sometimes|nullable|string|max:2000',
+            'sources.*.duplicate_of' => 'sometimes|nullable|string|max:2000',
+            'sources.*.passages' => 'sometimes|array|max:8',
+            'sources.*.passages.*' => 'array:id,text,page',
+            'sources.*.passages.*.id' => 'sometimes|string|max:20',
+            'sources.*.passages.*.text' => 'required|string|max:1000',
+            'sources.*.passages.*.page' => 'sometimes|nullable|integer|min:1|max:5000',
+            'sources.*.pdf' => 'sometimes|nullable|array:total_pages,sampled_pages,partial,ocr',
+            'sources.*.pdf.total_pages' => 'sometimes|integer|min:1|max:5000',
+            'sources.*.pdf.sampled_pages' => 'sometimes|array|max:8',
+            'sources.*.pdf.sampled_pages.*' => 'integer|min:1|max:5000',
+            'sources.*.pdf.partial' => 'sometimes|boolean',
+            'sources.*.pdf.ocr' => 'sometimes|boolean',
+            'research_metadata' => 'sometimes|array', 'status' => 'required|in:complete,failed,cancelled',
+            'provider_model' => 'sometimes|string|max:190',
+        ]);
         // Preserve provider whitespace after validating the submitted field type.
         $d['content'] = json_decode($r->getContent(), true)['content'] ?? '';
         if (! is_string($d['content'])) {
@@ -237,11 +266,11 @@ class FrontendChatController
                         $updates['inference_checkpoint'] = null;
                     }
                     if (isset($d['sources'])) {
-                        $updates['sources'] = array_values(array_filter(array_map(function ($source) {
-                            $url = WebSearch::canonicalUrl($source['url']);
-
-                            return $url ? ['url' => $url, 'title' => $source['title'] ?: mb_substr($url, 0, 200), 'snippet' => $source['snippet'] ?? '', 'read_status' => $source['read_status'] ?? 'snippet_only', 'citation' => $source['citation'] ?? 1] : null;
-                        }, $d['sources'])));
+                        $updates['sources'] = array_values(array_filter(array_map(fn ($source) => app(WebEvidence::class)->summary($source), array_slice($d['sources'], 0, 60))));
+                    }
+                    if (isset($d['research_metadata'])) {
+                        abort_if(strlen(json_encode($d['research_metadata'], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE)) > 200000, 413, 'Research metadata is too large.');
+                        $updates['research_metadata'] = $d['research_metadata'];
                     }
                     $m->fill($updates);
                     abort_unless(Message::whereKey($m->id)->where('inference_token', hash('sha256', $r->input('ticket')))->update($m->getDirty()), 410);

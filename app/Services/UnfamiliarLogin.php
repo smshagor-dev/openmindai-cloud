@@ -110,7 +110,7 @@ class UnfamiliarLogin
                 return null;
             }
 
-            if ($user->tokens()->count() >= 10) {
+            if ($user->tokens()->where('name', 'not like', 'developer:%')->count() >= 10) {
                 return ['device_limit' => true];
             }
 

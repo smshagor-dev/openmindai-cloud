@@ -76,6 +76,7 @@ class ApiCreditUsage
         return $rows->map(function ($row) {
             $used = (int) $row->used;
             $limit = $row->monthly_credit_limit === null ? null : (int) $row->monthly_credit_limit;
+
             return [
                 'id' => (int) $row->id,
                 'provider' => $row->provider,
@@ -94,6 +95,7 @@ class ApiCreditUsage
     public function users(): array
     {
         $from = $this->monthStart();
+
         return DB::table('users as users')
             ->leftJoin('api_credit_usage as u', function ($join) use ($from) {
                 $join->on('u.user_id', '=', 'users.id')

@@ -1,127 +1,70 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { generateHostedImage } from "../src/lib/hosted-image.ts";
+import {generateHostedImage} from "../src/lib/hosted-image.ts";
 
-const config = { apiKey: "private-image-key", bridgeKey: "s".repeat(32) };
-const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1kAAAAASUVORK5CYII=";
-const jpeg = "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDABALDA4MChAODQ4SERATGCgaGBYWGDEjJR0oOjM9PDkzODdASFxOQERXRTc4UG1RV19iZ2hnPk1xeXBkeFxlZ2P/2wBDARESEhgVGC8aGi9jQjhCY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2P/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAT/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFAEBAAAAAAAAAAAAAAAAAAAABv/EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAMAwEAAhEDEQA/ALABcjf/2Q==";
+const backend = "https://cloud.example.test/api/v1";
+const token = "private-account-token";
+const prompt = "Draw a watercolor bridge";
+const run = (fetcher, input = {prompt}, waitForCompletion = false) =>
+  generateHostedImage(JSON.stringify(input), token, backend, new AbortController().signal,
+    {fetcher, waitForCompletion});
 
-function backendScenario({ providerStatus = 200, finishReason = "SUCCESS", finishStatus = 200, limited = false, imageData = png } = {}) {
+test("image creation only reaches Laravel; no NVIDIA network access or frontend key", async () => {
   const calls = [];
-  const fetcher = async (url, init) => {
-    const body = JSON.parse(init.body);
-    calls.push({ url, body, headers: init.headers });
-    if (url.endsWith("/media/hosted/begin")) {
-      return limited
-        ? Response.json({ message: "No quota" }, { status: 429 })
-        : Response.json({ id: 7, status: "running" }, { status: 202 });
-    }
-    if (url.endsWith("/media/7/hosted/finish"))
-      return Response.json(
-        { id: 7, status: "complete", output_mime: "image/png" },
-        { status: finishStatus },
-      );
-    if (url.endsWith("/media/7/hosted/fail"))
-      return new Response(null, { status: 204 });
-    assert.equal(url, "https://ai.api.nvidia.com/v1/genai/black-forest-labs/flux.1-schnell");
-    assert.equal(init.headers.Authorization, "Bearer private-image-key");
-    assert.equal(body.mode, "base");
-    assert.equal(body.steps, 4);
-    assert.equal(body.cfg_scale, 0);
-    assert.equal(body.samples, 1);
-    assert.equal(body.prompt, "Sunrise over a forest");
-    return Response.json(
-      { artifacts: [{ base64: imageData, finishReason }] },
-      { status: providerStatus },
-    );
+  const fetcher = async (url, request) => {
+    calls.push({url,request,body:JSON.parse(request.body)});
+    return Response.json({id:41,ids:[41,42],status:"queued",kind:"image"}, {status:202});
   };
-  return { fetcher, calls };
-}
-async function generate(f, options = {}) {
-  return generateHostedImage(
-    JSON.stringify({ prompt: "Sunrise over a forest" }),
-    "user-token",
-    "https://private-backend/api/v1",
-    new AbortController().signal,
-    { fetcher: f.fetcher, config, ...options },
-  );
-}
-
-test("authenticated image bridge generates and saves a private image", async () => {
-  const f = backendScenario();
-  const response = await generate(f);
-  assert.equal(response.status, 201);
-  const saved = await response.json();
-  assert.equal(saved.id, 7);
-  assert.equal(saved.status, "complete");
-  assert.equal(f.calls.length, 3);
-  assert.equal(f.calls[0].headers.Authorization, "Bearer user-token");
-  assert.equal(f.calls[0].headers["X-Chat-Bridge-Key"], config.bridgeKey);
-  assert.equal(f.calls[2].body.mime, "image/png");
-  assert.equal(f.calls[2].body.data, png);
-  assert.doesNotMatch(JSON.stringify(saved), /NVIDIA|flux|private-image-key/i);
+  const result = await run(fetcher,{prompt,count:2,aspect_ratio:"16:9",seed:100});
+  assert.equal(result.status,202);
+  assert.deepEqual((await result.json()).ids,[41,42]);
+  assert.equal(calls.length,1);
+  assert.equal(calls[0].url,backend + "/media/cloud-image");
+  assert.equal(calls[0].request.headers.Authorization,"Bearer " + token);
+  assert.equal(calls[0].body.count,2);
+  assert.equal(calls[0].body.aspect_ratio,"16:9");
+  assert.ok(!JSON.stringify(calls).includes("NVIDIA_API_KEY"));
+  assert.ok(!JSON.stringify(calls).includes("ai.api.nvidia.com"));
 });
 
-test("accepts the JPEG format returned by hosted generation", async () => {
-  const f = backendScenario({ imageData: jpeg });
-  const response = await generate(f);
-  assert.equal(response.status, 201);
-  assert.equal(f.calls[2].body.mime, "image/jpeg");
-  assert.equal(f.calls[2].body.data, jpeg);
+test("image editor uploads are forwarded only to authenticated backend", async () => {
+  const input={prompt:"Change the sky to blue",mode:"edit",image:"iVBORw0KGgo=",count:1};
+  const fetcher=async(url,request)=>{
+    assert.equal(url,backend+"/media/cloud-image");
+    assert.deepEqual(JSON.parse(request.body),input);
+    assert.equal(request.headers.Authorization,"Bearer "+token);
+    return Response.json({id:42,ids:[42],status:"queued"}, {status:202});
+  };
+  assert.equal((await run(fetcher,input)).status,202);
 });
 
-test("rejects non-image content even when it is valid base64", async () => {
-  const f = backendScenario({ imageData: Buffer.from("not an image").toString("base64") });
-  const response = await generate(f);
-  assert.equal(response.status, 502);
-  assert.equal(f.calls.at(-1).url.endsWith("/fail"), true);
+test("backend failures are surfaced without fabricated success", async () => {
+  const response=await run(async()=>Response.json({message:"Daily image request limit reached."},{status:429}));
+  assert.equal(response.status,429);
+  assert.equal((await response.json()).message,"Daily image request limit reached.");
 });
 
-test("does not spend a provider call when image quota is exhausted", async () => {
-  const f = backendScenario({ limited: true });
-  const response = await generate(f);
-  assert.equal(response.status, 429);
-  assert.equal(f.calls.length, 1);
+test("invalid or oversized prompts do not call Laravel", async () => {
+  let calls=0;const fetcher=async()=>{calls++;return Response.json({});};
+  assert.equal((await run(fetcher,{prompt:" "})).status,422);
+  assert.equal((await run(fetcher,{prompt:"x".repeat(4001)})).status,422);
+  assert.equal((await generateHostedImage("invalid",token,backend,new AbortController().signal,{fetcher})).status,400);
+  assert.equal(calls,0);
 });
 
-test("filtered provider output is rejected and task failure is persisted", async () => {
-  const f = backendScenario({ finishReason: "CONTENT_FILTERED" });
-  const response = await generate(f);
-  assert.equal(response.status, 422);
-  assert.deepEqual(f.calls.map((call) => call.url.split("/").slice(-1)[0]), [
-    "begin",
-    "flux.1-schnell",
-    "fail",
-  ]);
+test("malformed task response cannot be reported as saved", async () => {
+  const result=await run(async()=>Response.json({id:0,status:"complete"},{status:200}));
+  assert.equal(result.status,502);
 });
 
-test("provider failure is not reported as an image success", async () => {
-  const f = backendScenario({ providerStatus: 429 });
-  const response = await generate(f);
-  assert.equal(response.status, 429);
-  assert.equal(f.calls.length, 3);
-  assert.equal(f.calls[2].url.endsWith("/fail"), true);
-});
 
-test("image is not reported complete when backend persistence fails", async () => {
-  const f = backendScenario({ finishStatus: 503 });
-  const response = await generate(f);
-  assert.equal(response.status, 503);
-  assert.equal(f.calls.length, 4);
-  assert.equal(f.calls[3].url.endsWith("/fail"), true);
-});
-
-test("missing credentials and invalid prompts do not call the backend", async () => {
-  const f = backendScenario();
-  const missing = await generate(f, { config: { apiKey: "", bridgeKey: "s".repeat(32) } });
-  assert.equal(missing.status, 503);
-  const invalid = await generateHostedImage(
-    JSON.stringify({ prompt: "  " }),
-    "user-token",
-    "https://private-backend/api/v1",
-    new AbortController().signal,
-    { fetcher: f.fetcher, config },
-  );
-  assert.equal(invalid.status, 422);
-  assert.equal(f.calls.length, 0);
+test("Auto image calls return a durable queued task without blocking or polling", async () => {
+  let calls = 0;
+  const response = await run(async () => {
+    calls++;
+    return Response.json({id:73,ids:[73],status:"queued",kind:"image"}, {status:202});
+  }, {prompt}, true);
+  assert.equal(response.status, 202);
+  assert.deepEqual(await response.json(), {id:73,ids:[73],status:"queued",kind:"image"});
+  assert.equal(calls, 1);
 });

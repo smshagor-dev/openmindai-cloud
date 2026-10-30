@@ -71,13 +71,37 @@ export function renderDocx(text: string): Buffer {
     { name: "word/document.xml", text: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>' + paras + '<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:bottom="1440" w:left="1440" w:right="1440"/></w:sectPr></w:body></w:document>' },
   ]);
 }
+// The built-in Helvetica font uses WinAnsi (Windows-1252), not UTF-8.
+// Convert its supported punctuation to actual single-byte codes rather
+// than truncating Unicode code points into the wrong glyph.
+const winAnsiPunctuation: Record<number, number> = {
+  0x20ac: 0x80, 0x201a: 0x82, 0x0192: 0x83, 0x201e: 0x84,
+  0x2026: 0x85, 0x2020: 0x86, 0x2021: 0x87, 0x02c6: 0x88,
+  0x2030: 0x89, 0x0160: 0x8a, 0x2039: 0x8b, 0x0152: 0x8c,
+  0x017d: 0x8e, 0x2018: 0x91, 0x2019: 0x92, 0x201c: 0x93,
+  0x201d: 0x94, 0x2022: 0x95, 0x2013: 0x96, 0x2014: 0x97,
+  0x02dc: 0x98, 0x2122: 0x99, 0x0161: 0x9a, 0x203a: 0x9b,
+  0x0153: 0x9c, 0x017e: 0x9e, 0x0178: 0x9f,
+};
 function normalizePdf(text: string) {
-  const normalized = text.replace(/[\u2018\u2019]/g, "'").replace(/[\u201c\u201d]/g, '"')
-    .replace(/\u2014/g, "--").replace(/\u2013/g, "-").replace(/\u2022/g, "*");
-  // Standard PDF font Helvetica uses WinAnsi. Reject unsupported scripts rather
-  // than silently replace non-Latin text with unreadable glyphs.
-  if (/[^\x09\x0a\x0d\x20-\x7e\u00a0-\u00ff]/.test(normalized))
+  let normalized = "";
+  for (const ch of text) {
+    const point = ch.codePointAt(0)!;
+    if (point === 9 || point === 10 || point === 13 ||
+        (point >= 0x20 && point <= 0x7e) ||
+        (point >= 0xa0 && point <= 0xff)) {
+      normalized += ch;
+      continue;
+    }
+    const encoded = winAnsiPunctuation[point];
+    if (encoded !== undefined) {
+      normalized += String.fromCharCode(encoded);
+      continue;
+    }
+    // Do not produce a PDF with silently corrupt Bangla/Cyrillic/other
+    // unsupported characters. Word export preserves the full Unicode text.
     throw new Error("Choose DOCX for non-Latin characters; this PDF font does not support them.");
+  }
   return normalized;
 }
 const pdfEscape = (s: string) => s.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
@@ -86,13 +110,26 @@ export function renderPdf(text: string): Buffer {
   if (!source.trim() || source.length > 100000) throw new Error("Document is empty or too large.");
   const lines: string[] = [];
   for (const paragraph of source.split(/\r?\n/)) {
-    const words = paragraph.split(/\s+/);
+    const words = paragraph.trim().split(/\s+/).filter(Boolean);
     let line = "";
     for (const word of words) {
-      if ((line + " " + word).length > 87) {
-        lines.push(line);
-        line = word;
-      } else line = line ? line + " " + word : word;
+      let remaining = word;
+      while (remaining.length) {
+        const spacer = line ? " " : "";
+        const free = 87 - line.length - spacer.length;
+        if (free <= 0 || (remaining.length > free && line)) {
+          lines.push(line);
+          line = "";
+          continue;
+        }
+        if (remaining.length <= free) {
+          line += spacer + remaining;
+          break;
+        }
+        // Very long URLs/words need wrapping as well as ordinary sentences.
+        lines.push(remaining.slice(0, 87));
+        remaining = remaining.slice(87);
+      }
     }
     lines.push(line);
   }

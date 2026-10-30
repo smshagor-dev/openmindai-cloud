@@ -81,6 +81,27 @@ test("audio generation sends text and stores validated WAV", async () => {
   assert.equal(complete.mime, "audio/wav");
   assert.deepEqual(Buffer.from(complete.data, "base64"), wav);
 });
+test("hosted speech uses documented Spanish and French voice selections", async () => {
+  for (const [language, voice] of [
+    ["es-US", "Magpie-Multilingual.ES-US.Diego"],
+    ["fr-FR", "Magpie-Multilingual.FR-FR.Louise"],
+  ]) {
+    const s = scenario();
+    const result = await run(s, "speech", { language });
+    assert.equal(result.status, 201);
+    const form = s.calls[1].init.body;
+    assert.equal(form.get("language"), language);
+    assert.equal(form.get("voice"), voice);
+  }
+});
+
+test("invalid speech language is rejected before reserving task quota", async () => {
+  const s = scenario();
+  const result = await run(s, "speech", { language: "xx-XX" });
+  assert.equal(result.status, 422);
+  assert.equal(s.calls.length, 0);
+});
+
 test("video generation follows documented text-to-video API contract", async () => {
   const s = scenario();
   const result = await run(s, "video");
@@ -115,6 +136,103 @@ test("generates a PDF with header and cross-reference table", async () => {
   assert.ok(pdf.toString("latin1").includes("xref"));
   assert.throws(() => renderPdf("বাংলা"), /Choose DOCX/);
 });
+test("PDF output keeps WinAnsi Euro, ellipsis and trademark glyphs", () => {
+  const pdf = renderPdf("Price €20 … brand™");
+  const result = pdf.toString("latin1");
+  assert.equal(pdf.subarray(0, 5).toString("ascii"), "%PDF-");
+  // The built-in Helvetica font uses Windows-1252 single-byte glyph codes.
+  assert.ok(result.includes(String.fromCharCode(0x80)), "Euro");
+  assert.ok(result.includes(String.fromCharCode(0x85)), "Ellipsis");
+  assert.ok(result.includes(String.fromCharCode(0x99)), "Trademark");
+});
+
+test("PDF breaks long URLs and unspaced words within the page width", () => {
+  const pdf = renderPdf("X".repeat(240));
+  const commands = [...pdf.toString("latin1").matchAll(/Tm \(([^)]*)\) Tj/g)];
+  assert.deepEqual(commands.map(match => match[1].length), [87, 87, 66]);
+});
+
+test("expired backend session is returned as 401 without contacting provider", async () => {
+  const calls = [];
+  const response = await hostedMediaRequest(
+    JSON.stringify({ kind: "speech", prompt: "Hello" }),
+    "expired-user",
+    "https://private-backend/api/v1",
+    new AbortController().signal,
+    {
+      config: cfg,
+      fetcher: async (url) => {
+        calls.push(url);
+        return Response.json({ message: "Unauthorized" }, { status: 401 });
+      },
+    },
+  );
+  assert.equal(response.status, 401);
+  assert.equal(calls.length, 1);
+  assert.ok(calls[0].endsWith("/media/hosted/task/begin"));
+});
+
+test("cancelled request never contacts media inference once task begins", async () => {
+  const controller = new AbortController();
+  const s = scenario();
+  const response = await hostedMediaRequest(
+    JSON.stringify({ kind: "speech", prompt: "Hello" }),
+    "signed-in-user",
+    "https://private-backend/api/v1",
+    controller.signal,
+    {
+      config: cfg,
+      fetcher: async (url, init) => {
+        const result = await s.fetcher(url, init);
+        if (url.endsWith("/media/hosted/task/begin")) controller.abort();
+        return result;
+      },
+    },
+  );
+  assert.equal(response.status, 499);
+  assert.deepEqual(s.calls.map(x => x.url.split("/").at(-1)), ["begin", "fail"]);
+});
+
+test("cancel after inference discards output without persisting completed media", async () => {
+  const controller = new AbortController();
+  const s = scenario();
+  const response = await hostedMediaRequest(
+    JSON.stringify({ kind: "speech", prompt: "Hello" }),
+    "signed-in-user",
+    "https://private-backend/api/v1",
+    controller.signal,
+    {
+      config: cfg,
+      fetcher: async (url, init) => {
+        const result = await s.fetcher(url, init);
+        if (url.endsWith("/audio/synthesize")) controller.abort();
+        return result;
+      },
+    },
+  );
+  assert.equal(response.status, 499);
+  assert.deepEqual(s.calls.map(x => x.url.split("/").at(-1)), ["begin", "synthesize", "fail"]);
+});
+
+test("deleted media task cannot be mistaken for storage failure", async () => {
+  const s = scenario();
+  const response = await hostedMediaRequest(
+    JSON.stringify({ kind: "speech", prompt: "Hello" }),
+    "signed-in-user",
+    "https://private-backend/api/v1",
+    new AbortController().signal,
+    {
+      config: cfg,
+      fetcher: (url, init) => url.endsWith("/hosted/task/complete")
+        ? Promise.resolve(Response.json({ message: "Not found" }, { status: 404 }))
+        : s.fetcher(url, init),
+    },
+  );
+  assert.equal(response.status, 409);
+  assert.match((await response.json()).message, /deleted or cancelled/);
+  assert.equal(s.calls.some(x => x.url.endsWith("/audio/synthesize")), true);
+});
+
 test("invalid requests and absent server credentials never contact provider", async () => {
   const s = scenario();
   const first = await hostedMediaRequest(
@@ -126,4 +244,28 @@ test("invalid requests and absent server credentials never contact provider", as
   const second = await run(s, "speech", { prompt: "x".repeat(1001) });
   assert.equal(second.status, 422);
   assert.equal(s.calls.length, 0);
+});
+
+
+test("document creation uses backend inference without a frontend NVIDIA key", async () => {
+  const calls = [];
+  const response = await hostedMediaRequest(JSON.stringify({kind:"document_create",prompt:"Write a short test",format:"docx"}),
+    "signed-in-user", "https://backend/api/v1", new AbortController().signal, {
+      config:{apiKey:"",bridgeKey:"z".repeat(32)},
+      fetcher:async (url, init) => {
+        calls.push({url,init});
+        if (url.endsWith("/chat/provider")) return Response.json({choices:[{message:{content:"OpenMindAI test document"}}]});
+        if (url.endsWith("/begin")) return Response.json({id:14,status:"running"},{status:202});
+        if (url.endsWith("/complete")) {
+          assert.match(Buffer.from(JSON.parse(init.body).data,"base64").toString("hex"), /^504b/);
+          return Response.json({id:14,status:"complete"});
+        }
+        throw Error("Unexpected request");
+      }
+    });
+  assert.equal(response.status,201);
+  const inference=calls.find(call=>call.url.endsWith("/chat/provider"));
+  assert.equal(inference.init.headers.Authorization,"Bearer signed-in-user");
+  assert.equal(inference.init.headers["X-Chat-Bridge-Key"],"z".repeat(32));
+  assert.ok(calls.every(call=>call.url.startsWith("https://backend/api/v1/")));
 });

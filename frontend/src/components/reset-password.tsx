@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import PasswordInput from "./password-input";
 import Link from "next/link";
 import { ArrowLeft, LoaderCircle, Sparkles } from "lucide-react";
 import { api } from "@/lib/api";
@@ -54,9 +55,9 @@ export default function ResetPassword({
               </label>
               <label>
                 New password
-                <input
+                <PasswordInput
                   name="password"
-                  type="password"
+                  
                   autoComplete="new-password"
                   required
                   minLength={6}
@@ -64,9 +65,9 @@ export default function ResetPassword({
               </label>
               <label>
                 Confirm password
-                <input
+                <PasswordInput
                   name="password_confirmation"
-                  type="password"
+                  
                   autoComplete="new-password"
                   required
                   minLength={6}

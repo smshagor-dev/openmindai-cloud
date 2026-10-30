@@ -24,6 +24,11 @@ test("voice panel uses hosted audio transcription and transcribes before chattin
   const live = read("components/live-conversation.tsx");
   assert.match(panel, /audioAsWavBase64/);
   assert.match(panel, /"media\/transcription"/);
+  assert.match(panel, /setTranscript\(result\.result_text\)/);
+  assert.doesNotMatch(panel, /i < 180/);
+  assert.match(live, /playAudioUntilFinished/);
+  assert.match(live, /generatedAbort\.current\?\.abort\(\)/);
+  assert.match(live, /Using your browser voice instead/);
   assert.match(live, /hostedVoice/);
   assert.match(live, /"media\/transcription"/);
   assert.match(live, /streamChat\(/);
@@ -36,7 +41,12 @@ test("generated files can be privately downloaded and previewed from media studi
   const api = read("app/api/backend/[...path]/route.ts");
   assert.match(studio, /application\/pdf/);
   assert.match(studio, /wordprocessingml/);
-  assert.match(library, /application\/pdf/);
+  assert.match(library, /DocumentPreview file=\{preview.file\}/);
+  assert.match(read("lib/preview-file.ts"), /application\/pdf/);
+  assert.match(library, /"document_create"/);
+  const inline = read("components/inline-media.tsx");
+  assert.match(inline, /DocumentPreview file=\{documentFile\}/);
+  assert.match(inline, /application\/pdf/);
   assert.match(api, /application\/pdf/);
   assert.match(api, /application\/vnd\.openxmlformats-officedocument/);
 });

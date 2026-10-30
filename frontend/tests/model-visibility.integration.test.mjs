@@ -17,12 +17,20 @@ test("chat header is static while existing model routing remains active", () => 
     new URL("../src/components/chat-workspace.tsx", import.meta.url),
     "utf8",
   );
-  assert.match(workspace, /<span className="topbar-brand">OpenMindAI<\/span>/);
+  assert.match(workspace, /className="topbar-brand"/);
+  assert.match(workspace, /className="topbar-brand-logo"/);
+  assert.match(workspace, /className="sidebar-brand-copy"/);
+  assert.match(workspace, /<WorkspaceWelcome title="What can I help with\?"/);
+  const welcome = readFileSync(new URL("../src/components/workspace-welcome.tsx", import.meta.url), "utf8");
+  assert.match(welcome, /className="workspace-welcome-identity"/);
+  assert.match(welcome, /src="\/openmindai-logo.png"/);
+  assert.match(workspace, /src="\/openmindai-logo.png"/);
   assert.doesNotMatch(workspace, /className="model-picker"/);
   assert.doesNotMatch(workspace, /className="active-model-label"/);
   assert.doesNotMatch(workspace, /className="model-menu-wrapper"/);
   assert.match(workspace, /setModelId\(\(previous\) =>/);
-  assert.match(workspace, /model_id: modelId/);
+  assert.match(workspace, /model_id: inlineImage && !override \? -2 : modelId/);
+  assert.match(workspace, /<ModelPicker models=\{models\}/);
   assert.doesNotMatch(workspace, /This chat uses an external AI service/);
 });
 

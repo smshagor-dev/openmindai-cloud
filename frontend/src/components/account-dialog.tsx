@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import PasswordInput from "./password-input";
 import {
   Check,
   Copy,
@@ -147,7 +148,19 @@ export default function AccountDialog({
               onChanged={onChanged}
             />
           )}
-          {tab === "developer" && <DeveloperApiSettings requiresTwoFactor={Boolean(user.two_factor_confirmed_at)} />}
+          {tab === "developer" && (
+            process.env.NEXT_PUBLIC_DEVELOPER_PORTAL_URL ? (
+              <section className="form-stack">
+                <h3>OpenMindAI Developer Portal</h3>
+                <p className="muted">Developer registration, API keys, usage reports, model catalog and integration documentation now live in the dedicated Developer Portal.</p>
+                <a className="secondary-button" href={process.env.NEXT_PUBLIC_DEVELOPER_PORTAL_URL} target="_blank" rel="noopener noreferrer">
+                  Open Developer Portal
+                </a>
+              </section>
+            ) : (
+              <DeveloperApiSettings requiresTwoFactor={Boolean(user.two_factor_confirmed_at)} />
+            )
+          )}
           {tab === "data" && (
             <SettingsData
               user={user}
@@ -259,18 +272,18 @@ export default function AccountDialog({
               >
                 <label>
                   Current password
-                  <input
+                  <PasswordInput
                     name="current_password"
-                    type="password"
+                    
                     autoComplete="current-password"
                     required
                   />
                 </label>
                 <label>
                   New password
-                  <input
+                  <PasswordInput
                     name="password"
-                    type="password"
+                    
                     autoComplete="new-password"
                     required
                     minLength={6}
@@ -278,9 +291,9 @@ export default function AccountDialog({
                 </label>
                 <label>
                   Confirm new password
-                  <input
+                  <PasswordInput
                     name="password_confirmation"
-                    type="password"
+                    
                     autoComplete="new-password"
                     required
                     minLength={6}
@@ -330,9 +343,9 @@ export default function AccountDialog({
                 >
                   <label>
                     Confirm your password
-                    <input
+                    <PasswordInput
                       name="password"
-                      type="password"
+                      
                       required
                       autoComplete="current-password"
                     />
@@ -452,9 +465,9 @@ export default function AccountDialog({
                   >
                     <label>
                       Password
-                      <input
+                      <PasswordInput
                         name="password"
-                        type="password"
+                        
                         required
                         autoComplete="current-password"
                       />
@@ -487,9 +500,9 @@ export default function AccountDialog({
                   >
                     <label>
                       Password
-                      <input
+                      <PasswordInput
                         name="password"
-                        type="password"
+                        
                         required
                         autoComplete="current-password"
                       />

@@ -12,7 +12,7 @@ class ChatContext
 {
     public function build($user, ?Conversation $conversation, string $text, array $attachmentIds = [], bool $temporary = false): array
     {
-        $system = 'You are Openmindai, a helpful assistant. Be accurate, clear, and honest about uncertainty. Never claim tools or capabilities you did not use.';
+        $system = 'You are OpenMindAI, a helpful assistant. Be accurate, clear, and honest about uncertainty. Never claim tools or capabilities you did not use.'."\n".MultilingualPrompt::instructions();
         if ($conversation?->assistant_id) {
             $assistant = Assistant::where('user_id', $user->id)->findOrFail($conversation->assistant_id);
             $system .= "\nAssistant instructions:\n".$assistant->instructions;

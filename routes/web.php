@@ -1,18 +1,17 @@
 <?php
 
 use App\Http\Controllers\AdminAccountController;
-use App\Http\Controllers\CodeAgentsAdminController;
 use App\Http\Controllers\AdminController;
-use App\Http\Controllers\ApiCreditsController;
+use App\Http\Controllers\AdminDeveloperKeysController;
 use App\Http\Controllers\AdminSettingsController;
+use App\Http\Controllers\ApiCreditsController;
 use App\Http\Controllers\AssistantGalleryController;
-use App\Http\Controllers\AuthController;
+use App\Http\Controllers\CodeAgentsAdminController;
 use App\Http\Controllers\ModelBundleController;
 use App\Http\Controllers\SmtpSettingsController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', fn () => redirect('/admin'));
-Route::get('/email/verify/{id}/{hash}', [AuthController::class, 'verify'])->middleware(['signed', 'throttle:auth'])->name('verification.verify');
 Route::get('/reset-password', fn () => view('reset-password'))->name('password.reset');
 Route::get('/admin/login', [AdminController::class, 'loginForm'])->name('login');
 Route::post('/admin/login', [AdminController::class, 'login'])->middleware('throttle:auth');
@@ -45,9 +44,16 @@ Route::prefix('admin')->middleware(['auth', 'active', 'admin'])->group(function 
     Route::post('model-bundles', [ModelBundleController::class, 'import'])->middleware('throttle:hub');
     Route::post('model-bundles/{bundle}/download', [ModelBundleController::class, 'download']);
     Route::get('code-agents', [CodeAgentsAdminController::class, 'index']);
+    Route::post('code-agents/developer-keys', [AdminDeveloperKeysController::class, 'store'])->middleware('throttle:sensitive');
+    Route::delete('code-agents/developer-keys/{key}', [AdminDeveloperKeysController::class, 'destroy'])->middleware('throttle:sensitive');
+    Route::get('nvidia-models', [CodeAgentsAdminController::class, 'catalog']);
+    Route::patch('nvidia-models/{slug}', [CodeAgentsAdminController::class, 'model'])->middleware('throttle:sensitive');
+    Route::post('nvidia-models/{slug}/test', [CodeAgentsAdminController::class, 'testModel'])->middleware('throttle:sensitive');
     Route::patch('code-agents/{slug}', [CodeAgentsAdminController::class, 'model'])->middleware('throttle:sensitive');
     Route::post('code-agents/apps', [CodeAgentsAdminController::class, 'addApp'])->middleware('throttle:sensitive');
+    Route::post('code-agents/apps/{app}/reveal', [CodeAgentsAdminController::class, 'revealAppSecret'])->middleware('throttle:sensitive');
     Route::delete('code-agents/apps/{app}', [CodeAgentsAdminController::class, 'disableApp'])->middleware('throttle:sensitive');
+    Route::delete('code-agents/apps/{app}/permanent', [CodeAgentsAdminController::class, 'deleteApp'])->middleware('throttle:sensitive');
     Route::get('models', [AdminController::class, 'models']);
     Route::get('models/search', [AdminController::class, 'search'])->middleware('throttle:hub');
     Route::get('models/inspect', [AdminController::class, 'inspect'])->middleware('throttle:hub');

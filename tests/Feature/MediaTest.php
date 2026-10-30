@@ -55,7 +55,7 @@ class MediaTest extends TestCase
         $this->postJson('/api/v1/media/'.$id.'/hosted/finish', [
             'mime' => 'image/png', 'data' => base64_encode($this->png()),
         ])->assertOk()->assertJsonPath('status', 'complete')->assertJsonPath('output_mime', 'image/png')
-          ->assertJsonMissingPath('output_path');
+            ->assertJsonMissingPath('output_path');
         $output = $this->get('/api/v1/media/'.$id.'/output')->assertOk()
             ->assertHeader('Content-Type', 'image/png');
         $this->assertSame($this->png(), $output->streamedContent());
@@ -72,7 +72,7 @@ class MediaTest extends TestCase
         $this->withHeaders(['X-Chat-Bridge-Key' => str_repeat('s', 32)]);
         $id = $this->postJson('/api/v1/media/hosted/begin', ['prompt' => 'Amber sunset'])
             ->assertStatus(202)->json('id');
-        $jpeg = base64_decode('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDABALDA4MChAODQ4SERATGCgaGBYWGDEjJR0oOjM9PDkzODdASFxOQERXRTc4UG1RV19iZ2hnPk1xeXBkeFxlZ2P/2wBDARESEhgVGC8aGi9jQjhCY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2P/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAT/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFAEBAAAAAAAAAAAAAAAAAAAABv/EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAMAwEAAhEDEQA/ALABcjf/2Q==');
+        $jpeg = base64_decode('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAACAAIDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDiqKKK+uPmD//Z');
         $this->postJson('/api/v1/media/'.$id.'/hosted/finish', [
             'mime' => 'image/jpeg', 'data' => base64_encode($jpeg),
         ])->assertOk()->assertJsonPath('output_mime', 'image/jpeg');
@@ -141,6 +141,63 @@ class MediaTest extends TestCase
         ])->assertStatus(409);
     }
 
+    public function test_generated_documents_are_searchable_in_private_media_library(): void
+    {
+        $this->setupEngine();
+        config(['models.frontend_chat_key' => str_repeat('s', 32)]);
+        $this->withHeaders(['X-Chat-Bridge-Key' => str_repeat('s', 32)]);
+        $created = $this->postJson('/api/v1/media/hosted/task/begin', [
+            'kind' => 'document_create', 'prompt' => 'A summary',
+        ])->assertStatus(202);
+        $id = $created->json('id');
+
+        $this->getJson('/api/v1/media?kind=document_create')
+            ->assertOk()
+            ->assertJsonPath('data.0.id', $id)
+            ->assertJsonPath('data.0.kind', 'document_create');
+
+        $other = $this->user();
+        Sanctum::actingAs($other);
+        $this->getJson('/api/v1/media?kind=document_create')
+            ->assertOk()->assertJsonCount(0, 'data');
+    }
+
+    public function test_deleting_running_hosted_image_rejects_late_completion(): void
+    {
+        $user = $this->setupEngine();
+        config(['models.frontend_chat_key' => str_repeat('s', 32)]);
+        $this->withHeaders(['X-Chat-Bridge-Key' => str_repeat('s', 32)]);
+        $id = $this->postJson('/api/v1/media/hosted/begin', ['prompt' => 'Sunset'])
+            ->assertStatus(202)->json('id');
+
+        $this->deleteJson('/api/v1/media/'.$id)->assertNoContent();
+        $this->postJson('/api/v1/media/'.$id.'/hosted/finish', [
+            'mime' => 'image/png', 'data' => base64_encode($this->png()),
+        ])->assertNotFound();
+        $this->postJson('/api/v1/media/'.$id.'/hosted/fail', [])->assertNotFound();
+        $this->getJson('/api/v1/media/'.$id)->assertNotFound();
+        Storage::disk('local')->assertMissing('media/'.$user->id.'/'.$id.'.output');
+    }
+
+    public function test_deleting_running_hosted_audio_rejects_late_completion(): void
+    {
+        $user = $this->setupEngine();
+        config(['models.frontend_chat_key' => str_repeat('s', 32)]);
+        $this->withHeaders(['X-Chat-Bridge-Key' => str_repeat('s', 32)]);
+        $id = $this->postJson('/api/v1/media/hosted/task/begin', [
+            'kind' => 'speech', 'prompt' => 'Hello',
+        ])->assertStatus(202)->json('id');
+
+        $this->deleteJson('/api/v1/media/'.$id)->assertNoContent();
+        $wav = 'RIFF'.pack('V', 36).'WAVEfmt '.pack('VvvVVvv', 16, 1, 1, 16000, 32000, 2, 16).'data'.pack('V', 0);
+        $this->postJson('/api/v1/media/'.$id.'/hosted/task/complete', [
+            'mime' => 'audio/wav', 'data' => base64_encode($wav),
+        ])->assertNotFound();
+        $this->postJson('/api/v1/media/'.$id.'/hosted/task/fail', [])->assertNotFound();
+        $this->get('/api/v1/media/'.$id.'/output')->assertNotFound();
+        Storage::disk('local')->assertMissing('media/'.$user->id.'/'.$id.'.output');
+    }
+
     public function test_hosted_audio_and_document_formats_are_validated_before_storage(): void
     {
         $this->setupEngine();
@@ -170,6 +227,35 @@ class MediaTest extends TestCase
         ])->assertOk()->assertJsonPath('output_mime', 'application/pdf');
         $this->get('/api/v1/media/'.$doc.'/output')->assertOk()
             ->assertHeader('Content-Type', 'application/pdf');
+    }
+
+    public function test_hosted_docx_saves_full_registered_mime_type_and_downloads_privately(): void
+    {
+        if (! class_exists(\ZipArchive::class)) {
+            $this->markTestSkipped('PHP ZIP is required for DOCX validation.');
+        }
+        $this->setupEngine();
+        config(['models.frontend_chat_key' => str_repeat('s', 32)]);
+        $this->withHeaders(['X-Chat-Bridge-Key' => str_repeat('s', 32)]);
+        $id = $this->postJson('/api/v1/media/hosted/task/begin', [
+            'kind' => 'document_create', 'prompt' => 'DOCX save regression',
+        ])->assertStatus(202)->json('id');
+        $tmp = tempnam(sys_get_temp_dir(), 'om-docx-test');
+        try {
+            $zip = new \ZipArchive;
+            $this->assertTrue($zip->open($tmp, \ZipArchive::OVERWRITE));
+            $zip->addFromString('[Content_Types].xml', '<Types/>');
+            $zip->addFromString('word/document.xml', '<document>OMA-4729</document>');
+            $zip->close();
+            $mime = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+            $this->postJson('/api/v1/media/'.$id.'/hosted/task/complete', [
+                'mime' => $mime, 'data' => base64_encode(file_get_contents($tmp)),
+            ])->assertOk()->assertJsonPath('output_mime', $mime);
+            $this->get('/api/v1/media/'.$id.'/output')->assertOk()->assertHeader('Content-Type', $mime);
+            $this->assertDatabaseHas('media_tasks', ['id' => $id, 'status' => 'complete', 'output_mime' => $mime]);
+        } finally {
+            unlink($tmp);
+        }
     }
 
     public function test_hosted_video_completion_requires_mp4_header_and_owner(): void
@@ -342,7 +428,7 @@ class MediaTest extends TestCase
         $this->setupEngine();
         config(['media.kinds' => ['code']]);
         $id = $this->postJson('/api/v1/media', ['kind' => 'code', 'prompt' => 'print(1)', 'approved' => true])->assertStatus(202)->json('id');
-        Http::fake(['*' => Http::response(['text' => 'hello', 'mime' => 'application/zip', 'data' => 'UEsDBBQAAAAAAOBEU12GphA2BQAAAAUAAAAKAAAAc3Rkb3V0LnR4dGhlbGxvUEsBAhQDFAAAAAAA4ERTXYamEDYFAAAABQAAAAoAAAAAAAAAAAAAAIABAAAAAHN0ZG91dC50eHRQSwUGAAAAAAEAAQA4AAAALQAAAAAA', 'artifacts' => [['name' => 'data.csv', 'type' => 'table', 'rows' => [['x', 'y'], ['1', '2']]]]])]);
+        Http::fake(['*' => Http::response(['text' => 'hello', 'mime' => 'application/zip', 'data' => 'UEsDBBQAAAAIAAEUVV2GphA2BwAAAAUAAAAKAAAAc3Rkb3V0LnR4dMtIzcnJBwBQSwECFAMUAAAACAABFFVdhqYQNgcAAAAFAAAACgAAAAAAAAAAAAAAgAEAAAAAc3Rkb3V0LnR4dFBLBQYAAAAAAQABADgAAAAvAAAAAAA=', 'artifacts' => [['name' => 'data.csv', 'type' => 'table', 'rows' => [['x', 'y'], ['1', '2']]]]])]);
         (new RunMediaTask($id))->handle();
         $this->getJson('/api/v1/media/'.$id)->assertOk()->assertJsonPath('status', 'complete')->assertJsonPath('artifacts.0.rows.1.1', '2');
         $this->getJson('/api/v1/media')->assertOk()->assertJsonMissingPath('data.0.artifacts');

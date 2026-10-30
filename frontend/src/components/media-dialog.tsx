@@ -3,7 +3,10 @@ import { useEffect, useRef, useState } from "react";
 import { api, type Page } from "@/lib/api";
 import { audioAsWavBase64 } from "@/lib/audio-file";
 import ArtifactPreviews, { type Artifact } from "./artifact-previews";
+import DocumentPreview from "./document-preview";
+import { documentFile } from "@/lib/preview-file";
 import Dialog from "./dialog";
+import CreationProgress from "./creation-progress";
 import ResponseMarkdown from "./response-markdown";
 
 type Kind =
@@ -20,6 +23,8 @@ type Task = {
   kind: Kind;
   prompt: string;
   status: string;
+  progress_percent?: number | null;
+  progress_stage?: string | null;
   result_text: string | null;
   output_mime: string | null;
   error: string | null;
@@ -48,6 +53,14 @@ export default function MediaDialog({
   const [kinds, setKinds] = useState<Kind[]>([]);
   const [kind, setKind] = useState<Kind>(initialKind);
   const [format, setFormat] = useState<"pdf" | "docx">("docx");
+  const [speechLanguage, setSpeechLanguage] = useState("en-US");
+  const [imageMode, setImageMode] = useState<"generate" | "edit" | "reference" | "inpaint" | "outpaint">("generate");
+  const [imageRatio, setImageRatio] = useState("1:1");
+  const [imageCount, setImageCount] = useState(1);
+  const [imageSeed, setImageSeed] = useState(0);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [maskFile, setMaskFile] = useState<File | null>(null);
+  const [imageConfig, setImageConfig] = useState<{image_editing:boolean;image_masking:boolean;ratios:string[];native_resolution:string} | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [page, setPage] = useState(1);
   const [pages, setPages] = useState(1);
@@ -57,6 +70,7 @@ export default function MediaDialog({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
+  const [previewFile, setPreviewFile] = useState<File | undefined>();
   const [preview, setPreview] = useState("");
   const [revision, setRevision] = useState(0);
   const controller = useRef<AbortController | null>(null);
@@ -65,6 +79,12 @@ export default function MediaDialog({
     kind === "vision" || kind === "transcription" || kind === "document";
 
   useEffect(() => () => controller.current?.abort(), []);
+  useEffect(() => {
+    const c = new AbortController();
+    api<{image_editing:boolean;image_masking:boolean;ratios:string[];native_resolution:string}>("media/image-capabilities", "GET", undefined, c.signal)
+      .then(setImageConfig).catch(() => {});
+    return () => c.abort();
+  }, []);
   useEffect(() => {
     const c = new AbortController();
     api<{ media: Kind[] }>("capabilities", "GET", undefined, c.signal)
@@ -107,6 +127,7 @@ export default function MediaDialog({
   }, [page, revision]);
   useEffect(() => {
     const c = new AbortController();
+    setPreviewFile(undefined);
     let url = "";
     setPreview("");
     setArtifacts([]);
@@ -126,6 +147,7 @@ export default function MediaDialog({
             throw new Error("Unable to load this private result.");
           const blob = await response.blob();
           if (!c.signal.aborted) {
+            setPreviewFile(documentFile(blob, task.output_mime || blob.type));
             url = URL.createObjectURL(blob);
             setPreview(url);
           }
@@ -139,6 +161,21 @@ export default function MediaDialog({
       if (url) URL.revokeObjectURL(url);
     };
   }, [task?.id, task?.status, task?.output_mime]);
+
+  async function encodeImage(file: File, mask = false) {
+    if (file.size > 4_000_000 || file.size === 0) throw new Error("Image must be 4 MB or smaller.");
+    if (!["image/png", ...(mask ? [] : ["image/jpeg"])].includes(file.type))
+      throw new Error(mask ? "Upload a PNG mask." : "Upload a PNG or JPEG reference image.");
+    const value = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(new Error("Unable to read image."));
+      reader.readAsDataURL(file);
+    });
+    const expected = "data:" + file.type + ";base64,";
+    if (!value.startsWith(expected)) throw new Error("Unsupported image input.");
+    return value.slice(expected.length);
+  }
 
   async function create() {
     const c = new AbortController();
@@ -160,12 +197,25 @@ export default function MediaDialog({
         });
       }
       if (c.signal.aborted) return;
-      const result = await api<Task>(
+      const imageData = kind === "image" && imageMode !== "generate" && imageFile
+        ? await encodeImage(imageFile) : undefined;
+      const maskData = kind === "image" && ["inpaint", "outpaint"].includes(imageMode) && maskFile
+        ? await encodeImage(maskFile, true) : undefined;
+      if (kind === "image" && imageMode !== "generate" && !imageData)
+        throw new Error("Choose a reference image to edit.");
+      if (kind === "image" && ["inpaint", "outpaint"].includes(imageMode) && !maskData)
+        throw new Error("Choose a PNG mask.");
+      const result = await api<Task & {ids?:number[]}>(
         ["image", "transcription", "speech", "video", "document_create"].includes(kind)
           ? "media/" + kind
           : "media",
         "POST",
-        { kind, prompt, input, ...(kind === "document_create" ? { format } : {}) },
+        { kind, prompt, input,
+          ...(kind === "document_create" ? { format } : {}),
+          ...(kind === "speech" ? { language: speechLanguage } : {}),
+          ...(kind === "image" ? {mode:imageMode, aspect_ratio:imageRatio, count:imageCount, seed:imageSeed,
+            ...(imageData ? {image:imageData} : {}), ...(maskData ? {mask:maskData} : {})} : {}),
+        },
         c.signal,
       );
       if (!c.signal.aborted) {
@@ -235,6 +285,17 @@ export default function MediaDialog({
               ))}
             </select>
           </label>
+          {kind === "speech" && (
+            <label>
+              Speech language
+              <select value={speechLanguage} disabled={busy}
+                onChange={(e) => setSpeechLanguage(e.target.value)}>
+                <option value="en-US">English (United States)</option>
+                <option value="es-US">Spanish (United States)</option>
+                <option value="fr-FR">French (France)</option>
+              </select>
+            </label>
+          )}
           {kind === "document_create" && (
             <label>
               File format
@@ -243,6 +304,40 @@ export default function MediaDialog({
                 <option value="pdf">PDF (.pdf)</option>
               </select>
             </label>
+          )}
+          {kind === "image" && (
+            <>
+              <label>Image operation
+                <select value={imageMode} disabled={busy} onChange={(e) => setImageMode(e.target.value as typeof imageMode)}>
+                  <option value="generate">Create from prompt</option>
+                  {imageConfig?.image_editing && <option value="edit">Edit an uploaded image</option>}
+                  {imageConfig?.image_editing && <option value="reference">Generate from a reference image</option>}
+                  {imageConfig?.image_masking && <option value="inpaint">Inpaint selected area</option>}
+                  {imageConfig?.image_masking && <option value="outpaint">Outpaint using mask</option>}
+                </select>
+              </label>
+              {imageMode === "generate" && <label>Aspect ratio
+                <select value={imageRatio} disabled={busy} onChange={(e) => setImageRatio(e.target.value)}>
+                  {(imageConfig?.ratios || ["1:1","16:9","9:16","5:4","4:5","3:2","2:3"]).map(ratio => <option key={ratio} value={ratio}>{ratio}</option>)}
+                </select>
+              </label>}
+              <label>Variations (separate provider requests)
+                <select value={imageCount} disabled={busy} onChange={(e) => setImageCount(Number(e.target.value))}>
+                  {[1,2,3,4].map(count => <option key={count} value={count}>{count}</option>)}
+                </select>
+              </label>
+              <label>Seed (0 = random)
+                <input type="number" min="0" max="4294967295" value={imageSeed} disabled={busy}
+                  onChange={(e) => setImageSeed(Math.max(0,Number(e.target.value) || 0))} />
+              </label>
+              {imageMode !== "generate" && <label>Reference image (PNG/JPEG, up to 4 MB)
+                <input type="file" accept="image/png,image/jpeg" disabled={busy} onChange={e => setImageFile(e.target.files?.[0] || null)} />
+              </label>}
+              {["inpaint","outpaint"].includes(imageMode) && <label>Mask (PNG, up to 4 MB)
+                <input type="file" accept="image/png" disabled={busy} onChange={e => setMaskFile(e.target.files?.[0] || null)} />
+              </label>}
+              <p className="muted">Native pixel size is model-defined; only the aspect ratio is selectable. Each variation uses one credit upon successful generation.</p>
+            </>
           )}
           <label>
             {kind === "speech" ? "Text to speak" : "Prompt"}
@@ -298,7 +393,7 @@ export default function MediaDialog({
             <option value="">Select a task</option>
             {tasks.map((t) => (
               <option key={t.id} value={t.id}>
-                {labels[t.kind]} · {t.status} ·{" "}
+                {labels[t.kind]} · {t.status}{t.kind === "image" && t.status !== "failed" && typeof t.progress_percent === "number" ? ` · ${t.progress_percent}%` : ""} ·{" "}
                 {t.prompt.slice(0, 45) || `#${t.id}`}
               </option>
             ))}
@@ -330,9 +425,12 @@ export default function MediaDialog({
         {task && (
           <section aria-label="Task result" className="media-result">
             <p role="status">
-              {labels[task.kind]} · {task.status}
+              {labels[task.kind]} · {task.status}{task.kind === "image" && task.status === "complete" ? " · 100%" : ""}
             </p>
             <p>{task.prompt}</p>
+            {task.kind === "image" && ["queued", "running"].includes(task.status) && (
+              <CreationProgress kind="image" progress={task.progress_percent} stage={task.progress_stage} />
+            )}
             {task.error && <p role="alert">{task.error}</p>}
             {!!artifacts.length && <ArtifactPreviews items={artifacts} />}
             {task.result_text && (
@@ -349,9 +447,7 @@ export default function MediaDialog({
             {preview && task.output_mime === "audio/wav" && (
               <audio controls src={preview} />
             )}
-            {preview && task.output_mime === "application/pdf" && (
-              <iframe title="Generated PDF" className="pdf-preview" src={preview} />
-            )}
+            {previewFile && <DocumentPreview file={previewFile} />}
             {preview && task.output_mime === "video/mp4" && (
               <video className="media-preview" controls src={preview} />
             )}

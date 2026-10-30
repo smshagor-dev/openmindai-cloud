@@ -1,16 +1,25 @@
 <?php
 
+use App\Jobs\ExecuteStudioJob;
+use App\Jobs\ExecuteStudioWorkflow;
 use App\Jobs\RunMediaTask;
 use App\Jobs\RunWorkspaceTask;
 use App\Models\ConversationShare;
 use App\Models\MediaTask;
 use App\Models\Message;
 use App\Models\ScheduledTask;
+use App\Models\StudioJob;
 use App\Models\TaskRun;
 use App\Models\User;
+use App\Services\AdminSettings;
+use App\Services\Research\Orchestrator;
+use App\Services\Research\Readiness;
+use App\Services\Research\WorkerTransfers;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schedule;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 
 Artisan::command('admin:create {email} {name}', function () {
     $email = $this->argument('email');
@@ -59,18 +68,18 @@ Schedule::call(function () {
                 }
                 $active = TaskRun::where('scheduled_task_id', $t->id)->whereIn('status', ['queued', 'running'])->exists();
                 $daily = TaskRun::whereIn('scheduled_task_id', ScheduledTask::where('user_id', $t->user_id)->select('id'))->whereDate('created_at', today())->count();
-                $dailyLimit = app(\App\Services\AdminSettings::class)->limit('task_daily_limit');
+                $dailyLimit = app(AdminSettings::class)->limit('task_daily_limit');
                 if ($active) {
                     $t->update(['next_run_at' => now()->addMinutes(5)]);
 
                     return;
                 }
-                if ($daily >= $dailyLimit) {
+                if ($dailyLimit > 0 && $daily >= $dailyLimit) {
                     $t->update(['next_run_at' => now()->addDay()->startOfDay()]);
 
                     return;
                 }
-                if (! $active && $daily < $dailyLimit) {
+                if (! $active && ($dailyLimit === 0 || $daily < $dailyLimit)) {
                     $run = TaskRun::create(['scheduled_task_id' => $t->id, 'steps' => [['label' => 'Scheduled run queued', 'status' => 'queued']]]);
                     RunWorkspaceTask::dispatch($run->id)->onQueue('tasks')->afterCommit();
                 }
@@ -85,3 +94,170 @@ Schedule::call(function () {
     TaskRun::where('status', 'running')->where('updated_at', '<', now()->subMinutes(10))->update(['status' => 'failed', 'error' => 'Task worker stopped before completing.']);
     TaskRun::where('status', 'queued')->where('updated_at', '<', now()->subDay())->update(['status' => 'failed', 'error' => 'Task worker did not start in time.']);
 })->everyFiveMinutes();
+
+// Cosmos hosted media is private and short-lived. Remove expired output and
+// clear orphaned state if a shared-hosting cron worker terminates unexpectedly.
+Schedule::call(function () {
+    DB::table('cosmos_generations')->where('status', 'running')
+        ->where('updated_at', '<', now()->subMinutes(30))->update([
+            'status' => 'failed', 'error_code' => 'worker_interrupted',
+            'encrypted_request' => '', 'updated_at' => now(),
+        ]);
+    DB::table('cosmos_generations')->where('status', 'queued')
+        ->where('created_at', '<', now()->subDay())->update([
+            'status' => 'failed', 'error_code' => 'worker_not_started',
+            'encrypted_request' => '', 'updated_at' => now(),
+        ]);
+    DB::table('cosmos_generations')->where('created_at', '<', now()->subHours(
+        (int) config('cosmos.retention_hours', 24)
+    ))->orderBy('created_at')->chunk(100, function ($items) {
+        foreach ($items as $item) {
+            if ($item->output_path) {
+                Storage::disk('local')->delete($item->output_path);
+            }
+            DB::table('cosmos_generations')->where('id', $item->id)->delete();
+        }
+    });
+})->hourly();
+
+// NVIDIA Maxine media artifacts are private, short-lived and need cleanup
+// even when a worker is terminated by a shared-hosting process limit.
+Schedule::call(function () {
+    DB::table('maxine_jobs')->where('status', 'running')
+        ->where('updated_at', '<', now()->subMinutes(25))->update([
+            'status' => 'failed', 'error_code' => 'worker_interrupted', 'updated_at' => now(),
+        ]);
+    DB::table('maxine_jobs')->where('status', 'queued')
+        ->where('created_at', '<', now()->subDay())->update([
+            'status' => 'failed', 'error_code' => 'worker_not_started', 'updated_at' => now(),
+        ]);
+    DB::table('maxine_jobs')->where('created_at', '<',
+        now()->subHours((int) config('maxine.retention_hours', 24)))->orderBy('created_at')
+        ->chunk(100, function ($items) {
+            foreach ($items as $item) {
+                Storage::disk('local')->delete(array_filter([$item->input_path, $item->aux_path, $item->output_path]));
+                DB::table('maxine_jobs')->where('id', $item->id)->delete();
+            }
+        });
+})->hourly();
+
+// Remove expired private AV ZIP files and mark interrupted jobs failed.
+Schedule::call(function () {
+    DB::table('av_scene_jobs')->where('status', 'running')->where('updated_at', '<', now()->subMinutes(25))
+        ->update(['status' => 'failed', 'error_code' => 'worker_interrupted', 'updated_at' => now()]);
+    DB::table('av_scene_jobs')->where('status', 'queued')->where('created_at', '<', now()->subDay())
+        ->update(['status' => 'failed', 'error_code' => 'worker_not_started', 'updated_at' => now()]);
+    DB::table('av_scene_jobs')->where('created_at', '<', now()->subHours(24))->orderBy('created_at')
+        ->chunk(100, function ($rows) {
+            foreach ($rows as $row) {
+                if ($row->output_path) {
+                    Storage::disk('local')->delete($row->output_path);
+                }
+                DB::table('av_scene_jobs')->where('id', $row->id)->delete();
+            }
+        });
+})->hourly();
+
+// Remove temporary Cosmos Transfer MP4 media and finish orphaned queue jobs.
+Schedule::call(function () {
+    DB::table('cosmos_transfer_jobs')->where('status', 'running')
+        ->where('updated_at', '<', now()->subMinutes(25))
+        ->update(['status' => 'failed', 'error_code' => 'worker_interrupted', 'updated_at' => now()]);
+    DB::table('cosmos_transfer_jobs')->where('status', 'queued')
+        ->where('created_at', '<', now()->subDay())
+        ->update(['status' => 'failed', 'error_code' => 'worker_not_started', 'updated_at' => now()]);
+    DB::table('cosmos_transfer_jobs')->where('created_at', '<', now()->subHours(24))->orderBy('created_at')
+        ->chunk(100, function ($rows) {
+            foreach ($rows as $row) {
+                Storage::disk('local')->delete(array_filter([
+                    $row->input_path, $row->control_path, $row->output_path,
+                ]));
+                DB::table('cosmos_transfer_jobs')->where('id', $row->id)->delete();
+            }
+        });
+})->hourly();
+
+// Short retention for private text-to-speech prompts, reference WAVs and results.
+Schedule::call(function () {
+    DB::table('magpie_generations')->where('status', 'running')
+        ->where('updated_at', '<', now()->subMinutes(25))
+        ->update(['status' => 'failed', 'error_code' => 'worker_interrupted',
+            'encrypted_request' => '', 'updated_at' => now()]);
+    DB::table('magpie_generations')->where('status', 'queued')
+        ->where('created_at', '<', now()->subDay())
+        ->update(['status' => 'failed', 'error_code' => 'worker_not_started',
+            'encrypted_request' => '', 'updated_at' => now()]);
+    DB::table('magpie_generations')->where('created_at', '<',
+        now()->subHours((int) config('magpie.retention_hours', 24)))
+        ->orderBy('created_at')->chunk(100, function ($rows) {
+            foreach ($rows as $row) {
+                Storage::disk('local')->delete(array_filter([$row->voice_path, $row->output_path]));
+                DB::table('magpie_generations')->where('id', $row->id)->delete();
+            }
+        });
+})->hourly();
+
+// Expired one-time realtime tickets cannot block a user's next session.
+Schedule::call(function () {
+    DB::table('voicechat_sessions')->where('status', 'issued')
+        ->where('expires_at', '<', now())->update([
+            'status' => 'expired', 'ended_at' => now(), 'updated_at' => now(),
+        ]);
+    DB::table('voicechat_sessions')->where('status', 'claimed')
+        ->where('claimed_at', '<', now()->subMinutes(20))->update([
+            'status' => 'closed', 'ended_at' => now(), 'updated_at' => now(),
+        ]);
+    DB::table('voicechat_sessions')->where('created_at', '<', now()->subDay())
+        ->orderBy('created_at')->chunk(100, function ($rows) {
+            foreach ($rows as $row) {
+                DB::table('voicechat_sessions')->where('id', $row->id)->delete();
+            }
+        });
+})->hourly();
+
+Artisan::command('research:recover', function () {
+    app(Orchestrator::class)->recover();
+    $this->info('Research leases checked.');
+});
+Schedule::command('research:recover')->everyMinute()->withoutOverlapping();
+Schedule::call(fn () => app(WorkerTransfers::class)->prune())->everyTenMinutes()->name('research-transfer-cleanup')->withoutOverlapping();
+
+Artisan::command('research:preflight {--fresh : Recheck worker instead of using the short health cache}', function () {
+    $status = app(Readiness::class)->inspect((bool) $this->option('fresh'));
+    $this->line(json_encode($status, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+
+    return $status['infrastructure_ready'] ? 0 : 1;
+})->purpose('Check Research Studio infrastructure without revealing credentials or executing research.');
+
+Artisan::command('studio:recover', function () {
+    if (! Schema::hasTable('studio_jobs')) {
+        return;
+    }
+    StudioJob::where('operation', 'direct_scene')->whereIn('status', ['running', 'cancel_requested'])->where('lease_until', '<', now())->get()->each(function ($job) {
+        $scene = DB::table('studio_scenes')->where('user_id', $job->user_id)->where('origin_job_id', $job->id)->first();
+        $job->update(['status' => $scene ? 'completed' : ($job->status === 'cancel_requested' ? 'cancelled' : 'failed'), 'result' => $scene ? ['scene_id' => $scene->id] : null, 'error_code' => $scene ? null : 'provider_outcome_uncertain', 'lease_until' => null]);
+    });
+    if (! config('studio.queue_enabled')) {
+        return;
+    }
+    StudioJob::where('operation', '!=', 'direct_scene')->whereIn('status', ['queued', 'running', 'cancel_requested'])
+        ->where(fn ($q) => $q->whereNull('lease_until')->orWhere('lease_until', '<', now()))
+        ->where('updated_at', '<', now()->subSeconds(30))->orderBy('created_at')->limit(20)->get()
+        ->each(function ($job) {
+            $class = $job->operation === 'workflow' ? ExecuteStudioWorkflow::class : ExecuteStudioJob::class;
+            $class::dispatch($job->id)->onConnection('database')->onQueue('studio');
+        });
+});
+Schedule::command('studio:recover')->everyMinute()->withoutOverlapping();
+
+Artisan::command('studio:preflight {--cpanel : Check the direct scene profile without a worker} {--require-gpu : Require at least one verified GPU engine}', function () {
+    if ($this->option('cpanel') && $this->option('require-gpu')) {
+        $this->error('Choose either the cPanel profile or the GPU profile.');
+
+        return 2;
+    }
+    $status = app(App\Services\Studio\Readiness::class)->inspect();
+    $this->line(json_encode($status, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+
+    return $status[$this->option('cpanel') ? 'cpanel_ready' : ($this->option('require-gpu') ? 'gpu_infrastructure_ready' : 'cpu_infrastructure_ready')] ? 0 : 1;
+})->purpose('Inspect private 3D worker readiness without exposing credentials or generating artifacts.');

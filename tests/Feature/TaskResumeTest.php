@@ -7,6 +7,7 @@ use App\Models\AiModel;
 use App\Models\ScheduledTask;
 use App\Models\TaskRun;
 use App\Models\User;
+use App\Services\AdminSettings;
 use App\Services\TaskCheckpoint;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -32,7 +33,7 @@ class TaskResumeTest extends TestCase
     public function test_interrupted_answer_resumes_from_encrypted_checkpoint_without_new_daily_request(): void
     {
         $task = $this->task();
-        config(['models.task_daily_limit' => 1]);
+        app(AdminSettings::class)->save(['task_daily_limit' => '1']);
         $run = TaskRun::create(['scheduled_task_id' => $task->id]);
         $calls = 0;
         Http::fake(function ($request) use (&$calls) {
@@ -61,6 +62,22 @@ class TaskResumeTest extends TestCase
         $this->assertNull($run->fresh()->checkpoint);
         $this->assertDatabaseCount('task_runs', 1);
         $this->postJson('/api/v1/tasks/'.$task->id.'/runs')->assertStatus(429);
+    }
+
+    public function test_unlimited_daily_tasks_allow_multiple_manual_runs(): void
+    {
+        $task = $this->task();
+        app(AdminSettings::class)->save(['task_daily_limit' => '0']);
+
+        $first = $this->postJson('/api/v1/tasks/'.$task->id.'/runs')
+            ->assertStatus(202)->json('id');
+        TaskRun::findOrFail($first)->update(['status' => 'complete', 'result' => 'Finished']);
+
+        $second = $this->postJson('/api/v1/tasks/'.$task->id.'/runs')
+            ->assertStatus(202)->json('id');
+
+        $this->assertNotSame($first, $second);
+        $this->assertDatabaseCount('task_runs', 2);
     }
 
     public function test_modified_task_definition_cannot_silently_resume_old_context(): void

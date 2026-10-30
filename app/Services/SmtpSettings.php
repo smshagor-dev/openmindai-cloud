@@ -33,7 +33,7 @@ class SmtpSettings
             ],
             'mail.from' => [
                 'address' => $settings->from_address,
-                'name' => $settings->from_name,
+                'name' => 'OpenMindAI',
             ],
             'mail.reply_to' => $settings->reply_to ? [
                 'address' => $settings->reply_to,

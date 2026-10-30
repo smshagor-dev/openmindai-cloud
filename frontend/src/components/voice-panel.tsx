@@ -60,40 +60,18 @@ export default function VoicePanel({
     try {
       const input = await audioAsWavBase64(blob);
       if (c.signal.aborted) return;
-      const task = await api<{ id: number }>(
+      const result = await api<{ id: number; status: string; result_text: string | null }>(
         "media/transcription",
         "POST",
         { kind: "transcription", prompt: "", input },
         c.signal,
       );
-      let result;
-      for (let i = 0; i < 180; i++) {
-        await new Promise<void>((resolve, reject) => {
-          const abort = () => {
-            clearTimeout(wait);
-            reject(new DOMException("Aborted", "AbortError"));
-          };
-          const wait = setTimeout(() => {
-            c.signal.removeEventListener("abort", abort);
-            resolve();
-          }, 2000);
-          c.signal.addEventListener("abort", abort, { once: true });
-          if (c.signal.aborted) abort();
-        });
-        result = await api<{
-          status: string;
-          result_text: string;
-          error: string;
-        }>(`media/${task.id}`, "GET", undefined, c.signal);
-        if (result.status === "complete") {
-          setTranscript(result.result_text);
-          return;
-        }
-        if (result.status === "failed") throw new Error(result.error);
+      if (c.signal.aborted) return;
+      if (result.status !== "complete" || !result.result_text?.trim()) {
+        throw new Error("The recording could not be transcribed. Please try again.");
       }
-      throw new Error(
-        "Transcription is still queued. Find it in Library or Media studio.",
-      );
+      setTranscript(result.result_text);
+      setPhase("Transcription ready.");
     } catch (e) {
       if (!c.signal.aborted && alive.current) setError((e as Error).message);
     } finally {

@@ -14,9 +14,10 @@ class InteractiveSessionToken
         $token = $request->user()?->currentAccessToken();
         // Keys issued for OpenMindAI integrations must never unlock profile,
         // projects, conversations, tokens, settings, media or admin APIs.
-        if ($token instanceof PersonalAccessToken && ! $token->can('*')) {
+        if ($token instanceof PersonalAccessToken && $token->can('openmindai:invoke') && ! $token->can('*')) {
             abort(403, 'This API key can only access the OpenMindAI model gateway.');
         }
+
         return $next($request);
     }
 }

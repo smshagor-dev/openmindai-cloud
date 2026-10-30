@@ -6,13 +6,14 @@
     <div><span class="eyebrow">USER MANAGEMENT</span><h1>Users</h1><p>Find, review and manage registered accounts and their access.</p></div>
     <div class="heading-actions"><a href="/admin/administrators/create" class="btn-primary-admin">+ Create administrator</a></div>
 </div>
-<div class="admin-card" style="margin-bottom:20px">
-    <form method="get" action="/admin/users" class="admin-search-bar">
-        <div class="field"><label for="user_search">Search users</label><input id="user_search" name="q" value="{{ request('q') }}" placeholder="Search by name or email" autocomplete="off"></div>
-        <button type="submit" class="btn-primary-admin">Search accounts</button>
-        @if(request()->filled('q'))<a class="subnav" href="/admin/users" style="margin:0">Clear</a>@endif
+<form method="get" action="/admin/users" class="admin-card admin-filter-form">
+        <div class="admin-filter-fields">
+            <div class="field"><label for="user_search">Search users</label><input id="user_search" name="q" value="{{ request('q') }}" placeholder="Search by name or email" autocomplete="off"></div>
+        </div>
+        <div class="admin-filter-actions"><button type="submit" class="btn-primary-admin">Search accounts</button>
+            @if(request()->filled('q'))<a class="admin-reset-filter" href="/admin/users">Clear search</a>@endif
+        </div>
     </form>
-</div>
 <section class="admin-card table-card">
     <div class="table-heading panel-heading"><div><h2>Registered accounts</h2><p>Manage users or review administrator accounts.</p></div><a href="/admin/profile" class="pill-link">My profile →</a></div>
     <div class="table-wrap"><table class="admin-table"><thead><tr><th>Account</th><th>Email</th><th>Status</th><th>Role</th><th>Security</th><th></th></tr></thead>

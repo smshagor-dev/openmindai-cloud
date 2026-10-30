@@ -107,6 +107,7 @@ class AdminConsoleTest extends TestCase
         $this->patch('/admin/settings', $this->settings())->assertForbidden();
         $this->assertDatabaseCount('admin_settings', 0);
     }
+
     public function test_administration_pages_render_the_shared_workspace_layout(): void
     {
         $this->admin();
@@ -132,5 +133,4 @@ class AdminConsoleTest extends TestCase
         $this->get('/admin/login')
             ->assertOk()->assertSee('auth-card', false);
     }
-
 }

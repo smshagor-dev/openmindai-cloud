@@ -7,6 +7,7 @@ use App\Models\MediaTask;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -14,7 +15,7 @@ class MediaController
 {
     public function index(Request $r)
     {
-        $r->validate(['q' => 'nullable|string|max:100', 'kind' => 'nullable|in:image,vision,document,transcription,speech,video,code']);
+        $r->validate(['q' => 'nullable|string|max:100', 'kind' => 'nullable|in:image,vision,document,document_create,transcription,speech,video,code']);
         $query = MediaTask::where('user_id', $r->user()->id);
         if ($r->filled('q')) {
             $query->where('prompt', 'like', '%'.$r->query('q').'%');
@@ -23,18 +24,26 @@ class MediaController
             $query->where('kind', $r->query('kind'));
         }
 
-        return $query->select(['id', 'kind', 'prompt', 'status', 'output_mime', 'result_text', 'error', 'bytes', 'created_at', 'updated_at'])->latest('id')->paginate(20);
+        return $query->select(['id', 'kind', 'prompt', 'status', 'progress_percent', 'progress_stage', 'output_mime', 'result_text', 'error', 'bytes', 'created_at', 'updated_at'])->latest('id')->paginate(20);
     }
 
     public function show(Request $r, int $id)
     {
-        return MediaTask::where('user_id', $r->user()->id)->findOrFail($id);
+        return response()->json(MediaTask::where('user_id', $r->user()->id)->findOrFail($id))
+            ->header('Cache-Control', 'private, no-store');
     }
 
     public function create(Request $r)
     {
         $d = $r->validate(['kind' => 'required|in:image,vision,transcription,speech,video,document,code', 'prompt' => 'present|string|max:4000', 'input' => 'nullable|string|max:11000000', 'approved' => 'exclude_unless:kind,code|required|accepted']);
         abort_unless(config('media.url') && config('media.key') && in_array($d['kind'], config('media.kinds'), true), 503, 'This self-hosted engine is not enabled.');
+        if ($d['kind'] === 'image') {
+            abort_unless(
+                Schema::hasColumns('media_tasks', ['progress_percent', 'progress_stage']),
+                503,
+                'The image service database needs its latest migrations. Ask an administrator to run php artisan migrate --force.'
+            );
+        }
         $needsInput = in_array($d['kind'], ['vision', 'transcription', 'document'], true);
         abort_if($needsInput !== ! empty($d['input']), 422, 'This task requires the appropriate image/audio input only.');
         abort_if(! in_array($d['kind'], ['transcription', 'document'], true) && trim($d['prompt']) === '', 422, 'Enter a prompt.');

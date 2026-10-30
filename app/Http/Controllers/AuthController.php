@@ -4,18 +4,18 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use App\Services\AdminSettings;
-use App\Services\UnfamiliarLogin;
-use App\Notifications\VerifyEmail;
+use App\Services\EmailOtp;
 use App\Services\TwoFactor;
+use App\Services\UnfamiliarLogin;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Password;
 use Illuminate\Validation\Rules\Password as PasswordRule;
+use Illuminate\Validation\ValidationException;
 
 class AuthController
 {
-    public function register(Request $r, UnfamiliarLogin $login)
+    public function register(Request $r, UnfamiliarLogin $login, EmailOtp $otp)
     {
         $settings = app(AdminSettings::class);
         abort_unless($settings->enabled('registration_enabled'), 403, 'Registration is currently closed.');
@@ -28,7 +28,7 @@ class AuthController
 
         if ($settings->enabled('registration_email_verification_enabled')) {
             try {
-                $u->notify(new VerifyEmail);
+                $otp->send($u, 'registration');
             } catch (\Throwable $exception) {
                 // Never leave an inaccessible new account if the first verification email cannot be sent.
                 $u->delete();
@@ -37,7 +37,7 @@ class AuthController
 
             return response()->json([
                 'verification_required' => true,
-                'message' => 'Check your inbox for a verification link, then sign in.',
+                'message' => 'Enter the six-digit code sent to your email.',
             ], 201);
         }
 
@@ -69,7 +69,7 @@ class AuthController
         if ($u->two_factor_confirmed_at) {
             abort_unless($two->verify($u, $d['code'] ?? ''), 422, 'A valid two-factor or recovery code is required.');
         }
-        abort_if($u->tokens()->count() >= 10, 422, 'Revoke an existing device first.');
+        abort_if($u->tokens()->where('name', 'not like', 'developer:%')->count() >= 10, 422, 'Revoke an existing device first.');
 
         $challenge = $login->challenge($u, $r, $d['device_name']);
         if ($challenge) {
@@ -96,46 +96,73 @@ class AuthController
         return response()->noContent();
     }
 
-    public function forgot(Request $r)
+    public function forgot(Request $r, EmailOtp $otp)
     {
-        $r->validate(['email' => 'required|email']);
-        Password::sendResetLink($r->only('email'));
+        $data = $r->validate(['email' => 'required|email']);
+        $user = User::where('email', $data['email'])->first();
+        if ($user && $user->is_active) {
+            try {
+                $otp->send($user, 'password');
+            } catch (ValidationException $e) {
+                throw $e;
+            } catch (\Throwable $e) {
+                abort(503, 'Could not send the reset code. Please try again later.');
+            }
+        }
 
-        return ['message' => 'If the account exists, a reset link has been sent.'];
+        return ['message' => 'If the account exists, a six-digit reset code has been sent.'];
     }
 
-    public function reset(Request $r)
+    public function reset(Request $r, EmailOtp $otp)
     {
-        $r->validate(['email' => 'required|email', 'token' => 'required|string', 'password' => ['required', 'confirmed', PasswordRule::min(6)]]);
-        $status = Password::reset($r->only('email', 'password', 'password_confirmation', 'token'), function (User $u, string $password) {
-            DB::transaction(function () use ($u, $password) {
-                $u->forceFill(['password' => $password, 'pending_email' => null, 'email_change_token' => null, 'email_change_expires_at' => null, 'remember_token' => bin2hex(random_bytes(30))])->save();
-                $u->tokens()->delete();
-                DB::table('sessions')->where('user_id', $u->id)->delete();
-            });
+        $data = $r->validate([
+            'email' => 'required|email',
+            'code' => 'required|digits:6',
+            'password' => ['required', 'confirmed', PasswordRule::min(6)],
+        ]);
+        $ok = $otp->consume($data['email'], 'password', $data['code'], function () use ($data) {
+            $user = User::where('email', $data['email'])->firstOrFail();
+            $user->forceFill([
+                'password' => $data['password'],
+                'pending_email' => null,
+                'email_change_token' => null,
+                'email_change_expires_at' => null,
+                'remember_token' => bin2hex(random_bytes(30)),
+            ])->save();
+            $user->tokens()->delete();
+            DB::table('sessions')->where('user_id', $user->id)->delete();
         });
-        abort_unless($status === Password::PASSWORD_RESET, 422, 'Invalid or expired reset token.');
+        abort_unless($ok, 422, 'Invalid or expired reset code.');
 
         return ['message' => 'Password reset. All devices signed out.'];
     }
 
-    public function verify(Request $r, int $id, string $hash)
+    public function verifyCode(Request $r, EmailOtp $otp)
     {
-        $u = User::findOrFail($id);
-        abort_unless(hash_equals(sha1($u->email), $hash), 403);
-        $u->forceFill(['email_verified_at' => now()])->save();
+        $data = $r->validate(['email' => 'required|email', 'code' => 'required|digits:6']);
+        $ok = $otp->consume($data['email'], 'registration', $data['code'], function () use ($data) {
+            $user = User::where('email', $data['email'])->whereNull('email_verified_at')->firstOrFail();
+            $user->forceFill(['email_verified_at' => now()])->save();
+        });
+        abort_unless($ok, 422, 'Invalid or expired verification code.');
 
-        return response('Email verified. You may now log in.');
+        return ['message' => 'Email verified. You can now sign in.'];
     }
 
-    public function resend(Request $r)
+    public function resend(Request $r, EmailOtp $otp)
     {
         $r->validate(['email' => 'required|email']);
-        $u = User::where('email', $r->email)->first();
-        if ($u && ! $u->email_verified_at) {
-            $u->notify(new VerifyEmail);
+        $user = User::where('email', $r->email)->whereNull('email_verified_at')->first();
+        if ($user) {
+            try {
+                $otp->send($user, 'registration', true);
+            } catch (ValidationException $e) {
+                throw $e;
+            } catch (\Throwable $e) {
+                abort(503, 'Could not send the verification code. Please try again later.');
+            }
         }
 
-        return ['message' => 'If eligible, a verification link has been sent.'];
+        return ['message' => 'If eligible, a six-digit verification code has been sent.'];
     }
 }

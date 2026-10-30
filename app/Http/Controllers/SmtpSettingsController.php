@@ -2,10 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Mail\SmtpTestMessage;
 use App\Models\SmtpSetting;
 use App\Services\SmtpSettings;
 use App\Services\TwoFactor;
 use Illuminate\Http\Request;
+use Illuminate\Mail\MailManager;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -87,15 +89,13 @@ class SmtpSettingsController
         app(SmtpSettings::class)->apply();
         if (app()->resolved('mail.manager')) {
             $manager = app('mail.manager');
-            if ($manager instanceof \Illuminate\Mail\MailManager) {
+            if ($manager instanceof MailManager && Mail::getFacadeRoot() instanceof MailManager) {
                 $manager->purge('smtp');
             }
         }
 
         try {
-            Mail::raw('Your OpenMindAI SMTP configuration is working. This test was requested from the administration console.', function ($message) use ($request) {
-                $message->to($request->user()->email)->subject('OpenMindAI SMTP test');
-            });
+            Mail::to($request->user()->email)->send(new SmtpTestMessage);
         } catch (\Throwable $exception) {
             // Do not expose or log transport exceptions: they can include SMTP credentials.
             return back()->withErrors(['smtp' => 'The test email could not be sent. Check your SMTP host, credentials, encryption and hosting firewall.']);

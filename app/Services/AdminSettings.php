@@ -14,6 +14,8 @@ class AdminSettings
         'registration_enabled' => '1',
         'registration_email_verification_enabled' => '0',
         'unusual_ip_verification_enabled' => '0',
+        'guest_chat_daily_limit' => '5',
+        'frontend_inference_route' => 'backend',
         'chat_daily_limit' => '200',
         'task_daily_limit' => '20',
     ];
@@ -28,6 +30,7 @@ class AdminSettings
         if (! array_key_exists($key, self::DEFAULTS)) {
             throw new \InvalidArgumentException('Unknown admin setting.');
         }
+
         return (string) (DB::table('admin_settings')->where('key', $key)->value('value') ?? self::DEFAULTS[$key]);
     }
 
@@ -38,7 +41,7 @@ class AdminSettings
 
     public function limit(string $key): int
     {
-        return max(1, (int) $this->get($key));
+        return max(0, (int) $this->get($key));
     }
 
     public function save(array $settings): void

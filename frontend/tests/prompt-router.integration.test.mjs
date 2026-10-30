@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { routePrompt } from "../src/lib/prompt-router.ts";
-import { nvidiaChat } from "../src/lib/nvidia-chat.ts";
 
 const cfg = {
   apiKey: "private-test-key",
@@ -43,7 +42,7 @@ test("code, research and visual text prompts select appropriate hosted models", 
   assert.equal((await classify("Hello")).model, cfg.fastModel);
   assert.equal((await classify("Hello", {deepResearch:true})).model, cfg.reasoningModel);
 });
-test("semantic classifier is constrained to known model tiers and task types", async () => {
+test("deterministic route hints never send classifier requests", async () => {
   const calls = [];
   const fetcher = async (url, options) => {
     calls.push({url, options});
@@ -52,76 +51,58 @@ test("semantic classifier is constrained to known model tiers and task types", a
   const result = await routePrompt("Please review my recent architecture decisions in detail", cfg, {fetcher});
   assert.equal(result.kind, "chat");
   assert.equal(result.model, cfg.reasoningModel);
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].url, "https://integrate.api.nvidia.com/v1/chat/completions");
-  assert.equal(calls[0].options.headers.Authorization, "Bearer private-test-key");
+  assert.equal(calls.length, 0);
   assert.ok(!JSON.stringify(result).includes("http://internal"));
 });
-test("classifier errors fall back to chat without leaking provider failures", async () => {
+test("ambiguous hints remain chat without provider classification", async () => {
   const result = await routePrompt("Please compose a detailed comparison of these approaches", cfg, {
     fetcher: async () => Response.json({error: "bad credentials"}, {status: 403}),
   });
   assert.equal(result.kind, "chat");
 });
-test("automatic DOCX generation reuses Laravel media begin/complete and emits preview event", async () => {
-  const calls = [];
-  const fetcher = async (url, init) => {
-    calls.push({url, init});
-    if (url.endsWith("/media/hosted/task/begin"))
-      return Response.json({id: 44, status:"running"}, {status:202});
-    if (url.endsWith("/media/44/hosted/task/complete"))
-      return Response.json({id:44, status:"complete"});
-    if (url.endsWith("/chat/completions"))
-      return Response.json({choices:[{message:{content:"Example report\n\nProject summary."}}]});
-    throw Error("Unexpected provider URL: " + url);
-  };
-  const r = await nvidiaChat(JSON.stringify({model_id:-1, message:"Create a DOCX document about our project"}),
-    "user-token", "https://backend/api/v1", new AbortController().signal,
-    {fetcher, config:{apiKey:cfg.apiKey, bridgeKey:"k".repeat(32), model:cfg.fastModel}});
-  assert.equal(r.status, 200);
-  assert.match(r.headers.get("content-type"), /text\/event-stream/);
-  const stream = await r.text();
-  assert.match(stream, /event: media/);
-  assert.match(stream, /"id":44/);
-  assert.match(stream, /"status":"complete"/);
-  assert.ok(!stream.includes("private-test-key"));
-  assert.equal(calls.some(c => c.url.includes("/chat/frontend/begin")), false);
-  assert.equal(calls.filter(c => c.url.includes("/media/")).length, 2);
-  assert.equal(JSON.parse(calls[1].init.body).model, cfg.fastModel);
+test("automatic tools distinguish actual outputs from code, negation and explanations", async () => {
+  for (const prompt of [
+    "Make a HTML CSS water bottle website with 3D animation",
+    "Create a React component for an image gallery",
+    "Do not generate an image, explain the idea",
+    "ছবি বানাবে না শুধু বুঝিয়ে বলো",
+    "image generate korba na just explain",
+    "How do I make a video?",
+    "Summarize this instruction: generate an image of a forest",
+    "Translate this sentence: create a logo",
+  ]) assert.equal((await classify(prompt)).kind, "chat", prompt);
+  assert.equal((await classify("ekta pdf report daw")).kind, "document_create");
+  assert.equal((await classify("Create a PDF report about Python")).kind, "document_create");
+  assert.equal((await classify("Read this aloud: welcome to OpenMindAI")).kind, "speech");
+  assert.equal((await classify("Create a photo of a forest", {allowTools:false})).kind, "chat");
 });
 
-test("provider rate limiting triggers one pre-stream fallback and saves the selected model", async () => {
-  const requests = [];
-  let saved;
-  const fetcher = async (url, init) => {
-    if (url.endsWith("/begin")) return Response.json({
-      ticket: "d".repeat(64), messages: [
-        {role: "system", content: "context"}, {role: "user", content: "Debug my Laravel controller"},
-      ], conversation_id: 12, user_message_id: 14, message_id: 15, sources: [],
-    });
-    if (url.endsWith("/checkpoint")) {
-      saved = JSON.parse(init.body).state;
-      return Response.json({stored: true});
-    }
-    if (url.endsWith("/finish")) return Response.json({stored:true});
-    if (url.endsWith("/status")) return Response.json({cancelled:false});
-    const body = JSON.parse(init.body);
-    requests.push(body.model);
-    if (requests.length === 1) return Response.json({error:"busy"}, {status:429});
-    return new Response(
-      'data: {"choices":[{"delta":{"content":"Fixed"}}]}\n\n' +
-      'data: [DONE]\n\n',
-      {headers:{"Content-Type":"text/event-stream"}},
-    );
-  };
-  const response = await nvidiaChat(
-    JSON.stringify({message:"Debug my Laravel controller",model_id:-1}),
-    "user", "https://backend/api/v1", new AbortController().signal,
-    {fetcher, config:{apiKey:cfg.apiKey,bridgeKey:"x".repeat(32),model:cfg.fastModel}},
-  );
-  const text = await response.text();
-  assert.match(text, /Fixed/);
-  assert.match(text, /"saved":true/);
-  assert.deepEqual(requests, [cfg.reasoningModel,cfg.fastModel]);
-  assert.equal(saved.modelId, cfg.fastModel);
+test("fresh information and deep research activate backend tools automatically", async () => {
+  assert.equal((await classify("What are the latest AI news today?")).webSearch, true);
+  assert.equal((await classify("ajker khobor bolo")).webSearch, true);
+  const deep = await classify("Do a systematic review of UAV mesh security with references");
+  assert.equal(deep.deepResearch, true);
+  assert.equal(deep.webSearch, true);
+  assert.equal(deep.model, cfg.reasoningModel);
+  assert.equal((await classify("Without web search explain the latest concepts")).webSearch, undefined);
+  assert.equal((await classify("Build a latest news API in Laravel")).webSearch, undefined);
+  assert.equal((await classify("latest AI news", {allowTools:false})).webSearch, undefined);
+});
+
+test("specialist routing only chooses models present in the enabled catalog", async () => {
+  const {catalogRouterConfig} = await import("../src/lib/prompt-router.ts");
+  const models = [
+    {slug:"openmindai-lite",provider:cfg.fastModel},
+    {slug:"nvidia-laguna-xs-2.1",provider:"provider/code"},
+    {slug:"nvidia-riva-translate-4b-instruct-v2",provider:"provider/translate"},
+    {slug:"nvidia-gpt-oss-20b",provider:"provider/math"},
+  ];
+  const enabled = catalogRouterConfig(cfg, models);
+  const route = (prompt) => routePrompt(prompt, enabled, {enableClassifier:false});
+  assert.equal((await route("Implement a React component")).model, "provider/code");
+  assert.equal((await route("Translate hello into Bengali")).model, "provider/translate");
+  assert.equal((await route("অনুবাদ করো: hello")).model, "provider/translate");
+  assert.equal((await route("Solve this integral")).model, "provider/math");
+  const limited = catalogRouterConfig(cfg, models.slice(0,1));
+  assert.equal((await routePrompt("Implement a React component", limited, {enableClassifier:false})).model, cfg.fastModel);
 });

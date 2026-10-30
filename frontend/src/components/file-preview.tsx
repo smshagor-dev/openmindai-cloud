@@ -1,15 +1,18 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
+import DocumentPreview from "./document-preview";
 import Dialog from "./dialog";
 export default function FilePreview({
   file,
   onClose,
   onTask,
+  onAttach,
 }: {
   file: File;
   onClose: () => void;
   onTask: (id: number) => void;
+  onAttach?: (file: File) => void;
 }) {
   const action = useRef<AbortController | null>(null);
   const [url, setUrl] = useState("");
@@ -54,27 +57,10 @@ export default function FilePreview({
       {url && file.type.startsWith("image/") && (
         <img className="media-preview" src={url} alt={file.name} />
       )}{" "}
-      {url &&
-        (file.type === "application/pdf" ||
-          file.name.toLowerCase().endsWith(".pdf")) && (
-          <>
-            <iframe
-              className="pdf-preview"
-              title="Local PDF preview"
-              src={url}
-              sandbox=""
-            />
-            <a href={url} download={file.name}>
-              Download local PDF if the browser cannot preview it
-            </a>
-          </>
-        )}
-      {url && file.type.startsWith("audio/") && <audio controls src={url} />}{" "}
-      {file.name.toLowerCase().endsWith(".docx") && (
-        <p>DOCX preview is available as extracted text after processing.</p>
-      )}
+      {url && file.type.startsWith("audio/") && <audio controls src={url} />}
+      {/\.(pdf|docx?|md|markdown|txt|csv)$/i.test(file.name) && <DocumentPreview file={file} onAttach={onAttach} />}
       {error && <p role="alert">{error}</p>}
-      <form
+      {!/\.(pdf|docx?|md|markdown|txt|csv)$/i.test(file.name) && <form
         className="form-stack"
         onSubmit={async (e) => {
           e.preventDefault();
@@ -140,7 +126,7 @@ export default function FilePreview({
               ? "Process privately"
               : "This engine is not configured"}
         </button>
-      </form>
+      </form>}
     </Dialog>
   );
 }

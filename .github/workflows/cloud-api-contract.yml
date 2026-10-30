@@ -1,0 +1,39 @@
+name: OpenMindAI Cloud API contract
+
+on:
+  push:
+    paths:
+      - 'bootstrap/app.php'
+      - 'routes/api.php'
+      - 'app/Http/Controllers/OpenMindAiGatewayController.php'
+      - 'tests/Feature/CloudApiAuthResponseTest.php'
+      - 'tests/Feature/OpenMindAiGatewayTest.php'
+      - 'tests/Feature/CloudToolCallingTest.php'
+      - '.github/workflows/cloud-api-contract.yml'
+  pull_request:
+    paths:
+      - 'bootstrap/app.php'
+      - 'routes/api.php'
+      - 'app/Http/Controllers/OpenMindAiGatewayController.php'
+      - 'tests/Feature/CloudApiAuthResponseTest.php'
+      - 'tests/Feature/OpenMindAiGatewayTest.php'
+      - 'tests/Feature/CloudToolCallingTest.php'
+      - '.github/workflows/cloud-api-contract.yml'
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php: ['8.2', '8.3']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mbstring, pdo_sqlite, curl, xml
+          coverage: none
+      - run: composer install --no-interaction --prefer-dist
+      - run: cp .env.example .env
+      - run: php artisan test --filter='CloudApiAuthResponseTest|OpenMindAiGatewayTest|CloudToolCallingTest'
+      - run: php artisan route:cache

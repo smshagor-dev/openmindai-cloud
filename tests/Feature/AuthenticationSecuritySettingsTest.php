@@ -3,13 +3,12 @@
 namespace Tests\Feature;
 
 use App\Models\User;
+use App\Notifications\EmailOtpCode;
 use App\Notifications\LoginIpVerification;
-use App\Notifications\VerifyEmail;
 use App\Services\AdminSettings;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
-use Illuminate\Support\Facades\URL;
 use Tests\TestCase;
 
 class AuthenticationSecuritySettingsTest extends TestCase
@@ -52,14 +51,14 @@ class AuthenticationSecuritySettingsTest extends TestCase
         $user = User::where('email', 'person@example.com')->firstOrFail();
         $this->assertNull($user->email_verified_at);
         $this->assertDatabaseCount('personal_access_tokens', 0);
-        Notification::assertSentTo($user, VerifyEmail::class);
+        Notification::assertSentTo($user, EmailOtpCode::class);
 
         $this->postJson('/api/v1/login', $this->payload())->assertForbidden();
 
-        $url = URL::temporarySignedRoute('verification.verify', now()->addMinutes(10), [
-            'id' => $user->id, 'hash' => sha1($user->email),
-        ]);
-        $this->get($url)->assertOk();
+        $code = Notification::sent($user, EmailOtpCode::class)->first()->code;
+        $this->postJson('/api/v1/email/verify-code', ['email' => $user->email, 'code' => '000000'])->assertUnprocessable();
+        $this->postJson('/api/v1/email/verify-code', ['email' => $user->email, 'code' => $code])->assertOk();
+        $this->postJson('/api/v1/email/verify-code', ['email' => $user->email, 'code' => $code])->assertUnprocessable();
         $this->assertNotNull($user->fresh()->email_verified_at);
         $this->postJson('/api/v1/login', $this->payload())->assertOk()->assertJsonStructure(['token', 'user']);
     }
@@ -171,6 +170,7 @@ class AuthenticationSecuritySettingsTest extends TestCase
         $this->postJson('/api/v1/login', $this->payload())->assertOk();
         Notification::assertNothingSent();
     }
+
     public function test_email_change_invalidates_pending_ip_challenge(): void
     {
         app(AdminSettings::class)->save(['unusual_ip_verification_enabled' => '1']);
@@ -186,5 +186,4 @@ class AuthenticationSecuritySettingsTest extends TestCase
             'challenge_id' => $challenge->json('challenge_id'), 'code' => $code,
         ])->assertStatus(422);
     }
-
 }

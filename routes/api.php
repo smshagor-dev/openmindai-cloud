@@ -1,34 +1,81 @@
 <?php
 
 use App\Http\Controllers\AccountController;
-use App\Http\Controllers\DeveloperKeysController;
-use App\Http\Controllers\OpenMindAiGatewayController;
 use App\Http\Controllers\AssistantGalleryController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CanvasController;
 use App\Http\Controllers\ChatController;
+use App\Http\Controllers\ChatProviderController;
+use App\Http\Controllers\CloudImageController;
 use App\Http\Controllers\ConnectorController;
+use App\Http\Controllers\DeveloperKeysController;
+use App\Http\Controllers\DeveloperPortalController;
 use App\Http\Controllers\FrontendChatController;
-use App\Http\Controllers\MediaController;
+use App\Http\Controllers\GuestChatController;
 use App\Http\Controllers\HostedImageController;
 use App\Http\Controllers\HostedMediaController;
+use App\Http\Controllers\MediaController;
+use App\Http\Controllers\NvidiaAvSceneController;
+use App\Http\Controllers\NvidiaAvWorkerController;
+use App\Http\Controllers\NvidiaCosmosController;
+use App\Http\Controllers\NvidiaCosmosTransferController;
+use App\Http\Controllers\NvidiaMagpieController;
+use App\Http\Controllers\NvidiaMaxineController;
+use App\Http\Controllers\NvidiaVoiceChatController;
+use App\Http\Controllers\OpenMindAiGatewayController;
 use App\Http\Controllers\RealtimeController;
+use App\Http\Controllers\ResearchWorkerTransferController;
+use App\Http\Controllers\SceneStudioController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\StreamChatController;
+use App\Http\Controllers\StudioUploadController;
+use App\Http\Controllers\StudioWorkbenchController;
 use App\Http\Controllers\TeamController;
 use App\Http\Controllers\ToolsController;
 use App\Http\Controllers\WorkspaceController;
+use App\Services\AdminSettings;
+use App\Services\HostedCodeAgents;
 use Illuminate\Support\Facades\Route;
 
-Route::prefix('v1')->group(function () {
+Route::prefix('v1')->middleware('verified-mobile-ip')->group(function () {
+    Route::match(['get', 'post'], 'internal/research-worker/transfers/{id}/{action}', [ResearchWorkerTransferController::class, 'transfer'])->middleware('throttle:120,1')->where('id', '[a-f0-9]{64}')->where('action', 'input|authorize|result');
+    // Server-to-server ticket callbacks, protected by a dedicated worker secret.
+    Route::post('voicechat/worker/claim', [NvidiaVoiceChatController::class, 'claim'])->middleware('throttle:60,1');
+    Route::post('voicechat/worker/finish', [NvidiaVoiceChatController::class, 'finish'])->middleware('throttle:60,1');
     // Trusted apps sign every request; no per-user API key is sent from their clients.
     Route::get('first-party/models', [OpenMindAiGatewayController::class, 'internalModels'])->middleware('throttle:api');
     Route::post('first-party/chat/completions', [OpenMindAiGatewayController::class, 'internalChat'])->middleware('throttle:chat');
+    Route::get('first-party/catalog', [OpenMindAiGatewayController::class, 'internalCatalog'])->middleware('throttle:api');
+    Route::post('first-party/models/{slug}/invoke', [OpenMindAiGatewayController::class, 'internalInvoke'])->middleware('throttle:chat');
     Route::middleware(['auth:sanctum', 'active', 'throttle:api'])->group(function () {
         Route::get('openmindai/models', [OpenMindAiGatewayController::class, 'models']);
+        Route::get('openmindai/catalog', [OpenMindAiGatewayController::class, 'catalog']);
+        Route::post('openmindai/cosmos/generations', [NvidiaCosmosController::class, 'generate'])->middleware('throttle:chat');
+        Route::get('openmindai/cosmos/{id}', [NvidiaCosmosController::class, 'status']);
+        Route::get('openmindai/cosmos/{id}/download', [NvidiaCosmosController::class, 'download']);
+        Route::post('openmindai/transfer/generations', [NvidiaCosmosTransferController::class, 'generate'])->middleware('throttle:chat');
+        Route::get('openmindai/transfer/{id}', [NvidiaCosmosTransferController::class, 'status']);
+        Route::get('openmindai/transfer/{id}/download', [NvidiaCosmosTransferController::class, 'download']);
+        Route::post('openmindai/tts/generations', [NvidiaMagpieController::class, 'generate'])->middleware('throttle:chat');
+        Route::get('openmindai/tts/{id}', [NvidiaMagpieController::class, 'status']);
+        Route::get('openmindai/tts/{id}/download', [NvidiaMagpieController::class, 'download']);
+        Route::post('openmindai/voicechat/sessions', [NvidiaVoiceChatController::class, 'start'])->middleware('throttle:chat');
+        Route::get('openmindai/voicechat/sessions/{id}', [NvidiaVoiceChatController::class, 'status']);
+        Route::delete('openmindai/voicechat/sessions/{id}', [NvidiaVoiceChatController::class, 'close']);
+        Route::post('openmindai/maxine/{slug}/jobs', [NvidiaMaxineController::class, 'create'])->middleware('throttle:chat');
+        Route::get('openmindai/maxine/jobs/{id}', [NvidiaMaxineController::class, 'status']);
+        Route::get('openmindai/maxine/jobs/{id}/download', [NvidiaMaxineController::class, 'download']);
+        Route::post('openmindai/av/streampetr/jobs', [NvidiaAvSceneController::class, 'create'])->middleware('throttle:chat');
+        Route::get('openmindai/av/jobs/{id}', [NvidiaAvSceneController::class, 'status']);
+        Route::get('openmindai/av/jobs/{id}/download', [NvidiaAvSceneController::class, 'download']);
+        Route::post('openmindai/av-nim/{slug}/jobs', [NvidiaAvWorkerController::class, 'create'])->middleware('throttle:chat');
+        Route::get('openmindai/av-nim/jobs/{id}', [NvidiaAvWorkerController::class, 'status']);
+        Route::get('openmindai/av-nim/jobs/{id}/download', [NvidiaAvWorkerController::class, 'download']);
+        Route::post('openmindai/models/{slug}/invoke', [OpenMindAiGatewayController::class, 'invoke'])->middleware('throttle:chat');
         Route::post('openmindai/chat/completions', [OpenMindAiGatewayController::class, 'chat'])->middleware('throttle:chat');
     });
-    Route::get('public-config', fn () => ['registration_enabled' => app(\App\Services\AdminSettings::class)->enabled('registration_enabled'), 'site_name' => app(\App\Services\AdminSettings::class)->get('site_name'), 'registration_email_verification_enabled' => app(\App\Services\AdminSettings::class)->enabled('registration_email_verification_enabled')])->middleware('throttle:60,1');
+    Route::post('guest/chat', [GuestChatController::class, 'send'])->middleware('throttle:10,1');
+    Route::get('public-config', fn () => ['guest_chat_daily_limit' => app(AdminSettings::class)->limit('guest_chat_daily_limit'), 'frontend_inference_route' => app(AdminSettings::class)->get('frontend_inference_route'), 'registration_enabled' => app(AdminSettings::class)->enabled('registration_enabled'), 'site_name' => app(AdminSettings::class)->get('site_name'), 'registration_email_verification_enabled' => app(AdminSettings::class)->enabled('registration_email_verification_enabled')])->middleware('throttle:60,1');
     Route::get('explore/assistants', [AssistantGalleryController::class, 'index'])->middleware('throttle:60,1');
     Route::get('explore/assistants/{slug}', [AssistantGalleryController::class, 'show'])->middleware('throttle:60,1');
     Route::get('shared/{token}', [WorkspaceController::class, 'shared'])->middleware('throttle:60,1');
@@ -36,12 +83,50 @@ Route::prefix('v1')->group(function () {
         Route::post('email/change/confirm', [SettingsController::class, 'confirmEmail']);
         Route::post('register', [AuthController::class, 'register']);
         Route::post('login', [AuthController::class, 'login']);
-        Route::post('login/verify-ip', [AuthController::class, 'verifyLoginIp']);
         Route::post('forgot-password', [AuthController::class, 'forgot']);
+    });
+    // OTP verification has a separate, still bounded limiter so successful
+    // registration verification cannot exhaust the login rate bucket.
+    Route::middleware('throttle:auth-otp')->group(function () {
+        Route::post('login/verify-ip', [AuthController::class, 'verifyLoginIp']);
         Route::post('reset-password', [AuthController::class, 'reset']);
         Route::post('email/resend', [AuthController::class, 'resend']);
+        Route::post('email/verify-code', [AuthController::class, 'verifyCode']);
     });
     Route::middleware(['auth:sanctum', 'active', 'interactive-token', 'throttle:api'])->group(function () {
+        Route::prefix('3d-studio')->controller(StudioWorkbenchController::class)->group(function () {
+            Route::post('workflows/run', 'runWorkflow');
+            Route::post('jobs/scene', 'sceneJob');
+            Route::get('engines', 'catalog');
+            Route::post('route', 'route');
+            Route::get('assets', 'assets');
+            Route::post('assets', 'upload');
+            Route::get('assets/{id}/download', 'download')->whereNumber('id');
+            Route::get('assets/{id}/data', 'data')->whereNumber('id');
+            Route::delete('assets/{id}', 'removeAsset')->whereNumber('id');
+            Route::post('assets/{id}/restore', 'restoreAsset')->whereNumber('id');
+            Route::get('jobs', 'jobs');
+            Route::post('jobs', 'createJob');
+            Route::get('jobs/{id}', 'job')->whereUuid('id');
+            Route::post('jobs/{id}/cancel', 'cancel')->whereUuid('id');
+            Route::get('workflows', 'workflows');
+            Route::post('workflows', 'saveWorkflow');
+            Route::put('workflows/{id}', 'saveWorkflow')->whereNumber('id');
+            Route::get('projects', 'projects');
+            Route::post('projects', 'saveProject');
+        });
+        Route::get('3d-scenes/uploads', [StudioUploadController::class, 'index']);
+        Route::post('3d-scenes/uploads', [StudioUploadController::class, 'create']);
+        Route::get('3d-scenes/uploads/{id}', [StudioUploadController::class, 'download'])->whereNumber('id');
+        Route::get('3d-scenes', [SceneStudioController::class, 'index']);
+        Route::post('3d-scenes', [SceneStudioController::class, 'create'])->middleware('throttle:chat');
+        Route::get('3d-scenes/{id}', [SceneStudioController::class, 'show']);
+        Route::delete('3d-scenes/{id}', [SceneStudioController::class, 'delete']);
+        Route::put('3d-scenes/{id}', [SceneStudioController::class, 'update'])->whereNumber('id');
+        Route::get('3d-scenes/{id}/revisions', [SceneStudioController::class, 'revisions'])->whereNumber('id');
+        // User-owned Mobile sessions share hosted quota accounting; no client secret.
+        Route::get('mobile/models', [OpenMindAiGatewayController::class, 'mobileModels']);
+        Route::post('mobile/chat/completions', [OpenMindAiGatewayController::class, 'mobileChat'])->middleware('throttle:chat');
         Route::middleware('throttle:sensitive')->group(function () {
             Route::post('me/avatar', [SettingsController::class, 'avatar']);
             Route::delete('me/avatar', [SettingsController::class, 'removeAvatar']);
@@ -49,6 +134,7 @@ Route::prefix('v1')->group(function () {
             Route::delete('me/email', [SettingsController::class, 'cancelEmail']);
             Route::post('settings/data', [SettingsController::class, 'bulk']);
         });
+        Route::post('chat/provider', [ChatProviderController::class, 'send'])->middleware('throttle:60,1');
         Route::get('teams', [TeamController::class, 'index']);
         Route::post('teams', [TeamController::class, 'create']);
         Route::post('team-invites/{invite}/accept', [TeamController::class, 'accept']);
@@ -91,13 +177,15 @@ Route::prefix('v1')->group(function () {
         Route::get('canvases/{id}/versions/{version}', [CanvasController::class, 'version']);
         Route::get('media', [MediaController::class, 'index']);
         Route::post('media', [MediaController::class, 'create'])->middleware('throttle:sensitive');
+        Route::get('media/image-capabilities', [CloudImageController::class, 'capabilities']);
+        Route::post('media/cloud-image', [CloudImageController::class, 'create'])->middleware('throttle:sensitive');
         // Server-only hosted image bridge; requires the existing 32+ character shared secret.
         Route::post('media/hosted/begin', [HostedImageController::class, 'begin'])->middleware('throttle:sensitive');
         Route::post('media/hosted/task/begin', [HostedMediaController::class, 'begin'])->middleware('throttle:sensitive');
-        Route::post('media/{id}/hosted/task/complete', [HostedMediaController::class, 'complete'])->middleware('throttle:sensitive');
-        Route::post('media/{id}/hosted/task/fail', [HostedMediaController::class, 'fail'])->middleware('throttle:sensitive');
-        Route::post('media/{id}/hosted/finish', [HostedImageController::class, 'finish'])->middleware('throttle:sensitive');
-        Route::post('media/{id}/hosted/fail', [HostedImageController::class, 'fail'])->middleware('throttle:sensitive');
+        Route::post('media/{id}/hosted/task/complete', [HostedMediaController::class, 'complete'])->middleware('throttle:media-callback');
+        Route::post('media/{id}/hosted/task/fail', [HostedMediaController::class, 'fail'])->middleware('throttle:media-callback');
+        Route::post('media/{id}/hosted/finish', [HostedImageController::class, 'finish'])->middleware('throttle:media-callback');
+        Route::post('media/{id}/hosted/fail', [HostedImageController::class, 'fail'])->middleware('throttle:media-callback');
         Route::get('media/{id}', [MediaController::class, 'show']);
         Route::get('media/{id}/output', [MediaController::class, 'output']);
         Route::delete('media/{id}', [MediaController::class, 'delete']);
@@ -146,6 +234,8 @@ Route::prefix('v1')->group(function () {
         Route::patch('me', [AccountController::class, 'update']);
         Route::get('tokens', [AccountController::class, 'tokens']);
         Route::get('developer/keys', [DeveloperKeysController::class, 'index']);
+        Route::get('developer/catalog', [DeveloperPortalController::class, 'catalog']);
+        Route::get('developer/usage', [DeveloperPortalController::class, 'usage']);
         Route::post('developer/keys', [DeveloperKeysController::class, 'store'])->middleware('throttle:sensitive');
         Route::delete('developer/keys/{id}', [DeveloperKeysController::class, 'destroy'])->middleware('throttle:sensitive');
         Route::delete('tokens/{id}', [AccountController::class, 'revoke']);
@@ -158,9 +248,12 @@ Route::prefix('v1')->group(function () {
             Route::post('2fa/recovery-codes', [AccountController::class, 'recovery']);
         });
         Route::get('models', [ChatController::class, 'models']);
+        Route::get('chat/hosted-models', fn (HostedCodeAgents $agents) => response()->json(['data' => $agents->enabled()->map(fn ($model) => ['id' => $model->slug, 'name' => $model->name, 'provider_model' => $model->provider_model, 'last_test_status' => $model->last_test_status])->values()->all()])->header('Cache-Control', 'no-store'));
         Route::post('chat', [ChatController::class, 'send'])->middleware('throttle:chat');
         Route::get('conversations', [ChatController::class, 'index']);
         Route::get('conversations/{id}', [ChatController::class, 'show']);
         Route::delete('conversations/{id}', [ChatController::class, 'delete']);
     });
 });
+
+require __DIR__.'/research.php';

@@ -1,0 +1,35 @@
+name: NVIDIA self-hosted AV NIM contract
+on:
+  push:
+    paths:
+      - 'app/Http/Controllers/NvidiaAvWorkerController.php'
+      - 'app/Jobs/RunAvWorkerScene.php'
+      - 'config/nvidia_av.php'
+      - 'database/migrations/2026_10_21_000015_enable_self_hosted_av.php'
+      - 'tests/Feature/NvidiaAvWorkerTest.php'
+      - '.github/workflows/nvidia-av-worker.yml'
+  pull_request:
+    paths:
+      - 'app/Http/Controllers/NvidiaAvWorkerController.php'
+      - 'app/Jobs/RunAvWorkerScene.php'
+      - 'config/nvidia_av.php'
+      - 'database/migrations/2026_10_21_000015_enable_self_hosted_av.php'
+      - 'tests/Feature/NvidiaAvWorkerTest.php'
+      - '.github/workflows/nvidia-av-worker.yml'
+jobs:
+  worker-contract:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php: ['8.2', '8.3']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mbstring, pdo_sqlite, curl, xml
+          coverage: none
+      - run: composer install --no-interaction --prefer-dist
+      - run: cp .env.example .env
+      - run: php artisan test --filter='NvidiaAvWorkerTest|NvidiaAvSceneTest|NvidiaSpecialistCatalogTest'
+      - run: php artisan route:cache && php artisan view:cache && php artisan config:cache

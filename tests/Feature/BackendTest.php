@@ -5,6 +5,8 @@ namespace Tests\Feature;
 use App\Models\AiModel;
 use App\Models\Conversation;
 use App\Models\User;
+use App\Notifications\EmailOtpCode;
+use App\Services\EmailOtp;
 use App\Services\TwoFactor;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -13,8 +15,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Notification;
-use Illuminate\Support\Facades\Password;
-use Illuminate\Support\Facades\URL;
 use Laravel\Sanctum\Sanctum;
 use PragmaRX\Google2FA\Google2FA;
 use Tests\TestCase;
@@ -149,25 +149,46 @@ class BackendTest extends TestCase
         $this->actingAs($this->user(['is_admin' => true]))->getJson('/api/v1/me')->assertUnauthorized();
     }
 
-    public function test_email_verification_requires_signed_link(): void
+    public function test_email_verification_uses_a_single_use_six_digit_code(): void
     {
-        $u = $this->user(['email_verified_at' => null]);
-        $path = '/email/verify/'.$u->id.'/'.sha1($u->email);
-        $this->get($path)->assertForbidden();
-        $url = URL::temporarySignedRoute('verification.verify', now()->addMinutes(5), ['id' => $u->id, 'hash' => sha1($u->email)]);
-        $this->get($url)->assertOk();
-        $this->assertNotNull($u->fresh()->email_verified_at);
+        $user = $this->user(['email_verified_at' => null]);
+        // The former signed-link verification route must not exist.
+        $this->get('/email/verify/'.$user->id.'/'.sha1($user->email))->assertNotFound();
+        Notification::fake();
+        app(EmailOtp::class)->send($user, 'registration');
+        $code = Notification::sent($user, EmailOtpCode::class)->first()->code;
+
+        $this->postJson('/api/v1/email/verify-code', [
+            'email' => $user->email, 'code' => '000000',
+        ])->assertUnprocessable();
+        $this->postJson('/api/v1/email/verify-code', [
+            'email' => $user->email, 'code' => $code,
+        ])->assertOk();
+        $this->assertNotNull($user->fresh()->email_verified_at);
+        $this->postJson('/api/v1/email/verify-code', [
+            'email' => $user->email, 'code' => $code,
+        ])->assertUnprocessable();
     }
 
     public function test_password_reset_revokes_existing_tokens(): void
     {
-        $u = $this->user();
-        $u->createToken('old-device');
-        $token = Password::broker()->createToken($u);
-        $this->postJson('/api/v1/reset-password', ['email' => $u->email, 'token' => $token, 'password' => 'NewStrongPassword456', 'password_confirmation' => 'NewStrongPassword456'])->assertOk();
+        $user = $this->user();
+        $user->createToken('old-device');
+        Notification::fake();
+        app(EmailOtp::class)->send($user, 'password');
+        $code = Notification::sent($user, EmailOtpCode::class)->first()->code;
+        $this->postJson('/api/v1/reset-password', [
+            'email' => $user->email, 'code' => $code,
+            'password' => 'NewStrongPassword456',
+            'password_confirmation' => 'NewStrongPassword456',
+        ])->assertOk();
         $this->assertDatabaseCount('personal_access_tokens', 0);
-        $this->assertTrue(Hash::check('NewStrongPassword456', $u->fresh()->password));
-        $this->postJson('/api/v1/reset-password', ['email' => $u->email, 'token' => $token, 'password' => 'AnotherPassword123', 'password_confirmation' => 'AnotherPassword123'])->assertStatus(422);
+        $this->assertTrue(Hash::check('NewStrongPassword456', $user->fresh()->password));
+        $this->postJson('/api/v1/reset-password', [
+            'email' => $user->email, 'code' => $code,
+            'password' => 'AnotherPassword123',
+            'password_confirmation' => 'AnotherPassword123',
+        ])->assertUnprocessable();
     }
 
     public function test_history_is_ordered_by_latest_activity(): void

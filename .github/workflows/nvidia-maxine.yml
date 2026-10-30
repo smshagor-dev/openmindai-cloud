@@ -1,0 +1,49 @@
+name: NVIDIA Maxine bridge contract
+on:
+  push:
+    paths:
+      - 'app/Http/Controllers/NvidiaMaxineController.php'
+      - 'app/Jobs/RunMaxineInference.php'
+      - 'routes/api.php'
+      - 'config/maxine.php'
+      - 'runtime/maxine/**'
+      - 'tests/Feature/NvidiaMaxineMediaTest.php'
+      - 'tests/Feature/NvidiaSpecialistCatalogTest.php'
+      - '.github/workflows/nvidia-maxine.yml'
+  pull_request:
+    paths:
+      - 'app/Http/Controllers/NvidiaMaxineController.php'
+      - 'app/Jobs/RunMaxineInference.php'
+      - 'routes/api.php'
+      - 'config/maxine.php'
+      - 'runtime/maxine/**'
+      - 'tests/Feature/NvidiaMaxineMediaTest.php'
+      - 'tests/Feature/NvidiaSpecialistCatalogTest.php'
+      - '.github/workflows/nvidia-maxine.yml'
+jobs:
+  laravel:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php: ['8.2', '8.3']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mbstring, pdo_sqlite, curl, xml
+          coverage: none
+      - run: composer install --no-interaction --prefer-dist
+      - run: cp .env.example .env
+      - run: php artisan test --filter='NvidiaMaxineMediaTest|NvidiaSpecialistCatalogTest|NvidiaInferenceRoutesTest|CosmosHostedGenerationTest'
+      - run: php artisan route:cache && php artisan view:cache && php artisan config:cache
+  worker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r runtime/maxine/requirements.txt pytest
+      - run: python -m pytest -q runtime/maxine/test_server.py
+      - run: python -m compileall -q runtime/maxine

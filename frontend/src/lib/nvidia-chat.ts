@@ -1,6 +1,14 @@
-import { routePrompt, serverRouterConfig } from "./prompt-router.ts";
-import { dispatchPromptMedia } from "./auto-dispatch.ts";
+import { automaticModels, automaticCoordinator, automaticWebCoordinator, automaticReasoner, automaticSpecialists } from "./auto-models.ts";
+import {compactResearchMetadata,type ResearchMetadata} from "./research-status.ts";
+import { duplicateOf, evidenceUrl, groundResearchAnswer } from "./research-evidence.ts";
+import { withPromptUnderstanding } from "./prompt-understanding.ts";
+import { runConversationTools } from "./conversation-tools.ts";
+import { generateHostedImage } from "./hosted-image.ts";
+import { hostedMediaRequest } from "./hosted-media.ts";
+import { generationIntent, generationNeedsContext } from "./prompt-router.ts";
+import { parseInlineImage, imageMessage } from "./vision-input.ts";
 import {
+  ResearchToolUnavailableError,
   plannerInstruction,
   researchLoop,
   type Source,
@@ -9,15 +17,60 @@ import {
 // Server-only implementation. Never import this module in a client component.
 const endpoint = "https://integrate.api.nvidia.com/v1/chat/completions";
 export const NVIDIA_MODEL_ID = -1;
+export const NVIDIA_AUTO_MODEL_ID = -4;
 export const NVIDIA_HOSTED_MODELS = [
   { id: -2, slug: "openmindai-super", name: "OpenMindAI Super", provider: "nvidia/nemotron-3.5-super-vl-120b-a12b" },
   { id: -3, slug: "openmindai-ultra", name: "OpenMindAI Ultra", provider: "nvidia/nemotron-3-ultra-550b-a55b" },
   { id: -1, slug: "openmindai-lite", name: "OpenMindAI Lite", provider: "nvidia/nemotron-3.5-lightning-30b-a3b" },
 ] as const;
-export const isNvidiaModelId = (id: number) => NVIDIA_HOSTED_MODELS.some((model) => model.id === id);
-export const nvidiaModels = (allowed: string[]) => NVIDIA_HOSTED_MODELS
-  .filter((model) => allowed.includes(model.slug))
-  .map((model) => ({ id: model.id, name: model.name, family: "Hosted coding", license: "External inference service" }));
+type HostedModel = { id: number; slug: string; name: string; provider: string; lastTestStatus?: string | null };
+const chatLabels: Record<string, string> = {
+  "nvidia-step-5-preview": "Horizon Preview",
+  "nvidia-deepseek-v4.1-flash": "Flash",
+  "nvidia-glm-5-3": "Reason",
+  "nvidia-glm-5-3-flash": "Reason Fast",
+  "nvidia-muse-glimmer-30b": "Glimmer",
+  "nvidia-riva-translate-4b-instruct-v2": "Translate",
+  "nvidia-ising-calibration-1.5-31b": "Science Plus",
+  "nvidia-laguna-xs-2.1": "Code",
+  "nvidia-diffusiongemma-26b-a4b-it": "Compose",
+  "nvidia-nemotron-3.5-content-safety": "Safety",
+  "nvidia-cosmos3-nano-reasoner": "Scene",
+  "nvidia-nemotron-3-nano-omni-30b-a3b-reasoning": "Omni",
+  "nvidia-ising-calibration-1-35b-a3b": "Science",
+  "nvidia-gemma-4-31b-it": "Craft",
+  "nvidia-llama-3.1-nemotron-safety-guard-8b-v3": "Guard",
+  "nvidia-gpt-oss-20b": "Logic",
+  "nvidia-llama-guard-4-12b": "Vision Guard",
+  "nvidia-nemotron-3-super-120b-a12b": "Planner",
+  "nvidia-llama-3.2-11b-vision-instruct": "Vision",
+  "nvidia-llama-3.2-90b-vision-instruct": "Vision Plus",
+};
+export function hostedCatalog(rows: {id: string; name?: string; provider_model?: string; last_test_status?: string | null}[]): HostedModel[] {
+  return rows.map((row) => {
+    const known = NVIDIA_HOSTED_MODELS.find((model) => model.slug === row.id);
+    if (known) return {...known, name: known.name, provider: row.provider_model || known.provider, lastTestStatus:row.last_test_status};
+    // Stable IDs preserve selection when the catalog order changes.
+    let hash = 2166136261;
+    for (const char of row.id) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619);
+    const label = (chatLabels[row.id] || row.name || row.id).replace(/^openmindai[ -]*/i, "").replace(/[-_]/g, " ");
+    return {id: -1000 - (hash >>> 0), slug: row.id, name: "OpenMindAI " + label, provider: row.provider_model || "", lastTestStatus:row.last_test_status};
+  }).filter((model) => Boolean(model.provider));
+}
+export function selectVisionModel(catalog: HostedModel[]): HostedModel | undefined {
+  for (const slug of ["nvidia-llama-3.2-11b-vision-instruct", "nvidia-llama-3.2-90b-vision-instruct", "nvidia-nemotron-3-nano-omni-30b-a3b-reasoning", "openmindai-super"]) {
+    const model = catalog.find(item => item.slug === slug);
+    if (model) return model;
+  }
+  return undefined;
+}
+export const isNvidiaModelId = (id: number) =>
+  Number.isSafeInteger(id) && (id <= -1000 || id === NVIDIA_AUTO_MODEL_ID || NVIDIA_HOSTED_MODELS.some((model) => model.id === id));
+export const nvidiaModels = (allowed: string[], catalog: HostedModel[] = [...NVIDIA_HOSTED_MODELS]) => [
+  ...(allowed.length ? [{id: NVIDIA_AUTO_MODEL_ID, name: "OpenMindAI Auto", family: "Automatic selection", license: "External inference service"}] : []),
+  ...catalog.filter((model) => allowed.includes(model.slug))
+    .map((model) => ({id: model.id, name: model.name, family: "Chat", license: "External inference service"})),
+];
 export const nvidiaEnabled = () => process.env.CHAT_PROVIDER === "nvidia";
 export function nvidiaModel() {
   return {
@@ -30,12 +83,15 @@ export function nvidiaModel() {
 type Config = { apiKey: string; bridgeKey: string; model: string };
 type Checkpoint = {
   stage: "research" | "writing";
+  metadata?: ResearchMetadata;
   research?: ResearchState;
   messages?: { role: string; content: string }[];
   content?: string;
   previousPart?: string;
   finished?: boolean;
+  toolRunStarted?: boolean;
   modelId?: string;
+  imageRequired?: boolean;
   sources?: Source[];
 };
 type Lease = {
@@ -62,71 +118,121 @@ export async function nvidiaChat(
     bridgeKey: process.env.FRONTEND_CHAT_BRIDGE_KEY || "",
     model: process.env.NVIDIA_MODEL || "nvidia/nemotron-3.5-lightning-30b-a3b",
   };
-  if (!config.apiKey || config.bridgeKey.length < 32)
+  const rawFetch = options.fetcher || fetch;
+  let inferenceRoute = "direct";
+  if (!options.config) {
+    try {
+      const response = await rawFetch(base.replace(/\/$/, "") + "/public-config", {
+        cache: "no-store", redirect: "error", signal: AbortSignal.any([signal, AbortSignal.timeout(10000)]),
+      });
+      if (!response.ok) throw new Error("Configuration unavailable");
+      // Older backends have no routing setting; preserve their existing server-direct path during rollout.
+      inferenceRoute = (await response.json()).frontend_inference_route === "backend" ? "backend" : "direct";
+    } catch {
+      return Response.json({message: "Cannot load chat routing settings."}, {status: 503});
+    }
+  }
+  if ((inferenceRoute === "direct" && !config.apiKey) || config.bridgeKey.length < 32)
     return Response.json(
-      { message: "NVIDIA chat is not configured on the frontend server." },
+      { message: "Hosted chat is not configured on the frontend server." },
       { status: 503 },
     );
-  const fetcher = options.fetcher || fetch;
+  const fetcher: typeof fetch = (url, init) => {
+    if (inferenceRoute === "backend" && String(url) === endpoint) {
+      return rawFetch(base.replace(/\/$/, "") + "/chat/provider", {
+        ...init, headers: {"Content-Type": "application/json", Accept: new Headers(init?.headers).get("Accept") || "application/json",
+          Authorization: "Bearer " + token, "X-Chat-Bridge-Key": config.bridgeKey},
+      });
+    }
+    return rawFetch(url, init);
+  };
   const input = JSON.parse(body);
-  const selected = NVIDIA_HOSTED_MODELS.find((model) => model.id === Number(input.model_id));
-  if (!selected && !input.resume_message_id && !options.config)
-    return Response.json({ message: "Unknown hosted code model." }, { status: 404 });
-  // Enforce database visibility even when someone manually submits an unavailable model ID.
-  if (selected && !options.config && !input.resume_message_id) {
-    try {
-      const response = await fetcher(base.replace(/\/$/, "") + "/openmindai/models", {
-        headers: { Authorization: "Bearer " + token, Accept: "application/json" },
-        cache: "no-store", redirect: "error",
-        signal: AbortSignal.any([signal, AbortSignal.timeout(10000)]),
-      });
-      if (!response.ok)
-        return Response.json({ message: "Cannot verify available models." }, { status: response.status === 401 ? 401 : 503 });
-      const models = await response.json();
-      if (!Array.isArray(models.data) || !models.data.some((model: {id:string}) => model.id === selected.slug))
-        return Response.json({ message: "This model is not enabled." }, { status: 403 });
-    } catch {
-      return Response.json({ message: "Cannot verify available models." }, { status: 503 });
-    }
+  const generationKinds = ["image", "speech", "video", "document_create"] as const;
+  if (input.generation_kind !== undefined && !generationKinds.includes(input.generation_kind))
+    return Response.json({message:"Unknown generation tool."}, {status:422});
+  if (input.generation_format !== undefined && !["pdf", "docx"].includes(input.generation_format))
+    return Response.json({message:"Unsupported document format."}, {status:422});
+  let inlineImage: ReturnType<typeof parseInlineImage>;
+  try {
+    inlineImage = parseInlineImage(input.image);
+    if (inlineImage && input.resume_message_id)
+      return Response.json({message: "Start a new turn with the image attached."}, {status: 422});
+  } catch (error) {
+    return Response.json({message: (error as Error).message}, {status: 422});
   }
-  let routedModel = config.model;
-  // The classifier is a paid upstream call: confirm the Laravel session first.
-  // Existing injected test fixtures already exercise authenticated bridge responses.
-  if (!options.config && !input.resume_message_id &&
-      typeof input.message === "string" && input.message.length >= 40 &&
-      process.env.NVIDIA_ROUTER_CLASSIFIER !== "false") {
+  // Only text and metadata are sent to Laravel. Image bytes stay inside Next.js.
+  const {image: _discardImage, generation_kind: _generationKind, generation_format: _generationFormat, ...backendInput} = input;
+  void _discardImage;
+  void _generationKind; void _generationFormat;
+  const requestedGeneration = !inlineImage && !input.resume_message_id
+    ? input.generation_kind
+      ? {kind:input.generation_kind as typeof generationKinds[number], format:input.generation_format || generationIntent(typeof input.message === "string" ? input.message : "")?.format || "docx"}
+      : generationIntent(typeof input.message === "string" ? input.message : "")
+    : null;
+  const generation = requestedGeneration && !input.deep_research && !input.web_search && !input.attachment_ids?.length && !generationNeedsContext(typeof input.message === "string" ? input.message : "")
+    ? requestedGeneration : null;
+  if (generation && (typeof input.message !== "string" || !input.message.trim() || input.message.length > 4000))
+    return Response.json({message:"Describe what to create in up to 4000 characters."}, {status:422});
+  let catalog: HostedModel[] = [...NVIDIA_HOSTED_MODELS];
+  if (!options.config) {
     try {
-      const identity = await fetcher(base.replace(/\/$/, "") + "/me", {
+      const response = await fetcher(base.replace(/\/$/, "") + "/chat/hosted-models", {
         headers: {Authorization: "Bearer " + token, Accept: "application/json"},
-        cache: "no-store", redirect: "error",
-        signal: AbortSignal.any([signal, AbortSignal.timeout(10000)]),
+        cache: "no-store", redirect: "error", signal: AbortSignal.any([signal, AbortSignal.timeout(10000)]),
       });
-      if (!identity.ok)
-        return Response.json({message: "Please sign in again."},
-          {status: identity.status === 401 || identity.status === 403 ? identity.status : 503});
+      if (!response.ok) return Response.json({message: "Cannot load models."}, {status: response.status});
+      const data = await response.json();
+      if (!Array.isArray(data.data)) throw new Error("Invalid catalog");
+      catalog = hostedCatalog(data.data);
     } catch {
-      return Response.json({message: "Cannot verify your session."}, {status: 503});
+      return Response.json({message: "Cannot load models."}, {status: 503});
     }
   }
-  if (!input.resume_message_id && typeof input.message === "string") {
-    const decision = await routePrompt(input.message, serverRouterConfig(config.apiKey, config.model), {
-      fetcher,
-      signal,
-      hasAttachments: Array.isArray(input.attachment_ids) && input.attachment_ids.length > 0,
-      deepResearch: Boolean(input.deep_research),
-      webSearch: Boolean(input.web_search),
-      // Fixture calls inject config and exercise the stream without an additional classifier request.
-      enableClassifier: !options.config && process.env.NVIDIA_ROUTER_CLASSIFIER !== "false",
-    });
-    routedModel = decision.model;
-    if (decision.kind !== "chat") {
-      return dispatchPromptMedia(decision, input.message, token, base, signal, {
-        fetcher, apiKey: config.apiKey, bridgeKey: config.bridgeKey, chatModel: config.model,
-      });
+  const selected = catalog.find((model) => model.id === Number(input.model_id));
+  const isAuto = input.model_id == null || Number(input.model_id) === NVIDIA_AUTO_MODEL_ID;
+  if (!selected && !isAuto && !input.resume_message_id && !options.config)
+    return Response.json({message: "Unknown hosted model."}, {status: 404});
+  const eligibleModels = automaticModels(catalog);
+  const coordinator = input.web_search && !input.deep_research
+    ? automaticWebCoordinator(eligibleModels) : automaticCoordinator(eligibleModels);
+  if (isAuto && !input.resume_message_id && !coordinator)
+    return Response.json({message:"No healthy automatic model is available. Retest or configure a chat model."}, {status:503});
+  const visionModel = selectVisionModel(isAuto ? eligibleModels : (selected && selectVisionModel([selected]) ? [selected] : catalog));
+  let permittedSlugs: string[] | null = null;
+  // Respect Laravel's existing admin-managed availability without changing its controllers.
+  if ((selected || isAuto) && !options.config && !input.resume_message_id) {
+    try {
+      const allowedSlugs = catalog.map((model) => model.slug);
+      permittedSlugs = allowedSlugs;
+      if ((isAuto && allowedSlugs.length === 0) ||
+          (selected && !allowedSlugs.includes(selected.slug)))
+        return Response.json({message: "This model is not enabled."}, {status: 403});
+      if (inlineImage && (!visionModel || !allowedSlugs.includes(visionModel.slug)))
+        return Response.json({message: "Image understanding requires an enabled vision model."}, {status: 503});
+    } catch {
+      return Response.json({message: "Cannot verify available models."}, {status: 503});
     }
   }
-  // A user's explicit selection wins over automatic chat routing.
-  if (selected) routedModel = selected.provider;
+  let routedModel = isAuto ? ((input.deep_research ? automaticReasoner(eligibleModels) : coordinator)?.provider || config.model) : config.model;
+  let fallbackModel = config.model;
+  if (permittedSlugs?.length) {
+    fallbackModel = permittedSlugs.includes("openmindai-lite") ? NVIDIA_HOSTED_MODELS[2].provider :
+      permittedSlugs.includes("openmindai-super") ? NVIDIA_HOSTED_MODELS[0].provider : (catalog.find((model) => model.slug === permittedSlugs?.[0])?.provider || config.model);
+  }
+  if (isAuto) fallbackModel = coordinator?.provider || routedModel;
+  // An explicit model selection is honored for ordinary text chat;
+  // automatic requests use the prompt's result. Images require a configured vision model.
+  if (selected && !inlineImage) { routedModel = selected.provider; fallbackModel = selected.provider; }
+  if (inlineImage) routedModel = visionModel?.provider || NVIDIA_HOSTED_MODELS[0].provider;
+  if (input.deep_research && !input.resume_message_id) backendInput.conversation_tools = true;
+  const conversationTools = (isAuto || Boolean(requestedGeneration)) && !input.resume_message_id && !inlineImage && !input.deep_research;
+  if (conversationTools) {
+    backendInput.conversation_tools = true;
+    // The native search tool forms a focused query from the full request.
+    // Avoid the legacy quick-search path searching the entire instruction.
+    backendInput.web_search = false;
+    if (isAuto || !generation) routedModel = coordinator?.provider || config.model;
+  }
   const backend = async (
     path: string,
     data: unknown,
@@ -155,8 +261,8 @@ export async function nvidiaChat(
       JSON.parse(body).resume_message_id ? "resume" : "begin",
       JSON.parse(body).resume_message_id
         ? { message_id: JSON.parse(body).resume_message_id }
-        : { ...JSON.parse(body), provider_model: routedModel },
-      JSON.parse(body).deep_research ? 80000 : 15000,
+        : { ...backendInput, provider_model: routedModel },
+      backendInput.deep_research ? 80000 : backendInput.web_search ? 60000 : 15000,
     );
     if (!prepared.ok) {
       let data;
@@ -165,7 +271,11 @@ export async function nvidiaChat(
       } catch {
         data = { message: "Backend could not prepare chat." };
       }
-      return Response.json(data, {
+      const detail = typeof data?.message === "string" ? data.message.trim() : "";
+      const message = detail || (prepared.status === 403
+        ? "The chat connection was rejected by the backend (403). Ask the administrator to match FRONTEND_CHAT_BRIDGE_KEY on both servers."
+        : `The backend could not start this chat (${prepared.status}). Please try again.`);
+      return Response.json({ message }, {
         status: prepared.status,
         headers: prepared.headers.has("retry-after")
           ? { "Retry-After": prepared.headers.get("retry-after")! }
@@ -175,6 +285,9 @@ export async function nvidiaChat(
     lease = await prepared.json();
     if (!lease.ticket || !Array.isArray(lease.messages))
       throw new Error("Invalid lease");
+    lease.messages = withPromptUnderstanding(lease.messages);
+    if (lease.checkpoint?.messages)
+      lease.checkpoint.messages = withPromptUnderstanding(lease.checkpoint.messages);
   } catch {
     return Response.json(
       {
@@ -184,7 +297,25 @@ export async function nvidiaChat(
       { status: 503 },
     );
   }
-  const deep = Boolean(lease.deep_research ?? JSON.parse(body).deep_research);
+  // Interrupted tool runs cannot safely replay side effects such as file generation.
+  if (input.resume_message_id && lease.checkpoint?.toolRunStarted && !lease.checkpoint.finished) {
+    await backend("finish", {ticket:lease.ticket, content:lease.checkpoint.content || "", status:"failed", sources:lease.sources, provider_model:lease.checkpoint.modelId || config.model});
+    return Response.json({message:"This tool run was interrupted. Check generated files before starting a new request; it cannot be automatically replayed."}, {status:409});
+  }
+  // Resume never silently continues without its original image bytes.
+  if (lease.checkpoint?.imageRequired && !inlineImage) {
+    const result = await backend("finish", {
+      ticket: lease.ticket, content: lease.checkpoint.content || "",
+      status: "failed", sources: lease.sources,
+      provider_model: lease.checkpoint.modelId || config.model,
+    }).catch(() => null);
+    if (!result?.ok)
+      return Response.json({message: "Unable to close the interrupted image request."}, {status: 503});
+    return Response.json({
+      message: "The previous image is no longer attached. Start a new message and attach it again.",
+    }, {status: 409});
+  }
+  const deep = Boolean(lease.deep_research ?? backendInput.deep_research);
   // Resume uses the model stored with the checkpoint, not a fresh classification.
   let activeModel = lease.checkpoint?.modelId || routedModel;
   const encoder = new TextEncoder();
@@ -205,7 +336,11 @@ export async function nvidiaChat(
       let checkpoint: Checkpoint = lease.checkpoint || {
         stage: deep ? "research" : "writing",
       };
+      let researchMetadata:ResearchMetadata=checkpoint.metadata||{version:1,mode:deep?'deep_research':'web_search',status:'running',plan:[],activity:[]};
       let generationMessages = checkpoint.messages || lease.messages;
+      // Send multimodal content to NVIDIA, but never checkpoint or persist the image.
+      const imageIndex = generationMessages.length - 1;
+      const streamImage = inlineImage;
       let previousPart = checkpoint.previousPart || "";
       const saveCheckpoint = async () => {
         if (!lease.message_id) return;
@@ -215,7 +350,9 @@ export async function nvidiaChat(
             ticket: lease.ticket,
             state: {
               ...checkpoint,
+              ...(deep || lease.sources.length || researchMetadata.activity.length ? {metadata:compactResearchMetadata(researchMetadata)} : {}),
               modelId: activeModel,
+              imageRequired: Boolean(inlineImage),
               content,
               messages: generationMessages,
               previousPart,
@@ -228,6 +365,11 @@ export async function nvidiaChat(
           throw new Error(
             "NVIDIA progress could not be saved. Generation stopped.",
           );
+      };
+      const activity=(phase: import('./research-loop').ResearchEvent['phase'],state:import('./research-loop').ResearchEvent['status'],label:string,extra:Record<string,string>={})=>{
+        const event={id:(researchMetadata.activity.at(-1)?.id||0)+1,at:new Date().toISOString(),phase,status:state,label,...extra};
+        researchMetadata.activity=[...researchMetadata.activity.slice(-119),event];
+        emit('research',{label,sources:lease.sources,metadata:researchMetadata});
       };
       let status = "complete";
       let finished = false;
@@ -254,9 +396,12 @@ export async function nvidiaChat(
           sources: lease.sources,
           provider: "nvidia",
           content,
-          resumable: Boolean(lease.message_id),
+          resumable: Boolean(lease.message_id) && !inlineImage && (!conversationTools || deep),
         });
         if (cancelled) throw new Error("Cancelled");
+        // Mark image turns non-resumable before inference so a failed request
+        // cannot resume without the transient image, even with zero output.
+        if (inlineImage) await saveCheckpoint();
         poll = setInterval(async () => {
           if (polling) return;
           polling = true;
@@ -278,6 +423,102 @@ export async function nvidiaChat(
             polling = false;
           }
         }, options.pollMs || 5000);
+        if (conversationTools && !checkpoint.finished) {
+          checkpoint.toolRunStarted = true;
+          await saveCheckpoint();
+          const artifact = async (work: {kind:"image"|"speech"|"video"|"document_create";prompt:string;format?:"pdf"|"docx"}) => {
+            if (!config.apiKey && !["document_create", "image"].includes(work.kind)) return {ok:false,message:"This media service has not been configured on the server."};
+            emit("creation", {kind:work.kind,status:"running"});
+            try {
+              const response = await (work.kind === "image"
+                ? generateHostedImage(JSON.stringify({prompt:work.prompt}),token,base,upstreamAbort.signal,{fetcher})
+                : hostedMediaRequest(JSON.stringify({...work,...(work.kind === "document_create" ? {format:work.format || requestedGeneration?.format || "docx"} : {})}),token,base,upstreamAbort.signal,{fetcher,config:{apiKey:config.apiKey,bridgeKey:config.bridgeKey,chatModel:activeModel}}));
+              if (!response.ok) return {ok:false,message:work.kind === "image"
+                ? "The image request could not be confirmed. Check Library before trying again; the service may have accepted it."
+                : "The requested file could not be generated. Check Library before trying again."};
+              const saved = await response.json();
+              if (!Number.isSafeInteger(saved.id) || saved.id < 1 || !["queued","running","complete"].includes(saved.status))
+                return {ok:false,message:"The generated task was not saved."};
+              // Persist the accepted ID immediately, including queued tasks, so
+              // reload/disconnect never loses it or requires a duplicate request.
+              const link = `\n\n[View generated ${work.kind === "document_create" ? "document" : work.kind}](/api/backend/media/${saved.id}/output)`;
+              content += link;
+              await saveCheckpoint();
+              emit("artifact", {id:saved.id,kind:work.kind,status:saved.status});
+              emit("delta", {content:link});
+              return {ok:true,id:saved.id,kind:work.kind,status:saved.status,message:saved.status === "complete"
+                ? "The saved file is displayed in this chat. Do not invent a download URL."
+                : "The request was accepted and is processing. The task in this chat updates when ready. Do not retry generation or claim the file is complete."};
+            } finally { emit("creation", {kind:work.kind,status:"finished"}); }
+          };
+          if (generation) {
+            // A clear creation request or explicit composer tool is an execution
+            // request, independent of the selected text model's willingness to
+            // call a function. Reuse the same authenticated artifact service.
+            const result = await artifact({...generation,prompt:input.message});
+            const bangla = /[\u0980-\u09ff]|\b(?:bangla|bengali|koro|daw|dao)\b/i.test(input.message);
+            const text = !result.ok ? result.message : result.status === "complete"
+              ? bangla ? "\n\nতৈরি হয়েছে। নিচের preview থেকে দেখতে ও download করতে পারবেন।" : "\n\nCreated. Preview or download your file below."
+              : bangla ? "\n\nআপনার অনুরোধ গ্রহণ করা হয়েছে। তৈরি হলে এখানেই দেখা যাবে; Library-তেও সংরক্ষিত আছে।" : "\n\nYour request was accepted. The result will appear here when ready and is saved in Library.";
+            content += text; emit("delta", {content:text});
+            if (!result.ok) {status="failed"; emit("error", {message:result.message});}
+          } else await runConversationTools({
+            model:activeModel, apiKey:config.apiKey, fetcher, messages:requestedGeneration
+              ? [...generationMessages,{role:"system",content:`The user requested a generated ${requestedGeneration.kind}, format ${requestedGeneration.format || "docx"}. Use the conversation and attached evidence, perform requested research before creating the file, and use create_artifact. Never claim the file exists without a successful tool result.`}]
+              : generationMessages, webSearchSelected:Boolean(input.web_search),
+            signal:AbortSignal.any([upstreamAbort.signal, AbortSignal.timeout(240000)]), specialists:automaticSpecialists(eligibleModels, activeModel),
+            progress: label => emit("research", {label, sources:lease.sources}),
+            delta: text => {content += text; emit("delta", {content:text});},
+            web: async action => {
+              if(action.action==='read' && !evidenceUrl(action.url)) {
+                activity('reading','failed','Unsupported source URL was rejected');
+                return {read_status:'unavailable'};
+              }
+              activity(action.action === "search" ? "searching" : "reading","running",action.action === "search" ? "Searching the web" : "Reading source passages",action.query?{query:action.query}:{url:action.url||""});
+              let data;
+              try {
+                const response = await backend("tool", {ticket:lease.ticket, ...action, question:input.message||""}, 30000, upstreamAbort.signal);
+                if (!response.ok) throw new Error("Tool unavailable");
+                data = await response.json();
+              } catch {
+                activity(action.action === "search" ? "searching" : "reading","failed",action.action === "search" ? "Search request unavailable" : "Source request unavailable",action.query?{query:action.query}:{url:action.url||""});
+                throw new Error("Tool unavailable");
+              }
+              if (Array.isArray(data.sources)) {
+                const sources = new Map(lease.sources.map(source=>[source.url,source]));
+                for (const source of data.sources) {
+                  // A later search must not downgrade an already inspected page
+                  // or replace its retrieval timestamp/passages with a snippet.
+                  if (evidenceUrl(source.url) && !sources.has(source.url)) sources.set(source.url, {url:source.url,title:String(source.title || source.url).slice(0,200),snippet:String(source.snippet || "").slice(0,2000),provider:source.provider,retrieved_at:source.retrieved_at,read_status:"snippet_only"});
+                }
+                lease.sources = [...sources.values()].slice(0,40).map((source,index)=>({...source,citation:index+1}));
+              }
+              if (action.action === "read" && typeof data.url === "string") {
+                const existing = lease.sources.find(source=>source.url === data.url);
+                const source = {...(existing || {url:data.url,title:String(data.title || data.url).slice(0,200),citation:lease.sources.length+1}),read_status:data.read_status === "read" ? "read" : "unavailable",passages:Array.isArray(data.passages)?data.passages:[],mime:data.mime,pdf:data.pdf,retrieved_at:data.retrieved_at};
+                const duplicate=duplicateOf(source,lease.sources.filter(old=>old.url!==source.url));
+                Object.assign(source,{duplicate_of:duplicate});
+                lease.sources = existing
+                  ? lease.sources.map(item => item.url === data.url ? source : item)
+                  : [...lease.sources,source];
+              }
+              for(const attempt of (data.sources?.[0]?.provider_events||[]).slice(0,12)) {
+                if(['failed','unavailable','cooldown'].includes(attempt.status))activity('searching','failed','Search provider unavailable; fallback attempted',{provider:String(attempt.provider)});
+              }
+              activity(action.action === "search" ? "searching" : "reading",data.read_status === "unavailable"?"failed":"completed",action.action === "search" ? "Search results collected" : "Source reading finished",data.sources?.[0]?.provider?{provider:String(data.sources[0].provider)}:{});
+              const citationFor = (url: unknown) => {
+                const source = lease.sources.find(item => item.url === url);
+                return source ? {citation:source.citation,citation_markdown:`[${source.citation}](${source.url.replace(/\(/g, "%28").replace(/\)/g, "%29")})`} : {};
+              };
+              // Give the model the exact persisted source mapping; do not ask it
+              // to invent numbering or infer a URL from a domain label.
+              return {...data,...citationFor(data.url),...(Array.isArray(data.sources) ? {sources:data.sources.map((source: {url?: string}) => ({...source,...citationFor(source.url)}))} : {})};
+            },
+            artifact,
+          });
+          checkpoint.finished = true;
+          await saveCheckpoint();
+        }
         if (deep && checkpoint.stage === "research") {
           const initial = lease.messages;
           const result = await researchLoop({
@@ -285,12 +526,15 @@ export async function nvidiaChat(
             state: checkpoint.research,
             checkpoint: async (research) => {
               checkpoint = { ...checkpoint, research };
+              researchMetadata.plan=research.plan||[];
+              researchMetadata.activity=research.activity||[];
               await saveCheckpoint();
             },
             signal: upstreamAbort.signal,
-            progress: (label, sources) => {
+            progress: (label, sources, event) => {
               lease.sources = sources;
-              emit("research", { label, sources });
+              if(event)researchMetadata.activity=[...researchMetadata.activity.slice(-119),event];
+              emit("research", { label, sources,metadata:researchMetadata });
             },
             tool: async (action) => {
               const r = await backend(
@@ -298,22 +542,27 @@ export async function nvidiaChat(
                 {
                   ticket: lease.ticket,
                   ...action,
+                  question: input.message || String(lease.messages.at(-1)?.content || "").slice(0,16000),
                   time_range:
                     lease.search_time_range ||
                     JSON.parse(body).search_time_range ||
                     null,
                 },
-                15000,
+                30000,
                 upstreamAbort.signal,
               );
-              if (!r.ok)
-                throw new Error(
-                  "NVIDIA research tool failed. Check search availability or stop status.",
-                );
+              if (!r.ok) {
+                if ([429,502,503,504].includes(r.status)) throw new ResearchToolUnavailableError("Research evidence service unavailable.");
+                throw new Error("NVIDIA research tool failed. Check search availability or stop status.");
+              }
               return r.json();
             },
-            decide: async (context) => {
-              const r = await fetcher(endpoint, {
+            decide: async (context, recordRetry) => {
+              // Both attempts share one deadline and cancellation signal.
+              const planningSignal = AbortSignal.any([
+                upstreamAbort.signal, AbortSignal.timeout(110000),
+              ]);
+              const requestDecision = () => fetcher(endpoint, {
                 method: "POST",
                 redirect: "error",
                 cache: "no-store",
@@ -326,6 +575,8 @@ export async function nvidiaChat(
                   model: activeModel,
                   stream: false,
                   temperature: 0.2,
+                  // Coordinator output is one small action, not a manuscript.
+                  max_tokens: 2048,
                   messages: [
                     {
                       role: "system",
@@ -340,15 +591,20 @@ export async function nvidiaChat(
                         context,
                     },
                   ],
-                  ...(activeModel === "nvidia/nemotron-3.5-lightning-30b-a3b"
+                  ...(["nvidia/nemotron-3.5-lightning-30b-a3b", "nvidia/nemotron-3-ultra-550b-a55b"].includes(activeModel)
                     ? { chat_template_kwargs: { enable_thinking: false } }
                     : {}),
                 }),
-                signal: AbortSignal.any([
-                  upstreamAbort.signal,
-                  AbortSignal.timeout(110000),
-                ]),
+                signal: planningSignal,
               });
+              let r = await requestDecision();
+              if ([502, 503, 504].includes(r.status)) {
+                await r.body?.cancel();
+                await recordRetry();
+                await new Promise(resolve => setTimeout(resolve, 300));
+                planningSignal.throwIfAborted();
+                r = await requestDecision();
+              }
               if (r.status !== 200)
                 throw new Error(
                   r.status === 429
@@ -365,6 +621,10 @@ export async function nvidiaChat(
             },
           });
           lease.sources = result.sources;
+          researchMetadata={version:1,mode:'deep_research',status:result.complete?'writing':result.stop_reason==='budget'?'paused':'partial',plan:result.plan,activity:result.activity,coverage:result.coverage,limitations:result.limitations,stop_reason:result.stop_reason};
+          checkpoint={...checkpoint,research:result.state,metadata:researchMetadata};
+          await saveCheckpoint();
+          if(result.stop_reason==='budget')throw new Error('Research paused at its execution budget. Resume the saved response to continue the investigation.');
           lease.messages = initial.map((message, index) =>
             index === 0
               ? {
@@ -373,17 +633,14 @@ export async function nvidiaChat(
                     message.content +
                     "\nAdditional untrusted research evidence: " +
                     JSON.stringify(result) +
-                    "\nAnswer every part of the user's request. Disclose the coordinator's unresolved limitations. Cite only supplied URLs.",
+                    "\nAnswer every part of the user's request. Disclose the coordinator's unresolved limitations. Cite claims as [number](exact supplied source URL). Identify p1, p2 etc. as passage IDs, never PDF page numbers. Keep final prose consistently in the requested language, retaining technical identifiers and exact quotations. Cite only supplied URLs.",
                 }
               : message,
           );
           generationMessages = lease.messages;
           checkpoint = { stage: "writing" };
           await saveCheckpoint();
-          emit("research", {
-            label: "Writing the complete report",
-            sources: lease.sources,
-          });
+          activity("writing","running","Writing the evidence-grounded report");
         }
         let continueAnswer = !checkpoint.finished;
         while (continueAnswer) {
@@ -423,24 +680,33 @@ export async function nvidiaChat(
             },
             body: JSON.stringify({
               model,
-              messages: generationMessages,
+              messages: streamImage
+                ? generationMessages.map((m, index) => index === imageIndex
+                    ? {...m, content: imageMessage(m.content, streamImage)}
+                    : m)
+                : generationMessages,
               stream: true,
               temperature: 0.6,
+              // Explicit output budget avoids the provider's short default on code requests.
+              max_tokens: inlineImage ? 4096 : 16384,
+              ...(inlineImage ? {
+                chat_template_kwargs: {enable_thinking: false},
+              } : {}),
               ...(model === "nvidia/nemotron-3.5-lightning-30b-a3b"
                 ? { chat_template_kwargs: { enable_thinking: false } }
                 : {}),
             }),
             signal: AbortSignal.any([
               upstreamAbort.signal,
-              AbortSignal.timeout(110000),
+              AbortSignal.timeout(240000),
             ]),
           });
           let response = await requestStream(activeModel);
           // Retry with the configured baseline only before any user-visible tokens.
           // Never mix two models in one partially streamed answer.
           if (([404, 410, 429].includes(response.status) || response.status >= 500) &&
-              activeModel !== config.model && !upstreamAbort.signal.aborted) {
-            activeModel = config.model;
+              activeModel !== fallbackModel && !inlineImage && !upstreamAbort.signal.aborted) {
+            activeModel = fallbackModel;
             response = await requestStream(activeModel);
           }
           if (
@@ -538,7 +804,7 @@ export async function nvidiaChat(
         failure =
           failure ||
           (e instanceof Error &&
-          (e.message.startsWith("NVIDIA ") ||
+          (e.message.startsWith("NVIDIA ") || e.message.startsWith("Research paused") ||
             e.message === "Response exceeded storage limit.")
             ? e.message
             : "NVIDIA connection failed or timed out.");
@@ -546,12 +812,27 @@ export async function nvidiaChat(
         if (poll) clearInterval(poll);
         upstreamAbort.abort();
         signal.removeEventListener("abort", abort);
+        if (status === "complete" && (deep || lease.sources.length || researchMetadata.activity.length)) {
+          activity("verifying","running","Checking citations and numerical evidence");
+          const grounded = groundResearchAnswer(content, lease.sources);
+          researchMetadata.audit=grounded.audit;
+          researchMetadata.answer_body_length=grounded.text.length;
+          activity("verifying","completed","Citation and passage checks recorded; review flagged claims");
+          content = grounded.text + grounded.footer;
+          emit("answer", {content});
+        }
+        if(lease.sources.length || deep || researchMetadata.activity.length){
+          researchMetadata.status=status==='cancelled'?'cancelled':status==='failed'?(researchMetadata.status==='paused'?'paused':'failed'):researchMetadata.status==='partial'?'partial':'complete';
+          const read=lease.sources.filter(s=>s.read_status==='read');
+          researchMetadata.coverage ||= {actions:researchMetadata.activity.filter(e=>e.status==='completed').length,sources:lease.sources.length,pagesRead:read.length,domainsRead:new Set(read.map(s=>new URL(s.url).hostname)).size};
+          emit('research',{label:researchMetadata.status==='complete'?'Research finished':researchMetadata.status==='partial'?'Report ready with unresolved evidence gaps':'Research '+researchMetadata.status,sources:lease.sources,metadata:researchMetadata});
+        }
         let saved = false;
         for (let attempt = 0; attempt < 3; attempt++) {
           try {
             const r = await backend(
               "finish",
-              { ticket: lease.ticket, content, status, sources: lease.sources, provider_model: activeModel },
+              { ticket: lease.ticket, content, status, sources: lease.sources, ...(deep || lease.sources.length || researchMetadata.activity.length ? {research_metadata:compactResearchMetadata(researchMetadata)} : {}), provider_model: activeModel },
               8000,
             );
             if (r.ok && (await r.json()).stored) {
@@ -627,7 +908,7 @@ export async function nvidiaChat(
             /* Optional memory extraction must not fail the saved chat. */
           }
         }
-        if (failure && status !== "cancelled")
+        if (failure && status !== "cancelled" && !(saved && researchMetadata.status === "paused" && failure.startsWith("Research paused")))
           emit("error", { message: failure });
         emit("done", { status, saved });
         try {

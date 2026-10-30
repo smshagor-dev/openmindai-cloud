@@ -21,10 +21,12 @@ test("menu actions connect to real supported chat workflows", () => {
   assert.match(workspace, /onSelect=\{selectWelcomeTool\}/);
   assert.match(workspace, /fileRef\.current\?\.click\(\)/);
   assert.match(workspace, /setToolsOpen\("library"\)/);
-  assert.match(workspace, /setMediaOpen\(true\)/);
+  assert.match(workspace, /selectGenerationTool\("image"\)/);
+  assert.doesNotMatch(workspace, /<MediaDialog/);
   assert.match(workspace, /setWorkspaceOpen\(true\)/);
   assert.match(workspace, /setDeepResearch\(action === "research" && !turningOff\)/);
-  assert.match(workspace, /mediaMode === "image" \? "media\/image" : "media"/);
+  assert.match(workspace, /generation_kind: mediaMode/);
+  assert.match(workspace, /generatedMediaIds\(message.content\)/);
 });
 
 test("browser links require valid public URL forms and do not read native tabs", () => {

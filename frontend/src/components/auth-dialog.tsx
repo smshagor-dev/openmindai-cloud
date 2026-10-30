@@ -1,9 +1,11 @@
 "use client";
 import { useEffect, useState } from "react";
+import PasswordInput from "./password-input";
 import { ArrowRight, LoaderCircle, Mail, ShieldCheck } from "lucide-react";
 import Dialog from "./dialog";
+import OtpCodeInput from "./otp-code-input";
 import { api, type User } from "@/lib/api";
-type Mode = "login" | "register" | "forgot";
+type Mode = "login" | "register" | "forgot" | "verify-email" | "reset";
 export default function AuthDialog({
   onClose,
   onLogin,
@@ -45,6 +47,11 @@ export default function AuthDialog({
     setNotice("");
     setBusy(true);
     const data = Object.fromEntries(new FormData(event.currentTarget));
+    if ((mode === "verify-email" || mode === "reset" || Boolean(ipChallengeId)) && !/^\d{6}$/.test(String(ipChallengeId ? data.ip_code : data.code ?? ""))) {
+      setError("Enter all six digits of the security code.");
+      setBusy(false);
+      return;
+    }
     try {
       if (mode === "login" && ipChallengeId) {
         const result = await api<{ user: User }>("login/verify-ip", "POST", {
@@ -68,22 +75,35 @@ export default function AuthDialog({
       } else if (mode === "register") {
         const result = await api<{ user?: User; verification_required?: boolean }>("register", "POST", data);
         if (result.verification_required) {
-          setMode("login");
+          setMode("verify-email");
           setShowCode(false);
-          setNotice("Account created. Check your email for a verification link, then sign in.");
+          setNotice("Enter the latest six-digit verification code sent to your email.");
         } else if (result.user) {
           onLogin(result.user);
         } else {
           throw new Error("The registration response was incomplete.");
         }
-      } else {
+      } else if (mode === "forgot") {
         await api("forgot-password", "POST", data);
-        setNotice("If an account exists, a password reset link has been sent.");
+        setMode("reset");
+        setNotice("If your account exists, enter the six-digit reset code sent to your email.");
+      } else if (mode === "verify-email") {
+        await api("email/verify-code", "POST", { email, code: data.code });
+        change("login");
+        setNotice("Email verified. You can now sign in.");
+      } else if (mode === "reset") {
+        await api("reset-password", "POST", { ...data, email });
+        change("login");
+        setNotice("Password updated. Sign in with your new password.");
       }
     } catch (e) {
       const message = e instanceof Error ? e.message : "Unable to continue.";
       setError(message);
       if (message.toLowerCase().includes("two-factor")) setShowCode(true);
+      if (mode === "login" && /verify your email first/i.test(message)) {
+        setMode("verify-email");
+        setNotice("Your account is not verified. Enter the code from your email, or request a new one.");
+      }
     } finally {
       setBusy(false);
     }
@@ -97,7 +117,7 @@ export default function AuthDialog({
     setError("");
     try {
       await api("email/resend", "POST", { email });
-      setNotice("If eligible, a verification email has been sent.");
+      setNotice("If eligible, a six-digit verification code has been sent.");
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -109,7 +129,7 @@ export default function AuthDialog({
       title={
         ipChallengeId
           ? "Verify new sign-in location"
-          : mode === "register"
+          : mode === "verify-email" ? "Verify your email" : mode === "reset" ? "Set a new password" : mode === "register"
           ? "Create your account"
           : mode === "forgot"
             ? "Reset your password"
@@ -122,10 +142,10 @@ export default function AuthDialog({
       <p className="dialog-description">
         {ipChallengeId
           ? "We detected a login from a new network. Enter the six-digit email code to continue."
-          : mode === "register"
+          : mode === "verify-email" || mode === "reset" ? "Enter the six-digit code from your email." : mode === "register"
           ? (registrationEmailVerification ? "Create an account, then verify your email address before signing in." : "A space for your ideas. Your conversations, saved in one place.")
           : mode === "forgot"
-            ? "We'll send a reset link to your email address."
+            ? "We'll send a six-digit reset code to your email address."
             : "Pick up where you left off."}
       </p>
       <form onSubmit={submit} className="form-stack">
@@ -153,12 +173,14 @@ export default function AuthDialog({
             autoFocus={mode !== "register"}
           />
         </label>}
-        {!ipChallengeId && mode !== "forgot" && (
+        {!ipChallengeId && (mode === "verify-email" || mode === "reset") && <OtpCodeInput key={mode + email} name="code" disabled={busy} />}
+        {!ipChallengeId && mode === "reset" && <><label>New password<PasswordInput name="password"  autoComplete="new-password" minLength={6} required /></label><label>Confirm new password<PasswordInput name="password_confirmation"  autoComplete="new-password" minLength={6} required /></label></>}
+        {!ipChallengeId && (mode === "login" || mode === "register") && (
           <label>
             Password
-            <input
+            <PasswordInput
               name="password"
-              type="password"
+              
               autoComplete={
                 mode === "register" ? "new-password" : "current-password"
               }
@@ -174,9 +196,9 @@ export default function AuthDialog({
             </small>
             <label>
               Confirm password
-              <input
+              <PasswordInput
                 name="password_confirmation"
-                type="password"
+                
                 autoComplete="new-password"
                 required
                 minLength={6}
@@ -204,21 +226,7 @@ export default function AuthDialog({
               <ShieldCheck size={15} /> Use a two-factor code
             </button>
           ))}
-        {ipChallengeId && (
-          <label>
-            Email security code
-            <input
-              name="ip_code"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              pattern="[0-9]{6}"
-              maxLength={6}
-              placeholder="6-digit code"
-              required
-              autoFocus
-            />
-          </label>
-        )}
+        {ipChallengeId && <OtpCodeInput key={ipChallengeId} name="ip_code" disabled={busy} />}
         {error && (
           <p className="feedback error" role="alert">
             {error}
@@ -240,7 +248,8 @@ export default function AuthDialog({
                 : mode === "register"
                 ? "Create account"
                 : mode === "forgot"
-                  ? "Send reset link"
+                  ? "Send reset code"
+                  : mode === "verify-email" ? "Verify email" : mode === "reset" ? "Reset password"
                   : "Continue"}
               <ArrowRight size={17} />
             </>
@@ -250,6 +259,8 @@ export default function AuthDialog({
       <div className="auth-links">
         {ipChallengeId ? (
           <button className="text-button" type="button" disabled={busy} onClick={() => change("login")}>Back to sign in</button>
+        ) : mode === "verify-email" ? (
+          <><button className="text-button" disabled={busy} type="button" onClick={resend}>Resend verification code</button><button className="text-button" disabled={busy} type="button" onClick={() => change("login")}>Back to sign in</button></>
         ) : mode === "login" ? (
           <>
             <button
@@ -268,10 +279,11 @@ export default function AuthDialog({
             </button>}
             <button
               className="text-button muted"
+              type="button"
               disabled={busy}
-              onClick={resend}
+              onClick={() => { setMode("verify-email"); setError(""); setNotice("Enter your email and six-digit verification code, or request a new code."); }}
             >
-              Resend verification email
+              Verify email / resend code
             </button>
           </>
         ) : (

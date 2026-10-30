@@ -29,7 +29,7 @@ class FirstPartySignature
         $secret = Crypt::decryptString($app->encrypted_secret);
         $message = implode("\n", [
             $timestamp, $nonce, strtoupper($request->method()),
-            '/'.$request->path(), hash('sha256', $request->getContent()),
+            '/'.$request->path(), hash('sha256', in_array(strtoupper($request->method()), ['GET', 'HEAD'], true) ? '' : $request->getContent()),
         ]);
         abort_unless(hash_equals(hash_hmac('sha256', $message, $secret), $signature), 401, 'Invalid app signature.');
         // Fail closed if replay storage is unavailable.

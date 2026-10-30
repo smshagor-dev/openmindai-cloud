@@ -2,7 +2,10 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type Page } from "@/lib/api";
 import ArtifactPreviews, { type Artifact } from "./artifact-previews";
+import DocumentPreview from "./document-preview";
+import { documentFile } from "@/lib/preview-file";
 import Dialog from "./dialog";
+import LibraryMediaThumbnail from "./library-media-thumbnail";
 type FileItem = { id: number; name: string; bytes: number };
 type Media = {
   id: number;
@@ -31,6 +34,7 @@ export default function LibraryPanel({
     text?: string;
     url?: string;
     mime?: string;
+    file?: File;
     artifacts?: Artifact[];
   } | null>(null);
   const [revision, setRevision] = useState(0);
@@ -125,12 +129,13 @@ export default function LibraryPanel({
             "image",
             "vision",
             "document",
+            "document_create",
             "transcription",
             "speech",
             "video",
             "code",
           ].map((x) => (
-            <option key={x}>{x}</option>
+            <option key={x} value={x}>{x === "document_create" ? "Generated documents" : x}</option>
           ))}
         </select>
       </div>
@@ -184,6 +189,7 @@ export default function LibraryPanel({
         {filter !== "text" &&
           media.map((m) => (
             <article className="manage-card" key={`m${m.id}`}>
+              {m.status === "complete" && <LibraryMediaThumbnail id={m.id} mime={m.output_mime} title={m.prompt} />}
               <strong>{m.prompt.slice(0, 100) || `${m.kind} #${m.id}`}</strong>
               <p>
                 {m.kind} · {m.status}
@@ -218,6 +224,7 @@ export default function LibraryPanel({
                             title: m.prompt || m.kind,
                             url: URL.createObjectURL(blob),
                             mime: m.output_mime,
+                            file: documentFile(blob, m.output_mime),
                           });
                       } else
                         setPreview({
@@ -283,16 +290,14 @@ export default function LibraryPanel({
           {preview.text !== undefined && (
             <pre className="file-text-preview">{preview.text}</pre>
           )}
-          {preview.url && ["image/png", "image/jpeg"].includes(preview.mime || "") && (
+          {preview.url && ["image/png", "image/jpeg", "image/webp"].includes(preview.mime || "") && (
             <img
               className="library-image-full"
               src={preview.url}
               alt={preview.title}
             />
           )}{" "}
-          {preview.url && preview.mime === "application/pdf" && (
-            <iframe title="Generated PDF" className="pdf-preview" src={preview.url} />
-          )}
+          {preview.file && <DocumentPreview file={preview.file} />}
           {preview.url && preview.mime === "audio/wav" && (
             <audio controls src={preview.url} />
           )}{" "}

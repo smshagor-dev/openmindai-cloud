@@ -47,5 +47,6 @@
         </div>
     </main>
 </div>
+<script src="{{ asset('js/password-visibility.js') }}" defer></script>
 </body>
 </html>
