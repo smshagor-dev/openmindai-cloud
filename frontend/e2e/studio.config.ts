@@ -25,6 +25,7 @@ export default defineConfig({
       "chromium" | "firefox" | "webkit",
     baseURL: process.env.RESEARCH_BROWSER_URL || "http://127.0.0.1:3101",
     headless: true,
+    trace: "retain-on-failure",
     launchOptions:
       !process.env.RESPONSIVE_BROWSER ||
       process.env.RESPONSIVE_BROWSER === "chromium"

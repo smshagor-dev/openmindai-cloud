@@ -430,3 +430,37 @@ test("Studio palette stays consistent and its theme preference survives reload",
   await page.getByRole("button", { name: "Use dark theme" }).click();
   await expect(shell).not.toHaveClass(/studio-light/);
 });
+
+test("Studio preserves early input by waiting for client initialization", async ({
+  page,
+}) => {
+  await mockWorkbench(page, () => {});
+  await page.route("**/api/backend/3d-scenes**", (route) =>
+    route.fulfill({ json: { data: [] } }),
+  );
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/_next/static/**/*.js", async (route) => {
+    await gate;
+    await route.continue();
+  });
+  try {
+    await page.goto("/3d-studio", { waitUntil: "commit" });
+    await expect(page.locator("#scene-prompt")).toBeDisabled();
+    await expect(
+      page.getByRole("button", { name: "Auto Detect", exact: true }),
+    ).toBeDisabled();
+  } finally {
+    release();
+  }
+  await expect(page.locator("#scene-prompt")).toBeEnabled();
+  await page.locator("#scene-prompt").fill("Keep this early prompt");
+  await expect(page.locator("#scene-prompt")).toHaveValue(
+    "Keep this early prompt",
+  );
+  await expect(
+    page.getByRole("button", { name: "Generate scene" }),
+  ).toBeEnabled();
+});

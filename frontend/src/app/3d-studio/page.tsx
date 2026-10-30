@@ -57,7 +57,8 @@ export default function StudioPage() {
     [engineParams, setEngineParams] = useState<Record<string, unknown>>({}),
     [jobId, setJobId] = useState<string | null>(null),
     [selectedAsset, setSelectedAsset] = useState<Asset | null>(null),
-    [light, setLight] = useState(false);
+    [light, setLight] = useState(false),
+    [interactive, setInteractive] = useState(false);
   const pending = useRef(false);
   async function refresh() {
     const [data, uploads] = await Promise.all([
@@ -68,6 +69,7 @@ export default function StudioPage() {
     setReferences(uploads.data);
   }
   useEffect(() => {
+    setInteractive(true);
     try {
       setLight(localStorage.getItem("studio-theme") === "light");
     } catch {
@@ -154,6 +156,7 @@ export default function StudioPage() {
         </div>
         <button
           type="button"
+          disabled={!interactive}
           aria-label={light ? "Use dark theme" : "Use light theme"}
           onClick={() => {
             setLight(!light);
@@ -168,7 +171,7 @@ export default function StudioPage() {
           {light ? "Dark theme" : "Light theme"}
         </button>
         <button
-          disabled={busy || loading}
+          disabled={!interactive || busy || loading}
           onClick={() => {
             setSaved(null);
             setSelectedAsset(null);
@@ -278,7 +281,7 @@ export default function StudioPage() {
                 type="button"
                 key={value}
                 aria-pressed={mode === value}
-                disabled={busy}
+                disabled={!interactive || busy}
                 onClick={() => setMode(value)}
               >
                 {value === "object" ? <Box size={17} /> : <Layers3 size={17} />}{" "}
@@ -371,7 +374,7 @@ export default function StudioPage() {
             minLength={5}
             maxLength={8000}
             required
-            disabled={busy}
+            disabled={!interactive || busy}
             placeholder="What would you like to create?"
             rows={3}
           />
@@ -384,7 +387,7 @@ export default function StudioPage() {
                 type="file"
                 multiple
                 accept=".md,.markdown,.txt,.csv,.json,.doc,.docx,.pdf,.png,.jpg,.jpeg,.webp"
-                disabled={busy || loading || uploading}
+                disabled={!interactive || busy || loading || uploading}
                 onChange={async (e) => {
                   const input = e.currentTarget;
                   const files = Array.from(input.files || []);
@@ -471,7 +474,11 @@ export default function StudioPage() {
             <button
               type="submit"
               disabled={
-                busy || loading || uploading || prompt.trim().length < 5
+                !interactive ||
+                busy ||
+                loading ||
+                uploading ||
+                prompt.trim().length < 5
               }
             >
               {busy ? (
@@ -499,7 +506,7 @@ export default function StudioPage() {
           <div className="studio-examples">
             {examples[mode === "auto" ? "object" : mode].map((text) => (
               <button
-                disabled={busy}
+                disabled={!interactive || busy}
                 key={text}
                 onClick={() => setPrompt(text)}
               >
