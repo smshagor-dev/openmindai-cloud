@@ -6,8 +6,10 @@ use App\Models\User;
 use App\Services\ApiCreditUsage;
 use App\Services\FirstPartySignature;
 use App\Services\HostedCodeAgents;
+use App\Services\MobileVisionPayload;
 use App\Services\MultilingualPrompt;
 use App\Services\NvidiaModelProbe;
+use App\Services\NvidiaRequestRate;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -182,6 +184,7 @@ class OpenMindAiGatewayController
                 429, 'Your monthly API allowance has been reached.');
             abort_if($limit !== null && $usedModel >= $limit, 429, 'This model has reached its monthly allowance.');
 
+            NvidiaRequestRate::reserve();
             $upstream = Http::withToken($key)->acceptJson()->connectTimeout(10)->timeout(120)
                 ->withOptions(['allow_redirects' => false])
                 ->post('https://'.$origin.$model->api_path, $payload);
@@ -226,7 +229,13 @@ class OpenMindAiGatewayController
             'model' => 'required|string|max:60',
             'messages' => 'required|array|min:1|max:40',
             'messages.*.role' => 'required|in:system,user,assistant,tool',
-            'messages.*.content' => 'sometimes|nullable|string|max:16000',
+            'messages.*.content' => $mobile
+                ? ['sometimes', 'nullable', function ($attribute, $value, $fail) {
+                    if (! is_array($value) && (! is_string($value) || mb_strlen($value) > 16000)) {
+                        $fail('Message content must be text or image content parts.');
+                    }
+                }]
+                : 'sometimes|nullable|string|max:16000',
             'messages.*.tool_call_id' => 'sometimes|string|max:120',
             'messages.*.tool_calls' => 'sometimes|array|max:64',
             'messages.*.tool_calls.*.id' => 'required|string|max:120',
@@ -241,9 +250,15 @@ class OpenMindAiGatewayController
             'stream' => 'sometimes|boolean',
             'max_tokens' => 'sometimes|integer|min:1|max:8192',
             'temperature' => 'sometimes|numeric|min:0|max:1',
+            'chat_template_kwargs' => 'sometimes|array:enable_thinking',
+            'chat_template_kwargs.enable_thinking' => 'sometimes|boolean',
         ]);
+        $hasImages = $mobile && MobileVisionPayload::validate($data['messages']);
         foreach ($data['messages'] as $message) {
             $hasText = is_string($message['content'] ?? null) && trim($message['content']) !== '';
+            if ($mobile && $message['role'] === 'user' && is_array($message['content'] ?? null)) {
+                $hasText = count($message['content']) > 0;
+            }
             if (in_array($message['role'], ['system', 'user'], true) && ! $hasText) {
                 abort(422, 'User and system messages require content.');
             }
@@ -256,6 +271,7 @@ class OpenMindAiGatewayController
         }
         $agent = $agents->find($data['model']);
         abort_unless($agent && $agent->api_protocol === 'chat', 404, 'This chat model is not enabled.');
+        abort_if($hasImages && ! MobileVisionPayload::supports($agent), 422, 'Select a vision-capable model to read images.');
         $key = (string) config('models.nvidia_key');
         abort_unless(strlen($key) >= 12, 503, 'NVIDIA_API_KEY is not configured on the Laravel server.');
         $lock = Cache::lock('openmindai:gateway:'.$user->id, 240);
@@ -274,7 +290,8 @@ class OpenMindAiGatewayController
             $stream = (bool) ($data['stream'] ?? false);
             $payload = [
                 'model' => $agent->provider_model,
-                'messages' => ($mobile || $firstParty) ? MultilingualPrompt::apply($data['messages']) : $data['messages'],
+                'messages' => $hasImages ? MobileVisionPayload::providerMessages($data['messages'])
+                    : (($mobile || $firstParty) ? MultilingualPrompt::apply($data['messages']) : $data['messages']),
                 'max_tokens' => $data['max_tokens'] ?? 2048,
                 'stream' => $stream,
             ];
@@ -284,8 +301,21 @@ class OpenMindAiGatewayController
             if (isset($data['temperature'])) {
                 $payload['temperature'] = $data['temperature'];
             }
+            // These models support the same bounded JSON mode used by the
+            // hosted research planner. Leave ordinary chat and other agents alone.
+            if (($request->attributes->get('research_literature_json') === true || $request->attributes->get('studio_scene_json') === true)
+                && in_array($agent->provider_model, ['nvidia/nemotron-3.5-lightning-30b-a3b', 'nvidia/nemotron-3-ultra-550b-a55b'], true)) {
+                $payload['chat_template_kwargs'] = ['enable_thinking' => false];
+            } elseif (isset($data['chat_template_kwargs']['enable_thinking'])) {
+                // Quick mobile chat turns off hidden reasoning on hybrid models,
+                // as guest chat already does; otherwise answers can wait minutes.
+                $payload['chat_template_kwargs'] = [
+                    'enable_thinking' => (bool) $data['chat_template_kwargs']['enable_thinking'],
+                ];
+            }
+            NvidiaRequestRate::reserve();
             $upstream = Http::withToken($key)->accept($stream ? 'text/event-stream' : 'application/json')
-                ->connectTimeout(10)->timeout(120)->withOptions(['allow_redirects' => false, 'stream' => $stream])
+                ->connectTimeout(10)->timeout($request->attributes->get('studio_reference_vision') === true ? 30 : 120)->withOptions(['allow_redirects' => false, 'stream' => $stream])
                 ->post('https://integrate.api.nvidia.com/v1/chat/completions', $payload);
             if (! $upstream->successful()) {
                 $code = $upstream->status();

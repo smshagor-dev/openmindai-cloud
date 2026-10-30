@@ -5,6 +5,7 @@ import ArtifactPreviews, { type Artifact } from "./artifact-previews";
 import DocumentPreview from "./document-preview";
 import { documentFile } from "@/lib/preview-file";
 import Dialog from "./dialog";
+import LibraryMediaThumbnail from "./library-media-thumbnail";
 type FileItem = { id: number; name: string; bytes: number };
 type Media = {
   id: number;
@@ -188,6 +189,7 @@ export default function LibraryPanel({
         {filter !== "text" &&
           media.map((m) => (
             <article className="manage-card" key={`m${m.id}`}>
+              {m.status === "complete" && <LibraryMediaThumbnail id={m.id} mime={m.output_mime} title={m.prompt} />}
               <strong>{m.prompt.slice(0, 100) || `${m.kind} #${m.id}`}</strong>
               <p>
                 {m.kind} · {m.status}
@@ -288,7 +290,7 @@ export default function LibraryPanel({
           {preview.text !== undefined && (
             <pre className="file-text-preview">{preview.text}</pre>
           )}
-          {preview.url && ["image/png", "image/jpeg"].includes(preview.mime || "") && (
+          {preview.url && ["image/png", "image/jpeg", "image/webp"].includes(preview.mime || "") && (
             <img
               className="library-image-full"
               src={preview.url}

@@ -91,7 +91,7 @@ class WorkspaceTest extends TestCase
     public function test_local_deep_research_reports_progress_and_continues_truncated_generation(): void
     {
         Sanctum::actingAs($this->user());
-        $this->partialMock(WebResearch::class)->shouldReceive('collect')->once()->andReturn([]);
+        $this->partialMock(WebResearch::class)->shouldNotReceive('collect');
         $source = ['url' => 'https://example.org/report', 'title' => 'Evidence', 'read_status' => 'read', 'citation' => 1];
         $this->mock(ResearchCompletion::class)->shouldReceive('run')->once()->andReturnUsing(function ($question, $sources, $model, $progress) use ($source) {
             $progress('Read more evidence', [$source]);
@@ -109,7 +109,9 @@ class WorkspaceTest extends TestCase
         $this->assertStringContainsString('event: research', $r->streamedContent());
         $this->assertSame(2, $calls);
         $answer = Message::where('role', 'assistant')->first();
-        $this->assertSame('First last', $answer->content);
+        $this->assertStringStartsWith('First last', $answer->content);
+        $this->assertStringContainsString('[Evidence](https://example.org/report)', $answer->content);
+        $this->assertStringContainsString('do not establish', $answer->content);
         $this->assertSame('complete', $answer->status);
         $this->assertCount(1, $answer->sources);
     }

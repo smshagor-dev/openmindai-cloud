@@ -24,8 +24,12 @@ use App\Http\Controllers\NvidiaMaxineController;
 use App\Http\Controllers\NvidiaVoiceChatController;
 use App\Http\Controllers\OpenMindAiGatewayController;
 use App\Http\Controllers\RealtimeController;
+use App\Http\Controllers\ResearchWorkerTransferController;
+use App\Http\Controllers\SceneStudioController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\StreamChatController;
+use App\Http\Controllers\StudioUploadController;
+use App\Http\Controllers\StudioWorkbenchController;
 use App\Http\Controllers\TeamController;
 use App\Http\Controllers\ToolsController;
 use App\Http\Controllers\WorkspaceController;
@@ -34,6 +38,7 @@ use App\Services\HostedCodeAgents;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->middleware('verified-mobile-ip')->group(function () {
+    Route::match(['get', 'post'], 'internal/research-worker/transfers/{id}/{action}', [ResearchWorkerTransferController::class, 'transfer'])->middleware('throttle:120,1')->where('id', '[a-f0-9]{64}')->where('action', 'input|authorize|result');
     // Server-to-server ticket callbacks, protected by a dedicated worker secret.
     Route::post('voicechat/worker/claim', [NvidiaVoiceChatController::class, 'claim'])->middleware('throttle:60,1');
     Route::post('voicechat/worker/finish', [NvidiaVoiceChatController::class, 'finish'])->middleware('throttle:60,1');
@@ -89,6 +94,36 @@ Route::prefix('v1')->middleware('verified-mobile-ip')->group(function () {
         Route::post('email/verify-code', [AuthController::class, 'verifyCode']);
     });
     Route::middleware(['auth:sanctum', 'active', 'interactive-token', 'throttle:api'])->group(function () {
+        Route::prefix('3d-studio')->controller(StudioWorkbenchController::class)->group(function () {
+            Route::post('workflows/run', 'runWorkflow');
+            Route::post('jobs/scene', 'sceneJob');
+            Route::get('engines', 'catalog');
+            Route::post('route', 'route');
+            Route::get('assets', 'assets');
+            Route::post('assets', 'upload');
+            Route::get('assets/{id}/download', 'download')->whereNumber('id');
+            Route::get('assets/{id}/data', 'data')->whereNumber('id');
+            Route::delete('assets/{id}', 'removeAsset')->whereNumber('id');
+            Route::post('assets/{id}/restore', 'restoreAsset')->whereNumber('id');
+            Route::get('jobs', 'jobs');
+            Route::post('jobs', 'createJob');
+            Route::get('jobs/{id}', 'job')->whereUuid('id');
+            Route::post('jobs/{id}/cancel', 'cancel')->whereUuid('id');
+            Route::get('workflows', 'workflows');
+            Route::post('workflows', 'saveWorkflow');
+            Route::put('workflows/{id}', 'saveWorkflow')->whereNumber('id');
+            Route::get('projects', 'projects');
+            Route::post('projects', 'saveProject');
+        });
+        Route::get('3d-scenes/uploads', [StudioUploadController::class, 'index']);
+        Route::post('3d-scenes/uploads', [StudioUploadController::class, 'create']);
+        Route::get('3d-scenes/uploads/{id}', [StudioUploadController::class, 'download'])->whereNumber('id');
+        Route::get('3d-scenes', [SceneStudioController::class, 'index']);
+        Route::post('3d-scenes', [SceneStudioController::class, 'create'])->middleware('throttle:chat');
+        Route::get('3d-scenes/{id}', [SceneStudioController::class, 'show']);
+        Route::delete('3d-scenes/{id}', [SceneStudioController::class, 'delete']);
+        Route::put('3d-scenes/{id}', [SceneStudioController::class, 'update'])->whereNumber('id');
+        Route::get('3d-scenes/{id}/revisions', [SceneStudioController::class, 'revisions'])->whereNumber('id');
         // User-owned Mobile sessions share hosted quota accounting; no client secret.
         Route::get('mobile/models', [OpenMindAiGatewayController::class, 'mobileModels']);
         Route::post('mobile/chat/completions', [OpenMindAiGatewayController::class, 'mobileChat'])->middleware('throttle:chat');
@@ -220,3 +255,5 @@ Route::prefix('v1')->middleware('verified-mobile-ip')->group(function () {
         Route::delete('conversations/{id}', [ChatController::class, 'delete']);
     });
 });
+
+require __DIR__.'/research.php';

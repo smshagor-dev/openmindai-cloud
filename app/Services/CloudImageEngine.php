@@ -61,24 +61,21 @@ class CloudImageEngine
         $seed = (int) ($options['seed'] ?? 0);
         $headers = ['Accept' => 'application/json'];
         if ($mode === 'generate') {
-            if ($ratio === '1:1') {
-                $url = config('cloud_images.fast_endpoint');
-                $model = config('cloud_images.fast_model');
-                $payload = [
-                    'prompt' => $prompt, 'mode' => 'base',
-                    'cfg_scale' => 0, 'height' => 1024, 'width' => 1024,
-                    'samples' => 1, 'seed' => $seed, 'steps' => 4,
-                ];
-            } else {
-                $url = config('cloud_images.ratio_endpoint');
-                $model = config('cloud_images.ratio_model');
-                $payload = [
-                    'prompt' => $prompt, 'model' => 'sd3',
-                    'mode' => 'text-to-image', 'aspect_ratio' => $ratio,
-                    'output_format' => 'jpeg', 'cfg_scale' => 5,
-                    'seed' => $seed, 'steps' => 30,
-                ];
-            }
+            // Live API validation requires cfg_scale >= 1 and forbids mode.
+            // Keep dimensions aligned to 16 pixels with the exact selected ratio.
+            [$width, $height] = match ($ratio) {
+                '16:9' => [1280, 720], '9:16' => [720, 1280],
+                '5:4' => [1280, 1024], '4:5' => [1024, 1280],
+                '3:2' => [1152, 768], '2:3' => [768, 1152],
+                default => [1024, 1024],
+            };
+            $url = config($ratio === '1:1' ? 'cloud_images.fast_endpoint' : 'cloud_images.ratio_endpoint');
+            $model = config($ratio === '1:1' ? 'cloud_images.fast_model' : 'cloud_images.ratio_model');
+            $payload = [
+                'prompt' => $prompt, 'cfg_scale' => 1,
+                'height' => $height, 'width' => $width,
+                'samples' => 1, 'seed' => $seed, 'steps' => 4,
+            ];
             $key = config('cloud_images.key');
         } else {
             $masked = in_array($mode, ['inpaint', 'outpaint'], true);

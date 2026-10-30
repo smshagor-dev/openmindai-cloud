@@ -34,6 +34,35 @@ class OpenMindAiGatewayTest extends TestCase
         $this->withToken($token)->postJson('/api/v1/chat', ['model_id' => 1, 'message' => 'test'])->assertForbidden();
     }
 
+    public function test_mobile_chat_reuses_user_login_session_not_developer_keys(): void
+    {
+        config(['models.nvidia_key' => 'test-provider-secret-123']);
+        Http::fake(['integrate.api.nvidia.com/*' => Http::response([
+            'choices' => [['index' => 0, 'message' => [
+                'role' => 'assistant', 'content' => 'Cloud answer',
+            ], 'finish_reason' => 'stop']],
+            'usage' => ['total_tokens' => 10],
+        ])]);
+        $user = $this->account();
+        $session = $user->createToken('OpenMindAI Mobile', ['user'], now()->addDays(30))->plainTextToken;
+        $this->withToken($session)->getJson('/api/v1/mobile/models')->assertOk()
+            ->assertJsonFragment(['id' => 'openmindai-lite', 'available' => true]);
+        $this->withToken($session)->postJson('/api/v1/mobile/chat/completions', [
+            'model' => 'openmindai-lite',
+            'messages' => [['role' => 'user', 'content' => 'Hello']],
+            'stream' => false,
+        ])->assertOk()->assertJsonPath('choices.0.message.content', 'Cloud answer');
+        $this->withToken($session)->getJson('/api/v1/openmindai/models')->assertForbidden();
+        $developer = $user->createToken('developer:test', ['openmindai:invoke'])->plainTextToken;
+        // Sanctum caches the resolved guard within one PHPUnit request lifecycle.
+        $this->app['auth']->forgetGuards();
+        $this->withToken($developer)->getJson('/api/v1/mobile/models')->assertForbidden();
+        $this->withToken($developer)->postJson('/api/v1/mobile/chat/completions', [
+            'model' => 'openmindai-lite',
+            'messages' => [['role' => 'user', 'content' => 'Hello']],
+        ])->assertForbidden();
+    }
+
     public function test_developer_key_can_be_generated_and_revoked(): void
     {
         $u = $this->account();

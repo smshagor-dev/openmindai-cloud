@@ -104,7 +104,8 @@ class CloudImagePipelineTest extends TestCase
         $this->assertDatabaseHas('api_credit_usage', ['user_id' => $user->id, 'credits' => 1]);
         $this->get('/api/v1/media/'.$task->id.'/output')->assertOk()->assertHeader('Content-Type', 'image/png');
         Http::assertSent(fn ($request) => $request->url() === config('cloud_images.fast_endpoint')
-            && $request['width'] === 1024 && $request['samples'] === 1);
+            && $request['width'] === 1024 && $request['samples'] === 1
+            && $request['cfg_scale'] === 1 && ! isset($request['mode']));
     }
 
     public function test_slow_provider_budget_fits_worker_and_queue_without_duplicate_generation(): void
@@ -159,7 +160,7 @@ class CloudImagePipelineTest extends TestCase
         $this->assertDatabaseCount('api_credit_usage', 0);
     }
 
-    public function test_nonsquare_generation_uses_aspect_ratio_provider_not_unsupported_flux_dimensions(): void
+    public function test_nonsquare_generation_uses_live_validated_klein_dimensions_and_payload(): void
     {
         $this->signIn();
         Storage::fake('local');
@@ -172,7 +173,9 @@ class CloudImagePipelineTest extends TestCase
         ])]);
         (new RunCloudImage($id))->handle(app(CloudImageEngine::class));
         Http::assertSent(fn ($request) => $request->url() === config('cloud_images.ratio_endpoint')
-            && $request['aspect_ratio'] === '16:9' && ! isset($request['width']));
+            && $request['width'] === 1280 && $request['height'] === 720
+            && $request['cfg_scale'] === 1 && $request['steps'] === 4
+            && ! isset($request['mode']) && ! isset($request['aspect_ratio']));
     }
 
     public function test_language_bridge_preserves_source_and_falls_back_when_unavailable(): void

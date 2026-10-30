@@ -17,7 +17,9 @@ class WebResearch
                 continue;
             }
             try {
-                $text = app(WebReader::class)->read($source['url']);
+                $document = app(WebEvidence::class)->read($source['url'], $question);
+                $text = $document['page_text'];
+                $source = [...$source, ...array_diff_key($document, ['url' => true, 'title' => true])];
                 if (mb_strlen(trim($text)) >= 80) {
                     $source['page_text'] = mb_substr($text, 0, 8000);
                     $source['read_status'] = 'read';
@@ -85,7 +87,9 @@ class WebResearch
                 continue;
             }
             try {
-                $text = app(WebReader::class)->read($source['url']);
+                $document = app(WebEvidence::class)->read($source['url'], $question);
+                $text = $document['page_text'];
+                $source = [...$source, ...array_diff_key($document, ['url' => true, 'title' => true])];
                 if (mb_strlen(trim($text)) < 80) {
                     throw new RuntimeException('Insufficient page text.');
                 }
@@ -112,7 +116,7 @@ class WebResearch
         return array_map(function ($source) {
             unset($source['page_text']);
 
-            return $source;
+            return app(WebEvidence::class)->summary($source);
         }, $sources);
     }
 }
