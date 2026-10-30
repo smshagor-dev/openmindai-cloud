@@ -250,6 +250,8 @@ class OpenMindAiGatewayController
             'stream' => 'sometimes|boolean',
             'max_tokens' => 'sometimes|integer|min:1|max:8192',
             'temperature' => 'sometimes|numeric|min:0|max:1',
+            'chat_template_kwargs' => 'sometimes|array:enable_thinking',
+            'chat_template_kwargs.enable_thinking' => 'sometimes|boolean',
         ]);
         $hasImages = $mobile && MobileVisionPayload::validate($data['messages']);
         foreach ($data['messages'] as $message) {
@@ -304,6 +306,12 @@ class OpenMindAiGatewayController
             if (($request->attributes->get('research_literature_json') === true || $request->attributes->get('studio_scene_json') === true)
                 && in_array($agent->provider_model, ['nvidia/nemotron-3.5-lightning-30b-a3b', 'nvidia/nemotron-3-ultra-550b-a55b'], true)) {
                 $payload['chat_template_kwargs'] = ['enable_thinking' => false];
+            } elseif (isset($data['chat_template_kwargs']['enable_thinking'])) {
+                // Quick mobile chat turns off hidden reasoning on hybrid models,
+                // as guest chat already does; otherwise answers can wait minutes.
+                $payload['chat_template_kwargs'] = [
+                    'enable_thinking' => (bool) $data['chat_template_kwargs']['enable_thinking'],
+                ];
             }
             NvidiaRequestRate::reserve();
             $upstream = Http::withToken($key)->accept($stream ? 'text/event-stream' : 'application/json')
