@@ -1,24 +1,27 @@
+/* Same neutral palette as the chat workspace (chat-theme.css). */
 .rs.rs-chat {
-  --bg: #111618;
-  --panel: #181f22;
-  --panel2: #20292d;
-  --line: #303c41;
-  --text: #e6edef;
-  --muted: #a3b1b7;
-  --accent: #87d8c0;
+  --bg: #212121;
+  --sidebar: #171717;
+  --panel: #303030;
+  --panel2: #2f2f2f;
+  --line: #3b3b3b;
+  --outline: #424242;
+  --text: #ececec;
+  --muted: #b4b4b4;
+  --accent: #ececec;
   padding: 64px 0 0 218px;
-  font-family:
-    "DM Sans", ui-sans-serif, system-ui, "Noto Serif Bengali",
-    "Noto Naskh Arabic", "Noto Serif Devanagari", "Noto Serif SC", sans-serif;
+  font-family: inherit;
 }
 .rs.rs-chat.rs-light {
   --bg: #fff;
-  --panel: #f5f7f7;
-  --panel2: #ecf0ef;
-  --line: #dce4e2;
-  --text: #1c292d;
-  --muted: #586b70;
-  --accent: #217e69;
+  --sidebar: #f9f9f9;
+  --panel: #f4f4f4;
+  --panel2: #ececec;
+  --line: #e5e5e5;
+  --outline: #e3e3e3;
+  --text: #0d0d0d;
+  --muted: #6b6b6b;
+  --accent: #0d0d0d;
 }
 .rs-chat h1,
 .rs-chat h2,
@@ -40,14 +43,16 @@
 .rs-chat .rs-nav {
   top: 64px;
   width: 218px;
-  background: var(--panel);
+  background: var(--sidebar);
+  border-right: 0;
   padding: 23px 13px;
 }
 .rs-chat .rs-nav > .rs-primary {
-  background: var(--bg);
+  background: transparent;
   color: var(--text);
-  border: 1px solid var(--line);
-  border-radius: 9px;
+  border: 0;
+  border-radius: 8px;
+  justify-content: flex-start;
   font-weight: 500;
   margin-bottom: 8px;
 }
@@ -403,11 +408,11 @@
   background: var(--bg);
 }
 .rs-chat .rs-chat-composer {
-  border: 1px solid var(--line);
-  border-radius: 17px;
+  border: 1px solid var(--outline);
+  border-radius: 28px;
   background: var(--panel);
-  padding: 13px;
-  box-shadow: 0 6px 25px #0000000c;
+  padding: 17px 14px 10px;
+  box-shadow: 0 3px 16px #00000009;
 }
 .rs-chat .rs-chat-composer textarea {
   border: 0;
