@@ -9,6 +9,7 @@ use App\Services\HostedCodeAgents;
 use App\Services\MobileVisionPayload;
 use App\Services\MultilingualPrompt;
 use App\Services\NvidiaModelProbe;
+use App\Services\NvidiaRequestRate;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -183,6 +184,7 @@ class OpenMindAiGatewayController
                 429, 'Your monthly API allowance has been reached.');
             abort_if($limit !== null && $usedModel >= $limit, 429, 'This model has reached its monthly allowance.');
 
+            NvidiaRequestRate::reserve();
             $upstream = Http::withToken($key)->acceptJson()->connectTimeout(10)->timeout(120)
                 ->withOptions(['allow_redirects' => false])
                 ->post('https://'.$origin.$model->api_path, $payload);
@@ -299,15 +301,21 @@ class OpenMindAiGatewayController
             if (isset($data['temperature'])) {
                 $payload['temperature'] = $data['temperature'];
             }
-            // Quick mobile chat turns off hidden reasoning on hybrid models,
-            // as guest chat already does; otherwise answers can wait minutes.
-            if (isset($data['chat_template_kwargs']['enable_thinking'])) {
+            // These models support the same bounded JSON mode used by the
+            // hosted research planner. Leave ordinary chat and other agents alone.
+            if (($request->attributes->get('research_literature_json') === true || $request->attributes->get('studio_scene_json') === true)
+                && in_array($agent->provider_model, ['nvidia/nemotron-3.5-lightning-30b-a3b', 'nvidia/nemotron-3-ultra-550b-a55b'], true)) {
+                $payload['chat_template_kwargs'] = ['enable_thinking' => false];
+            } elseif (isset($data['chat_template_kwargs']['enable_thinking'])) {
+                // Quick mobile chat turns off hidden reasoning on hybrid models,
+                // as guest chat already does; otherwise answers can wait minutes.
                 $payload['chat_template_kwargs'] = [
                     'enable_thinking' => (bool) $data['chat_template_kwargs']['enable_thinking'],
                 ];
             }
+            NvidiaRequestRate::reserve();
             $upstream = Http::withToken($key)->accept($stream ? 'text/event-stream' : 'application/json')
-                ->connectTimeout(10)->timeout(120)->withOptions(['allow_redirects' => false, 'stream' => $stream])
+                ->connectTimeout(10)->timeout($request->attributes->get('studio_reference_vision') === true ? 30 : 120)->withOptions(['allow_redirects' => false, 'stream' => $stream])
                 ->post('https://integrate.api.nvidia.com/v1/chat/completions', $payload);
             if (! $upstream->successful()) {
                 $code = $upstream->status();

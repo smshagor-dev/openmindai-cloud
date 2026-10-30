@@ -1,0 +1,95 @@
+/* Shared startup identity for Chat, Research and 3D Studio. */
+.workspace-welcome {
+  text-align: center;
+  margin: 0 0 28px;
+  overflow-wrap: anywhere;
+}
+.workspace-welcome-identity {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  margin-bottom: 18px;
+  font-size: 14px;
+}
+.workspace-welcome-identity img {
+  display: block;
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+}
+.workspace-welcome-identity strong {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+}
+.workspace .welcome .workspace-welcome h1,
+.rs-chat-home .workspace-welcome h1,
+.studio-startup .workspace-welcome h1 {
+  font-family: inherit;
+  font-size: clamp(27px, 3vw, 34px);
+  font-weight: 550;
+  line-height: 1.3;
+  letter-spacing: -0.9px;
+  margin: 0;
+}
+.workspace .welcome .workspace-welcome {
+  margin-bottom: 0;
+}
+a.sidebar-action,
+a.sidebar-action:hover,
+a.sidebar-action:focus-visible {
+  text-decoration: none;
+}
+.rs-chat .rs-chat-home {
+  box-sizing: border-box;
+  width: min(100%, 816px);
+  max-width: 816px;
+  padding: clamp(48px, 20dvh, 200px) 24px 32px;
+  margin: 0 auto;
+}
+.rs-chat .rs-chat-home .rs-chat-composer {
+  border-radius: 28px;
+}
+.studio-main.studio-startup {
+  box-sizing: border-box;
+  width: min(100%, 848px);
+  padding: clamp(48px, 20dvh, 200px) 40px 32px;
+  margin: 0 auto;
+}
+.studio-startup .studio-composer {
+  margin-top: 0;
+  border-radius: 28px;
+}
+.studio-startup .studio-examples {
+  margin-top: 18px;
+}
+.studio-startup .studio-examples button {
+  background: transparent;
+}
+@media (max-width: 800px) {
+  .studio-main.studio-startup {
+    padding: 40px 16px 24px;
+  }
+}
+@media (max-width: 760px) {
+  .workspace-welcome-identity {
+    margin-bottom: 13px;
+  }
+  .workspace-welcome-identity img {
+    width: 31px;
+    height: 31px;
+  }
+  .rs-chat .rs-chat-home {
+    padding: clamp(40px, 12dvh, 88px) 16px 24px;
+  }
+  .studio-startup .studio-examples {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-height: 500px) {
+  .rs-chat .rs-chat-home,
+  .studio-main.studio-startup {
+    padding-top: 24px;
+  }
+}

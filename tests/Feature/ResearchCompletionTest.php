@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Services\ResearchCompletion;
+use App\Services\WebReader;
 use App\Services\WebSearch;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -19,8 +20,9 @@ class ResearchCompletionTest extends TestCase
             return Http::response(['choices' => [['message' => ['content' => json_encode($decision)]]]]);
         });
         $this->mock(WebSearch::class)->shouldReceive('search')->times(12)->andReturnUsing(fn ($query) => [['url' => 'https://example.org/'.urlencode($query), 'title' => $query, 'snippet' => 'Summary']]);
+        $this->mock(WebReader::class)->shouldReceive('read')->once()->andReturn(str_repeat('Inspected source evidence. ', 10));
         $result = app(ResearchCompletion::class)->run('Question', [], 'fixture', fn () => null, fn () => false);
-        $this->assertSame(13, $calls);
+        $this->assertSame(14, $calls);
         $this->assertCount(12, $result['sources']);
         $this->assertSame('All requested sections supported', $result['conclusion']);
     }
@@ -38,11 +40,12 @@ class ResearchCompletionTest extends TestCase
 
             return Http::response(['choices' => [['message' => ['content' => '{"action":"finish","reason":"Coverage complete"}']]]]);
         });
+        $this->mock(WebReader::class)->shouldReceive('read')->once()->andReturn(str_repeat('Pending source inspected evidence. ', 8));
         $saved = [];
         $result = app(ResearchCompletion::class)->run('Question', [], 'fixture', fn () => null, fn () => false, ['actions' => [], 'pending' => ['action' => 'search', 'query' => 'Pending evidence']], function ($state) use (&$saved) {
             $saved[] = $state;
         });
-        Http::assertSentCount(1);
+        Http::assertSentCount(2);
         $this->assertCount(1, $result['sources']);
         $this->assertSame('writing', end($saved)['stage']);
     }

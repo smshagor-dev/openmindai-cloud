@@ -1,0 +1,29 @@
+name: 3D workbench integration
+on:
+  push:
+    branches: [feature/3d-modly-capabilities]
+  pull_request:
+    paths: ['runtime/studio/**', 'app/Services/Studio/**', 'app/Jobs/ExecuteStudio*', 'frontend/src/components/studio-*', '.github/workflows/3d-workbench.yml']
+permissions:
+  contents: read
+jobs:
+  worker-and-bridge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - uses: shivammathur/setup-php@v2
+        with: {php-version: '8.3', extensions: 'mbstring,pdo_sqlite,fileinfo,curl,dom,zip', coverage: none}
+      - run: composer install --no-interaction --prefer-dist
+      - run: pip install -r runtime/studio/requirements.txt httpx==0.28.1
+      - run: python -m unittest runtime.studio.test_studio -v
+      - run: python -m runtime.studio.bridge_smoke
+      - name: Validate bounded worker deployment configuration
+        env:
+          STUDIO_CPU_IMAGE: openmind-studio-cpu-test
+          STUDIO_CPU_DIGEST: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          STUDIO_WORKER_KEY: fixture-only-key-not-used-for-production
+        run: docker compose -f runtime/studio/compose.yaml config --quiet
+      - run: docker build -f runtime/studio/Dockerfile -t openmind-studio-cpu-test .
+      - run: docker run --rm --network none --memory 1g --cpus 2 --pids-limit 128 --read-only --tmpfs /tmp:rw,nosuid,size=256m openmind-studio-cpu-test python -m unittest runtime.studio.test_studio -v

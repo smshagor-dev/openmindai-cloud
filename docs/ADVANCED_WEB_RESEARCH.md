@@ -1,0 +1,167 @@
+# Advanced web search and deep research in Cloud chat
+
+This change extends the existing Cloud chat rather than creating another research product. It preserves Sanctum ownership, the server-side AI gateway/bridge, chat credits, cancellation, history and Research Studio.
+
+## Reference inspected
+
+The actual reference is `smshagor-dev/OpenMindAI` (desktop), main at `7e3f11b`, not the mobile application. Reviewed `src-tauri/src/web_research.rs`, `src/components/ResearchProgress.tsx`, `src/research-progress.css` and the live-web-research, quality-validation and corpus-reference documents. The reference is Apache-2.0. This is an independent PHP/TypeScript implementation of the relevant behavior, without desktop/native access, branding assets or simulated browsing.
+
+## Implemented behavior
+
+- Existing Web Search uses focused searches and inspected pages before a sourced answer. Search results preserve provider and retrieval time. SearXNG, optional Brave and Google CSE, then existing keyless Bing RSS/DuckDuckGo are supported. Transient retries and provider cooldowns are bounded; a configured provider is not reported as healthy merely because a key exists.
+- Hosted Deep Research can run up to three independent search queries or page reads concurrently, with individually correlated real start/completion/error events. Citations are assigned deterministically in request order. Successful siblings survive an interrupted batch; resumptions retry only pending requests. Batch items each consume the existing action/read budgets.
+- Deep Research uses an adaptive plan/search/read/review/write loop in the existing Next server-side chat orchestrator. The planner can name up to twelve user objectives and link inspected, nonduplicate source IDs to each objective. Missing or invalid coverage remains unresolved. This is a planner coverage assessment, not a semantic proof.
+- Internal per-invocation safety budgets are 24 tool actions, 12 page reads, 40 source records and 120 seconds between actions. Source counts are not research goals. At a budget boundary the hosted path persists an encrypted checkpoint and pauses; Resume continues the same message with a fresh bounded invocation. Cancellation does not claim a completed report. Completed side-effecting Auto tool runs remain non-resumable.
+- Public HTML/text retrieval retains bounded content from the page, then selects query-relevant passages rather than only the introduction. Public text PDFs use actual page extraction with a deterministic sample of at most eight pages across the document, including the final page. The UI explicitly states which pages were sampled and whether the whole document was read.
+- Similar five-word passage shingles flag mirrored/syndicated excerpts. Multiple domains alone do not establish independence.
+- The hosted report checks retrieved citation numbers/URLs, named citation links and bare numeric citations, preserving code examples. Paragraph-level lexical passage and numeric/unit checks flag unsupported or contradictory claims for review. Bengali and Arabic numerals are normalized for these heuristics. These are not truth, originality, semantic entailment or statistical-validity guarantees. Arbitrary unlinked model text is not automatically validated.
+- Chat uses compact activity above the answer, inline citation buttons and a responsive source drawer with title/domain/excerpt search, inspected/limited filters and PDF-page links. Unknown or mismatched citations remain ordinary links, never retrieved evidence. The UI omits only the recorded host-generated footer; copy and Markdown exports retain the full source index. Web Search and Deep Research have distinct labels, and active parallel counts come only from correlated operation events.
+- Chat displays actual backend search/read events, provider fallback events, queries, URLs, timestamps, objectives, evidence limitations and report checks. It shows no invented browser snapshots or progress percentages. Selected source passages and authentic PDF-page links remain available after refresh. Public metadata is bounded to 200 KB of UTF-8 JSON, separately from the 4 MB bounded encrypted research checkpoint request. This avoids false size failures from ASCII-escaped Bengali/Arabic/Chinese text.
+- The local Laravel runtime also has bounded planning and mandatory page inspection, persistent browsing events, selected passages and citation URL checks. At its request budget it writes an explicitly limited result. Its local SSE path does not offer the hosted checkpoint-resume workflow or the hosted numeric/lexical audit; it does not claim parity on those capabilities.
+- Shared chat font fallbacks cover Bengali, Arabic, Devanagari and Chinese using the already-installed font packages. RTL passage/objective text uses automatic direction. Narrow headers keep all controls inside the viewport.
+
+## Existing integration points
+
+No new authentication or AI gateway is introduced. Existing endpoints are extended:
+
+- `POST /api/v1/chat/frontend/tool`: owned bridge ticket; search or protected page retrieval; optional original question for passage ranking.
+- `POST /api/v1/chat/frontend/checkpoint`: encrypted resumable state plus bounded public research activity/source excerpts.
+- `POST /api/v1/chat/frontend/finish`: final content, status, bounded source summaries and public research metadata.
+- `POST /api/v1/chat/frontend/resume`: existing owner/latest-message checks and lease rotation.
+- `POST /api/v1/chat/stream`: existing local runtime SSE path.
+- Frontend remains `/` and `/c/[slug]`; Web Search and Deep Research remain chat tools. Research Studio stays at `/research-studio`.
+
+Additive migration: `2026_10_26_000002_add_chat_research_metadata.php` adds nullable JSON `messages.research_metadata`. It does not reset or rewrite existing messages.
+
+## Protected public retrieval
+
+Every redirect destination is revalidated. DNS answers must be public and cURL is pinned to the validated address; redirects are never followed automatically. Credentials, private/reserved addresses and unsupported ports/types are rejected. Bodies are limited to 2 MB. No user authentication header is forwarded to a source.
+
+The PDF helper is fixed Python code reading stdin, with no generated code, PDF actions, JavaScript or OCR. On Linux it applies 384 MB address-space, 6-second CPU, file-size/core limits, a 12-second PHP process timeout, page-tree limits and bounded stream decompression. Its environment excludes application secrets. This is a bounded parser, not an arbitrary-code experiment sandbox. Scanned, encrypted, malformed, oversized or unreadable PDFs fail closed with an unavailable status. It never falls back to invented PDF text.
+
+## Deployment
+
+Use an isolated Python virtual environment, not a global production package upgrade:
+
+```sh
+python3 -m venv /absolute/private/path/openmind-web-reader
+/absolute/private/path/openmind-web-reader/bin/pip install -r runtime/web-reader/requirements.txt
+```
+
+Set `WEB_RESEARCH_PYTHON_BINARY` privately to that environment's `bin/python`. cPanel requires a supported Python interpreter and permission to launch the fixed process. Install `pypdf==6.10.0` from the committed requirements file. Without it, HTML search can still work and PDF reading reports unavailable.
+
+Optional backend-only settings: `BRAVE_SEARCH_API_KEY`, `GOOGLE_SEARCH_API_KEY`, `GOOGLE_SEARCH_ENGINE_ID`. Existing `SEARXNG_SEARCH_URL` and `PUBLIC_SEARCH_FALLBACK` remain compatible. Never put keys in `NEXT_PUBLIC_*` or source control.
+
+Run the additive migration with the normal release process, clear/cache Laravel configuration and build/deploy the existing Next frontend. Preserve production `.env`, uploads and server changes. Verify search/read/inference/stream/cancel/resume through the deployed app before release acceptance. Actual release progress is recorded below and in `RESEARCH_STUDIO_STATUS.md`.
+
+## Verification, 2026-10-26
+
+Commands and final results: Automated providers are deterministic fixtures, not real provider verification.
+
+- `php artisan test`: 349 passed, 2245 assertions, 0 failures.
+- `vendor/bin/pint --test`: passed.
+- `composer validate --strict`, `composer audit` and `npm audit --omit=dev --prefix frontend`: passed; both audits reported no vulnerabilities.
+- Existing media runtime regression: 18 passed.
+- Laravel route/view/config cache compilation passed; local cleanup passed with an array cache (the example MySQL database is not configured here).
+- PHP syntax check: passed across app/bootstrap/config/database/routes/tests.
+- `npm run typecheck --prefix frontend`: passed.
+- `npm run build --prefix frontend`: passed.
+- `npm run test:integration --prefix frontend`: 219 passed, 0 failed, 0 skipped.
+- `python3 -m unittest discover -s runtime/web-reader -v`: 2 passed. Actual generated 24-page PDF retained page 24 evidence; malformed/oversized/decompression-bomb fixtures rejected.
+- `RESEARCH_CHROMIUM_PATH=... node frontend/e2e/web-research-run.mjs`: 10 passed: Deep Research at 1920, 1440, 1280, 1024, 768, 430, 375 and 320 pixels, plus Web Search at 1440 (dark) and 375 (light). Browser fixtures exercise actual React/SSE parsing, inline citation inspection, source drawer search/filter/close, pause, refresh and resume controls. Actual database persistence/lease/ownership and orchestrator behavior have separate Laravel/Node integration tests.
+- Direct application live smoke: public search and `https://sqlite.org/wal.html` retrieval were unavailable from this restricted environment. No real inference smoke test was performed with production credentials. These remain release gates; mocked tests do not establish live availability.
+
+The full twelve-agent Research Studio, its isolated execution worker and the earlier Admin/Developer Dashboard work are separate objectives. This search change does not certify or reimplement those systems.
+
+## Production release verification — 2026-10-26
+
+Backend release `026987b6c18508500d763a7b3c24ca183eea5f43` was deployed to the existing cPanel project after checking its Git state and upstream ancestry. The custom local Nemotron seeder, server files and uploads were preserved. A private configuration/Git backup and transaction-consistent compressed database dump were created outside the webroot; gzip integrity passed. No database restore test is claimed. Composer production installation, the single additive research metadata migration (batch 15), framework cache clearing/optimization and return from maintenance mode completed. No reset, unrelated migration, seeder overwrite, cron change or unrelated service modification occurred.
+
+Installed the fixed public PDF reader in a dedicated private Python 3.11 environment with pinned `pypdf==6.10.0`. Backed up `.env` before adding only `WEB_RESEARCH_PYTHON_BINARY`; rebuilt Laravel caches. This reader is distinct from the still-unprovisioned Research Studio experiment/export processing worker.
+
+Actual production backend checks, with credentials retained server-side:
+
+- Configuration: NVIDIA and bridge key presence passed; selected inference route is `backend`.
+- Live search: five results through `bing_rss`, including official SQLite documentation. This establishes the fallback provider, not availability of every optional search provider.
+- HTML: official SQLite WAL page read successfully, yielding eight selected passages.
+- PDF: arXiv `1301.3781` read successfully, with eight passages and actual page provenance. Twelve-page document sampled pages 1, 2, 4, 5, 7, 8, 10 and 12; explicitly partial, no OCR. Both parser regressions passed on production in 0.480 seconds.
+- Ultra model audit: success, HTTP 200, runtime configured, no missing settings. The existing verified enabled state was preserved.
+- Existing provider bridge controller/service: JSON HTTP 200 with nonempty content; SSE HTTP 200, three data events, delta and `[DONE]`. These direct service invocations do not independently test HTTP authentication middleware or browser streaming.
+- Negative retrieval checks: obsolete RFC PDF URL was unavailable; a larger arXiv PDF was rejected by the 2 MB cap. Neither was passed off as successfully read. A first CLI configuration probe incorrectly called an instance method statically; corrected probe passed. No application source change was required by these probe errors.
+
+Frontend production deployment `dpl_AX9gDLv4JJ35NkyvWjwSEV4CurKp` reached READY for that exact code SHA in existing Vercel project `openmind-ai`, with `chat.openmindai.org` assigned and no alias error. Previous READY production `dpl_CNyUKhAq6GAWYdFvV1hDg8TBayAS` is retained as a code rollback candidate. An earlier browser usage-limit interruption and expired cPanel tab delayed completion; secure sign-in subsequently succeeded.
+
+Authenticated live Web Search retrieved six sources, read the official PHP page and exposed eight actual passages in the source drawer. The Pages read filter and original link worked. The Auto model's Bengali prose was visibly poor and its report had four flagged checks; this is not a language-quality pass. Ultra Deep Research emitted three actual concurrent searches, persisted twenty sources and three subsequently read pages. Its provider planner timed out twice; refresh/resume retained progress without inventing a completed report. A follow-up bounds each coordinator response to 2048 tokens and disables extended thinking only for the two known Nemotron planner models (Ultra's non-thinking request passed the live JSON probe). Ordinary report reasoning remains unchanged. Retesting and release of this follow-up are pending at this checkpoint.
+
+Production preservation check confirmed every other `.env` entry unchanged. Inspected Laravel error headings on this date were the two failed CLI probes described above, not successful live workflow checks. The new Vercel release's grouped error/fatal log query returned no groups in its first thirty-minute window. This is a bounded inspection, not a guarantee of absence of all errors.
+
+Coordinator follow-up local validation: 220 Node integration tests passed, TypeScript passed, production build passed and all ten browser workflows passed (17.8 seconds). First running the proxy tests while its required production build was still being generated failed on a missing build; rerunning after the completed build passed. PHP code and schema were unchanged by this follow-up; the existing 349-test backend result belongs to the preceding release, with new CI still required for the new commit.
+
+### Verified planner correction and selected-search follow-up
+
+Coordinator correction `3866cccd3cb597630c9183437818aa5dd5aafaac` passed all four CI jobs in run `40377743612`, including a fresh 349 backend tests/2245 assertions. Its production deployment `dpl_7tc36Syv83JrfyDyWsMGgJpHpz29` reached READY for the exact SHA and existing domains, without alias error; cPanel fast-forwarded while preserving the local seeder/server changes. No further Composer, migration or cache change was needed for this frontend-only correction.
+
+Live cancellation reached Research stopped, refresh retained the checkpoint, and resumption continued the same conversation from four to seventeen actual page reads. A per-invocation budget pause was accurately displayed. A subsequent planning HTTP failure preserved progress; a server-private provider probe with the same research state returned HTTP 200 and planning content, without context/rate/token error indicators. This diagnosis does not assert that every earlier failure had the same cause.
+
+Real Ultra native-tool probe also returned HTTP 200 and selected the supplied search function. The next follow-up therefore prefers successfully verified Ultra for manually selected Auto Web Search; ordinary Auto chat and explicit choices retain their existing routing. The existing coordinator remains the fallback when Ultra has not passed its last test. Native Ultra tool calls use its live-tested non-thinking setting. Transient planner 502/503/504 responses retry once, recording the failure/retry in the persisted activity trail; both attempts share the original deadline/cancellation signal. Rate limits and final failures remain explicit. Automated coverage checks real adapter/bridge routing, no secret emission and the bounded retry's success/failure paths. This follow-up's final validation and deployment are pending at this checkpoint.
+
+This follow-up passed 223 Node integration tests, TypeScript, production build and ten browser workflows (18.3 seconds). PHP/schema remain unchanged. Its new CI and production release remain pending. The long live research run has retained twenty sources/eighteen page reads, but final report generation is still unverified; a later planning failure is under diagnosis rather than marked successful.
+
+Routing/retry commit `6cd070188d27f8ef4d404aa7765796c49cbfc5cb` passed all four CI jobs (`40380408605`). Before its production release, inspection identified an orchestration fallback that could drain arbitrary unread results after a repeated action. The final correction instead supplies one bounded corrective planning turn after evidence has been read; another repeated action produces an explicitly limited report with unresolved gaps. It retains the mandatory first page inspection and never treats reading every search result as a completion goal. A regression test rejects any unrelated tool read in that case. Latest local validation: 224 Node tests, TypeScript, production build and ten browser workflows (18.9s), all passed. Final exact-commit CI, deployment and real report acceptance remain pending.
+
+Read-only infrastructure diagnostics with the small and saved public-document request bodies both returned the expected unauthenticated HTTP 401 JSON; neither established a security-layer rejection. No firewall, authorization or provider restriction was weakened. Public health/admin login checks returned HTTP 200; unauthenticated private project API returned HTTP 401.
+
+### Live report completion and citation/fallback compatibility
+
+`6884b159a9d8e003fd55a16e70729e936b4245cf` passed all four jobs in CI run `40381356865`. Production `dpl_B2HvAqVJryoJwQmEEGeopAR849F1` reached READY for that exact SHA and existing chat domain with no alias error; cPanel safely fast-forwarded and remained up. The previously interrupted research then produced a persisted Bengali report with twenty sources/eighteen page reads, explicitly labelled evidence gaps and five review flags. This is completed response delivery, not verified factual acceptance: the text still contains language artefacts and claims requiring review. Its actual Markdown download reopened as UTF-8 (8821 bytes), retaining all twenty reference entries and evidence limitations.
+
+The live model used compound citations such as `[20, p5]`. The compatibility follow-up validates the source and every referenced passage ID before turning these into inspectable numeric links, explicitly describing `p5` as a passage, not a PDF page. Invalid/missing passage references are omitted and flagged; code literals remain intact. Existing saved reports gain inspectable display without rewriting their stored content. New report instructions request canonical Markdown citations. Browser fixtures now include this actual citation variant.
+
+A separate real selected-search check encountered a provider outage. The old native path stopped despite a user-supplied official URL. The follow-up allows protected page reading of supplied public URLs before concluding evidence is unavailable, distinguishes page evidence from successful search, retains earlier successful search evidence, and avoids asking for the same URL again. Failed supplied-page retrieval still ends with an honest unavailable response. Actual search infrastructure availability remains an external condition, not a fabricated success.
+
+Latest compatibility checks: 226 Node integration tests, TypeScript, production build and ten browser workflows (19.5s) passed. React review retained unconditional hooks, memoized pure text normalization, accessible existing citation buttons and no credential-bearing client state. Exact-commit CI, final compatibility deployment and live supplied-URL/citation recheck remain pending at this checkpoint.
+
+### Persistence defect discovered by final live refresh
+
+Compatibility commit `334f6e8c18e07c5e60b4a502f917eebdfe65eaef` passed all four CI jobs (`40384217696`); production `dpl_4xvyq2m5DZxAK9U1b4PvQXSemw3S` reached READY for its exact SHA and existing domain, and cPanel safely fast-forwarded. Live inspection then exposed a backend finish-validation defect: fields not explicitly validated, including passages and PDF metadata, were discarded before summarization. The older completed report therefore has source URLs but no retained passages. Its compound passage claims are correctly unverified; no evidence was invented or backfilled into history. Earlier streaming and paused-checkpoint evidence display does not establish completed-response provenance persistence.
+
+The backend correction explicitly validates and retains the bounded provenance allowlist (at most eight 1000-character passages, bounded PDF page metadata and provider/retrieval fields). Raw page text/private extra fields remain excluded. Malformed or oversized provenance returns HTTP 422 before overwriting the active response. New tests traverse actual begin/finish/database/history HTTP paths, verify authentic PDF page 24 and Unicode passage retention, and reject invalid metadata. All nineteen FrontendChat tests passed locally (242 assertions), Pint and changed-file syntax checks passed; full-suite verification and deployment are pending. An initial test setup used the local synchronous research path and lacked an example environment; corrected to the production hosted flags with stray HTTP requests forbidden, and reran cleanly in 5.52 seconds.
+
+Production search presence inspection confirmed SearXNG, Brave and Google CSE are not configured. Public fallback is enabled but its latest query was unavailable; earlier real queries succeeded. Reliable ongoing discovery requires a configured dedicated search provider. This is an external deployment requirement, not a completed live-search availability claim.
+
+
+### Verified provenance release and native citation follow-up — 2026-10-27 session
+
+Code `04df1be0aec7849b84056958da589f05550edd7b` passed all four CI jobs in run `40386931451`: PHP 8.2/8.3 suites, frontend and runtime contract. PHP 8.2 logs confirm 351 tests/2264 assertions; frontend confirms 226 integration tests and ten browser workflows (18.2s), plus typecheck/build/audit. The earlier local export failure was missing `citeproc_styles`, not an application assertion failure. After environment recovery that dependency was available, but the local Composer vendor directory was absent; the targeted local rerun did not execute. The fresh CI full-suite pass provides the executed verification instead.
+
+Secure cPanel sign-in succeeded. Checked production Git status and ancestry, privately backed up the existing controller/Git patch and preservation hashes, then fast-forwarded from `334f6e8` to exact tested `04df1be`. Laravel optimize:clear/optimize completed and the application returned live. `.env`, `.htaccess`, `.user.ini`, `php.ini` and the locally modified Nemotron seeder matched their pre-release hashes. No new dependencies, migrations, seeder rerun, user-file removal, database reset or unrelated service change was needed. Vercel production `dpl_5BhTzLNGZ6U9oWJpHN5gtzndeEYy` reached READY for the same SHA in the existing project; chat domain assigned, aliasError null.
+
+Fresh authenticated Web Search (retained verification conversation 29) completed with seventeen actual sources and three read pages. Its source drawer exposed eight official PHP passages, retrieval timestamp and DuckDuckGo provenance. A full page reload retained the completed answer and all eight passages; Pages read filtering and original-source link remained functional. This verifies new-response evidence persistence, not recovery of missing passages in older reports. The source search succeeded this time; public fallback remains intermittently unavailable and a dedicated provider is still recommended for reliable discovery. Health/admin login were HTTP 200 and private project API rejected unauthenticated access with HTTP 401. Bounded Laravel error-heading inspection found no newer heading than the two documented October 26 CLI probes. New Vercel error/fatal grouped scan was empty.
+
+This live answer still mixed unrelated language into Bengali prose and emitted bare `[domain]` markers rather than canonical citation links. Its four review flags remain visible; language/citation quality is not an acceptance pass. A narrow follow-up now supplies the model each actual persisted source's `citation_markdown`, requests that exact link and consistent requested-language prose, and preserves page evidence/stable numbering when later searches rediscover an inspected URL. A real adapter regression executes search/read/search/read/finish and checks tool-visible links, numbering, page passages and retrieval timestamp. Fifteen focused tests, all 227 Node integration tests, TypeScript and production build passed locally. Browser/final CI/release/live quality retest of this follow-up remain pending. A temporary environment transport disconnect was recovered; no production rollback or data deletion occurred.
+
+Follow-up responsive browser verification: ten workflows passed (16.2s) with the existing trusted local Chromium at all configured 320–1920 px widths. Initial execution lacked the Playwright browser, and its download returned a truncated archive; no application check was weakened. Reran using the already installed browser successfully. These browser/provider fixtures are not a live language-quality pass. Final exact-commit CI, deployment and real-provider retest remain pending.
+
+
+### Stable-citation release verified; final activity correction
+
+`bbb78d2e540a02160ab0ed052c85258d4fe32c5b` passed all four CI jobs (`40449023752`): PHP 8.2 and 8.3 each 351 tests/2264 assertions, 227 frontend tests, ten browser workflows (18.8s), build/typecheck/style/audits and runtime contract. Existing cPanel checkout fast-forwarded while preservation hashes matched; no backend schema/configuration/dependency changed. Vercel production `dpl_81X5odMbLQJ55xmWApW9jngMvMEv` reached READY for exact SHA/domain with aliasError null. Its bounded error/fatal scan returned no groups.
+
+A fresh real native Web Search (retained conversation 30) read the supplied PHP manual after searches did not produce sources. The answer had three numeric citation buttons; clicking one opened the actual page and eight retained passages. Full refresh preserved both the inline buttons and passages. This verifies exact citation routing/new-response persistence, not semantic correctness. Bengali still contained unrelated-script fragments, and a claim about differently sized arrays was not accepted as correct. Three review flags remain visible. Prompt changes alone did not establish language/factual acceptance; no automatic rewriting of historical reports was performed.
+
+Actual timeline inspection exposed absent terminal failure events when a native search's backend request failed, plus repeated reads of the same page through different fragment links. The final correction records sanitized failed events with the original query/URL on transport/HTTP/JSON failure and canonicalizes public page URLs before native deduplication. A real adapter regression verifies two failed search attempts, one actual read for two fragment links, persisted failure events, continued supplied-page citation and no leaked provider details. Sixteen focused tests and TypeScript passed. An initial fixture checked the event field `stage` rather than the existing `phase`; corrected fixture passed. Full local checks, exact CI/deployment and live activity retest are pending at this checkpoint. Dedicated search provisioning, model output quality and separate Research Studio private-worker acceptance remain outstanding.
+
+Final activity correction local validation passed: 228 Node integration tests, TypeScript, production build and ten responsive browser workflows (16.0s), with no skips/failures. Exact new-commit CI/deployment/live failure-event verification remains pending.
+
+
+### Current production verification — final 2026-10-27 session record
+
+Deployed application code is `5f14eaf4ffdc7731c9f328b5f83de4343ee5e9eb` on `feature/advanced-web-research`. All four exact-code CI jobs passed in run `40449889927`: PHP 8.2 and PHP 8.3 each 351 tests/2264 assertions, frontend 228 integration tests/zero failures and ten browser workflows (19.0s), plus build/typecheck/style/security audits and runtime contract. Matching local frontend/browser checks passed as recorded above. This entry supersedes the pending release/activity-verification statements for that code; any following documentation-only commit is not a different deployed application build.
+
+Existing cPanel checkout fast-forwarded to this exact code; `.env`, server configuration files and the custom local Nemotron seeder again matched the private preservation manifest. The application remained up. No new migration, Composer dependency, seeder run, database reset, uploaded-file deletion, worker/cron configuration or unrelated service change was made by the native follow-ups. Existing Vercel project production deployment `dpl_G1N3ejayiaFNqJSesKAGidPwJ4X4` reached READY for exact SHA, with the existing chat domain assigned and aliasError null. Prior READY releases remain rollback candidates; no rollback was performed.
+
+Final authenticated native Web Search (retained verification conversation 31) recorded two actual unavailable search requests with explicit failed events and the original query. It then read the user-supplied official PHP manual once, produced a two-sentence English answer with two inspectable inline citations and retained eight actual selected passages. A full refresh preserved the completed response, citation routing, passages and retrieval timestamp. This verifies real failure-event reporting and successful supplied-page fallback, not successful search discovery. The heuristic audit showed zero flags for this focused English answer; that is not a semantic truth guarantee. The Bengali checks in conversations 29/30 remain failed language-quality acceptance and are not hidden by this English smoke test. The final answer did not verbally describe the search outage despite the request; the actual failed attempts are visible in the activity timeline. Richer automatic outage wording remains a quality improvement.
+
+Final health checks: frontend health HTTP 200, backend admin login HTTP 200, unauthenticated private project API HTTP 401. Bounded Laravel heading scan found no newer error than the two already documented CLI probes; bounded new-deployment Vercel error/fatal grouping returned no groups. These bounded checks do not certify every service or historical log entry. A privacy-safe source-drawer screenshot was captured after the final refreshed citation interaction; no credentials/account details were included.
+
+Remaining requirements: configure a dedicated supported search provider for dependable discovery; improve/revalidate Bengali model output and evidence-supported claim quality, including broader source passage coverage; provision/verify the separate private Research Studio experiment/export processing worker and finish its wider acceptance work. No full twelve-agent platform, Admin/Developer Dashboard completion, completion PR or main merge is claimed. Server secrets and user data remain preserved, and all retained verification conversations remain available.

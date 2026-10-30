@@ -20,6 +20,12 @@ function preferred<T extends AutomaticModel>(models: T[], slugs: string[]): T | 
 export function automaticCoordinator<T extends AutomaticModel>(models: T[]): T | undefined {
   return preferred(automaticModels(models), ['openmindai-lite', 'openmindai-ultra', 'nvidia-gpt-oss-20b', 'nvidia-step-5-preview', 'openmindai-super']);
 }
+export function automaticWebCoordinator<T extends AutomaticModel>(models: T[]): T | undefined {
+  // Selected search favors the verified reasoning model; ordinary Auto chat
+  // keeps its existing coordinator. Failed or untested Ultra is never promoted.
+  return automaticModels(models).find(model => model.slug === 'openmindai-ultra' && model.lastTestStatus === 'success')
+    || automaticCoordinator(models);
+}
 export function automaticReasoner<T extends AutomaticModel>(models: T[]): T | undefined {
   return preferred(automaticModels(models), ['openmindai-ultra', 'nvidia-step-5-preview', 'nvidia-gpt-oss-20b', 'openmindai-lite']);
 }
