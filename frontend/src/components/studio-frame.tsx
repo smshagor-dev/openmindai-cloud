@@ -2,6 +2,7 @@
 import Image from "next/image";
 import { useEffect, useState, type ReactNode } from "react";
 import {
+  ArrowLeft,
   BookOpen,
   Grid2X2,
   LogIn,
@@ -25,12 +26,15 @@ const studios: { id: Studio; href: string; label: string; icon: typeof Grid2X2 }
 export default function StudioFrame({
   active,
   primary,
+  back,
   sidebar,
   topbarRight,
   children,
 }: {
   active: Studio;
   primary: { label: string; icon: ReactNode; onClick: () => void; disabled?: boolean };
+  /** Shown while a project, scene or sub-view is open; returns one level up. */
+  back?: { label: string; onClick: () => void; disabled?: boolean };
   sidebar?: ReactNode;
   topbarRight?: ReactNode;
   children: ReactNode;
@@ -178,6 +182,18 @@ export default function StudioFrame({
                 onClick={() => setCollapsed(false)}
               >
                 <Menu size={21} />
+              </button>
+            )}
+            {back && (
+              <button
+                className="studio-back-button"
+                aria-label={back.label}
+                title={back.label}
+                disabled={back.disabled}
+                onClick={back.onClick}
+              >
+                <ArrowLeft size={18} />
+                <span>Back</span>
               </button>
             )}
             <span className="topbar-brand">

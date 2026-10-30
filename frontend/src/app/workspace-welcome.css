@@ -92,8 +92,33 @@ a.sidebar-action:focus-visible {
   font-weight: 450;
   letter-spacing: 0;
 }
+.workspace .studio-back-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  margin-right: 6px;
+  padding: 0 12px 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+}
+.workspace .studio-back-button:hover:not(:disabled) {
+  background: var(--ui-hover);
+}
 @media (max-width: 760px) {
   .workspace .studio-frame-section {
+    display: none;
+  }
+  .workspace .studio-back-button {
+    width: 34px;
+    padding: 0;
+    justify-content: center;
+  }
+  .workspace .studio-back-button span {
     display: none;
   }
 }
