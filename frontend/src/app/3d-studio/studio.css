@@ -1,9 +1,9 @@
 .studio-shell {
   display: flex;
   min-height: 100dvh;
-  background: #10141c;
-  color: #e9eef6;
-  font-family: var(--font-dm-sans), sans-serif;
+  background: var(--studio-bg);
+  color: var(--studio-text);
+  font-family: inherit;
 }
 .studio-shell button,
 .studio-shell a {
@@ -12,8 +12,8 @@
 .studio-shell button {
   cursor: pointer;
   color: inherit;
-  background: #243044;
-  border: 1px solid #3a4960;
+  background: transparent;
+  border: 1px solid var(--studio-border);
   border-radius: 10px;
   padding: 10px 14px;
   display: inline-flex;
@@ -21,7 +21,7 @@
   gap: 8px;
 }
 .studio-shell button:hover {
-  background: #334660;
+  background: var(--studio-hover);
 }
 .studio-shell button:disabled {
   opacity: 0.5;
@@ -30,22 +30,22 @@
 .studio-shell button:focus-visible,
 .studio-shell a:focus-visible,
 .studio-shell textarea:focus-visible {
-  outline: 2px solid #8dbfff;
+  outline: 2px solid var(--studio-muted);
   outline-offset: 3px;
 }
 .studio-shell a {
-  color: #acbad0;
+  color: var(--studio-muted);
   text-decoration: none;
 }
 .studio-sidebar {
   width: 260px;
   flex-shrink: 0;
-  background: #161d29;
+  background: var(--studio-sidebar);
   padding: 26px 18px;
   display: flex;
   flex-direction: column;
   gap: 22px;
-  border-right: 1px solid #2a3548;
+  border-right: 1px solid var(--studio-border);
 }
 .studio-back,
 .studio-sidebar .studio-title {
@@ -61,7 +61,7 @@
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  color: #9eaec5;
+  color: var(--studio-muted);
   margin: 12px 0 0;
 }
 .studio-main {
@@ -77,14 +77,14 @@
   margin: 14px 0;
 }
 .studio-main header p {
-  color: #aebdd2;
+  color: var(--studio-muted);
   line-height: 1.6;
   max-width: 850px;
 }
 .studio-eyebrow {
   font-size: 11px;
   letter-spacing: 0.16em;
-  color: #8bbcff;
+  color: var(--studio-muted);
 }
 .studio-empty {
   text-align: center;
@@ -93,14 +93,13 @@
 .studio-orb {
   width: 140px;
   height: 140px;
-  border: 1px solid #42628a;
+  border: 1px solid var(--studio-outline);
   border-radius: 34px;
   margin: 0 auto 25px;
   display: grid;
   place-items: center;
-  background: radial-gradient(ellipse at 30% 20%, #42628a, #19263a);
-  box-shadow: 0 0 90px #4f8bed19;
-  color: #a1c9ff;
+  background: var(--studio-panel);
+  color: var(--studio-text);
   transform: rotate(-8deg);
 }
 .studio-empty h3 {
@@ -109,7 +108,7 @@
 }
 .studio-empty p,
 .studio-muted {
-  color: #97a7bd;
+  color: var(--studio-muted);
   font-size: 13px;
   line-height: 1.6;
 }
@@ -124,11 +123,11 @@
   text-align: left;
   font-size: 13px;
   line-height: 1.6;
-  background: #182130;
+  background: var(--studio-panel);
 }
 .studio-composer {
-  background: #182130;
-  border: 1px solid #34425a;
+  background: var(--studio-panel);
+  border: 1px solid var(--studio-outline);
   border-radius: 18px;
   padding: 20px;
   margin-top: 24px;
@@ -164,13 +163,13 @@
   overflow-wrap: anywhere;
 }
 .studio-modes button[aria-pressed="true"] {
-  background: #345078;
-  border-color: #7babeb;
+  background: var(--studio-selected);
+  border-color: var(--studio-outline);
 }
 .studio-composer label {
   font-size: 13px;
   display: block;
-  color: #bdcbe0;
+  color: var(--studio-muted);
   margin-bottom: 10px;
 }
 .studio-composer textarea {
@@ -194,12 +193,12 @@
   margin: 14px 0;
 }
 .studio-submit small {
-  color: #9baec8;
+  color: var(--studio-muted);
   font-size: 11px;
 }
 .studio-submit button {
-  background: #b9d6ff;
-  color: #11203a;
+  background: var(--studio-primary);
+  color: var(--studio-on-primary);
   border: 0;
 }
 .studio-history {
@@ -212,7 +211,7 @@
   border-radius: 10px;
 }
 .studio-history > div.active {
-  background: #2b3e59;
+  background: var(--studio-hover);
 }
 .studio-history button {
   background: transparent;
@@ -234,10 +233,10 @@
 .studio-viewer {
   position: relative;
   border-radius: 18px;
-  border: 1px solid #35455d;
+  border: 1px solid var(--studio-border);
   overflow: hidden;
   margin-top: 24px;
-  background: #101722;
+  background: var(--studio-bg);
 }
 .studio-viewport {
   height: clamp(350px, 52vh, 640px);
@@ -254,10 +253,10 @@
 }
 .studio-label {
   font-size: 11px;
-  color: #f2f6ff;
-  background: #101722cf;
+  color: var(--studio-text);
+  background: var(--studio-panel);
   padding: 3px 7px;
-  border: 1px solid #506486;
+  border: 1px solid var(--studio-outline);
   border-radius: 5px;
   max-width: 150px;
   white-space: normal;
@@ -272,11 +271,11 @@
 }
 .studio-viewer-tools button {
   font-size: 12px;
-  background: #1c2b40e8;
+  background: var(--studio-panel);
 }
 .studio-viewer-hint {
   font-size: 11px;
-  color: #a7bbd6;
+  color: var(--studio-muted);
   padding: 0 16px 8px;
 }
 .studio-node {
@@ -287,8 +286,8 @@
   max-width: 260px;
   max-height: 190px;
   overflow: auto;
-  background: #1a273aef;
-  border: 1px solid #496181;
+  background: var(--studio-panel);
+  border: 1px solid var(--studio-outline);
   border-radius: 10px;
   font-size: 12px;
 }
@@ -297,7 +296,7 @@
   justify-content: space-between;
   align-items: center;
   gap: 10px;
-  color: #aebdd2;
+  color: var(--studio-muted);
   font-size: 12px;
   margin-top: 12px;
 }
@@ -338,7 +337,7 @@
     width: auto;
     padding: 18px;
     border-right: 0;
-    border-bottom: 1px solid #2a3548;
+    border-bottom: 1px solid var(--studio-border);
     gap: 14px;
   }
   .studio-sidebar h2,
@@ -384,7 +383,7 @@
   min-width: 0;
 }
 .studio-references small {
-  color: var(--studio-muted, #a0aec0);
+  color: var(--studio-muted);
 }
 .studio-upload-label {
   display: flex;
@@ -422,7 +421,7 @@
   left: 20px;
   right: 20px;
   font-size: 12px;
-  color: #a9c7de;
+  color: var(--studio-muted);
   pointer-events: none;
 }
 .studio-tool-row {
@@ -434,11 +433,11 @@
 .studio-tools,
 .studio-editor,
 .studio-workbench {
-  border: 1px solid var(--studio-border, #334155);
+  border: 1px solid var(--studio-border);
   border-radius: 16px;
   padding: 1rem;
   margin: 1rem 0;
-  background: var(--studio-panel, #151e2c);
+  background: var(--studio-panel);
 }
 .studio-tools label,
 .studio-editor label,
@@ -458,8 +457,8 @@
   max-width: 100%;
   min-width: 0;
   color: inherit;
-  background: var(--studio-bg, #0c131e);
-  border: 1px solid #475569;
+  background: var(--studio-bg);
+  border: 1px solid var(--studio-outline);
   border-radius: 8px;
   padding: 0.5rem;
 }
@@ -475,7 +474,7 @@
   width: 100%;
 }
 .studio-editor fieldset {
-  border: 1px solid #334155;
+  border: 1px solid var(--studio-border);
   border-radius: 10px;
   margin: 0.7rem 0;
   padding: 0.7rem;
@@ -483,14 +482,14 @@
 .studio-workbench button,
 .studio-editor button {
   padding: 0.5rem 0.8rem;
-  border: 1px solid #475569;
+  border: 1px solid var(--studio-outline);
   border-radius: 8px;
-  background: #1f3045;
+  background: var(--studio-elevated);
   color: inherit;
 }
 .studio-workbench button:focus-visible,
 .studio-editor button:focus-visible {
-  outline: 2px solid #60a5fa;
+  outline: 2px solid var(--studio-muted);
   outline-offset: 2px;
 }
 .studio-asset-list {
@@ -509,7 +508,7 @@
 .studio-workbench small,
 .studio-editor small {
   display: block;
-  color: #a6b5ca;
+  color: var(--studio-muted);
   margin-top: 0.7rem;
 }
 @media (max-width: 600px) {
@@ -536,9 +535,9 @@
 .studio-workflow-node {
   position: relative;
   z-index: 1;
-  border: 1px solid #475569;
+  border: 1px solid var(--studio-outline);
   border-radius: 12px;
-  background: var(--studio-panel, #151e2c);
+  background: var(--studio-panel);
   padding: 1rem;
   min-width: 0;
   overflow-wrap: anywhere;
@@ -565,11 +564,11 @@
   margin: 1rem 0;
 }
 .studio-workbench details {
-  border-top: 1px solid #334155;
+  border-top: 1px solid var(--studio-border);
   padding: 0.7rem 0;
 }
 .studio-workbench [role="tab"][aria-selected="true"] {
-  background: #255a91;
+  background: var(--studio-selected);
 }
 .studio-tool-row label {
   max-width: 100%;
@@ -593,62 +592,119 @@
   }
 }
 
-/* Keep every Studio panel on the same explicit palette. */
+
+/* Same neutral palette and controls as the chat workspace (chat-theme.css). */
 .studio-shell {
   color-scheme: dark;
-  --studio-panel: #151e2c;
-  --studio-bg: #0c131e;
-  --studio-muted: #a6b5ca;
+  --studio-bg: #212121;
+  --studio-sidebar: #171717;
+  --studio-panel: #303030;
+  --studio-elevated: #2f2f2f;
+  --studio-hover: #2f2f2f;
+  --studio-selected: #424242;
+  --studio-border: #3b3b3b;
+  --studio-outline: #424242;
+  --studio-text: #ececec;
+  --studio-muted: #b4b4b4;
+  --studio-primary: #ececec;
+  --studio-on-primary: #171717;
+}
+.studio-shell.studio-light {
+  color-scheme: light;
+  --studio-bg: #ffffff;
+  --studio-sidebar: #f9f9f9;
+  --studio-panel: #f4f4f4;
+  --studio-elevated: #ffffff;
+  --studio-hover: #ececec;
+  --studio-selected: #e3e3e3;
+  --studio-border: #e5e5e5;
+  --studio-outline: #e3e3e3;
+  --studio-text: #0d0d0d;
+  --studio-muted: #6b6b6b;
+  --studio-primary: #0d0d0d;
+  --studio-on-primary: #ffffff;
 }
 .studio-shell select {
   color: inherit;
   background: var(--studio-bg);
-  border: 1px solid #475569;
+  border: 1px solid var(--studio-outline);
   border-radius: 8px;
   padding: 0.5rem;
   max-width: 100%;
   min-width: 0;
 }
-.studio-shell.studio-light {
-  color-scheme: light;
-  background: #f8fafc;
-  color: #172033;
-  --studio-panel: #f1f5f9;
-  --studio-bg: #fff;
-  --studio-muted: #475569;
-  --studio-border: #cbd5e1;
+.studio-shell button {
+  border-color: var(--studio-border);
 }
-.studio-light .studio-sidebar,
-.studio-light .studio-composer {
-  background: #f1f5f9;
-  border-color: #cbd5e1;
+.studio-sidebar {
+  border-right: 0;
+  padding: 14px 10px 10px;
+  gap: 4px;
 }
-.studio-light button,
-.studio-light .studio-examples button {
-  background: #e2e8f0;
-  color: #172033;
-  border-color: #94a3b8;
+.studio-sidebar .studio-back,
+.studio-sidebar > a {
+  padding: 9px 12px;
+  border-radius: 8px;
+  color: var(--studio-text);
 }
-.studio-light button:hover {
-  background: #cbd5e1;
+.studio-sidebar .studio-title {
+  font-size: 16px;
+  font-weight: 550;
+  padding: 9px 12px 12px;
 }
-.studio-light a,
-.studio-light header p,
-.studio-light .studio-muted,
-.studio-light .studio-submit small,
-.studio-light .studio-composer label,
-.studio-light .studio-workbench small,
-.studio-light .studio-editor small {
-  color: #475569;
+.studio-sidebar > button {
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  padding: 9px 12px;
+  font-weight: 450;
+  justify-content: flex-start;
 }
-.studio-light .studio-modes button[aria-pressed="true"],
-.studio-light .studio-workbench [role="tab"][aria-selected="true"] {
-  background: #bfdbfe;
-  color: #172033;
+.studio-sidebar > button:hover,
+.studio-sidebar > a:hover,
+.studio-history > div:hover {
+  background: var(--studio-hover);
 }
-.studio-light .studio-workflow-node,
-.studio-light .studio-tools,
-.studio-light .studio-editor,
-.studio-light .studio-workbench {
-  border-color: #94a3b8;
+.studio-sidebar h2 {
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--studio-muted);
+  margin: 22px 12px 8px;
+}
+.studio-sidebar > .studio-muted {
+  padding: 0 12px;
+}
+.studio-main header h1 {
+  font-weight: 550;
+  letter-spacing: -0.9px;
+}
+.studio-composer {
+  border-color: var(--studio-outline);
+  border-radius: 28px;
+  box-shadow: 0 3px 16px #00000009;
+}
+.studio-modes button {
+  border-radius: 22px;
+  padding: 8px 13px;
+}
+.studio-submit button {
+  border-radius: 22px;
+}
+.studio-submit button:hover:not(:disabled) {
+  background: var(--studio-primary);
+  opacity: 0.8;
+}
+.studio-examples button {
+  background: transparent;
+  border-radius: 16px;
+}
+.studio-examples button:hover {
+  background: var(--studio-hover);
+}
+.studio-light .studio-error,
+.studio-light .studio-preview-error {
+  background: #fde8ea;
+  color: #8a1c2b;
 }
