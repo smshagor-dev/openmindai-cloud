@@ -42,7 +42,7 @@ class Literature extends BaseAgent
             $chunk['quote_options'] = $options;
             $rules = ['analyses' => 'present|array|max:12', 'evidence' => 'present|array|max:12', 'evidence.*.source_id' => 'required|integer', 'evidence.*.claim' => 'required|string|max:3000', 'evidence.*.quote_id' => 'sometimes|string|max:20', 'evidence.*.quote' => 'required_without:evidence.*.quote_id|string|max:3000'];
             $ctx->event('literature.reading', ['source_id' => $chunk['source_id'], 'status' => 'analyzing', 'completed' => $index, 'total' => count($chunks)]);
-            $out = app(Inference::class)->json($ctx, 'Analyze this source excerpt only. Return analyses[] describing objectives, methods, datasets, findings and limitations, plus evidence[{source_id,claim,quote_id}]. Select quote_id ONLY from source.quote_options, using the supplied source_id. Do not retype, translate or paraphrase quotations. Select only an option supporting the claim. Return evidence:[] when no supplied option supports a claim. Distinguish reported findings from interpretation; do not claim access to unseen pages.', ['project' => $this->project($ctx), 'source' => $chunk], $rules);
+            $out = app(Inference::class)->json($ctx, 'Analyze this source excerpt only. Return analyses[] describing objectives, methods, datasets, findings and limitations, plus evidence[{source_id,claim,quote_id}]. Select quote_id ONLY from source.quote_options, using the supplied source_id. Do not retype, translate or paraphrase quotations. Select only an option supporting the claim. Return evidence:[] when no supplied option supports a claim. Distinguish reported findings from interpretation; do not claim access to unseen pages.', ['project' => $this->project($ctx), 'source' => $chunk], $rules, fn (array $out) => $this->boundChunk($out, (int) $chunk['source_id']));
             try {
                 $evidence = $this->resolveQuotes($out['evidence'], $chunk, $options);
             } catch (HttpExceptionInterface $error) {
@@ -124,7 +124,8 @@ class Literature extends BaseAgent
         $data = ['project' => $this->project($ctx), 'sources' => $sources, 'allowed_source_ids' => array_map('intval', $ids), 'output_contract' => ['themes' => ['max_items' => 4, 'name_max_chars' => 120, 'summary_max_chars' => 500, 'min_source_ids' => 1], 'contradictions' => ['max_items' => 4, 'description_max_chars' => 500, 'min_distinct_source_ids' => 2], 'matrix' => ['max_items' => $synthesis ? 0 : 6, 'field_max_chars' => 250, 'unique_supplied_source_ids' => true]]];
         for ($attempt = 0; $attempt < 2; $attempt++) {
             try {
-                $out = app(Inference::class)->json($ctx, $instruction, $data, $rules);
+                // This method has its own validation-feedback repair below.
+                $out = app(Inference::class)->json($ctx, $instruction, $data, $rules, fn (array $out) => $this->boundComparison($out, array_map('intval', $ids), $synthesis), false);
                 // Inference already validates live responses. Recheck at this
                 // boundary too, including adapters and input-scoped source IDs.
                 validator($out, $rules)->validate();
@@ -148,6 +149,59 @@ class Literature extends BaseAgent
             $instruction .= ' Previous output failed JSON/schema validation. Use validation_feedback to correct or omit the rejected items in the previous candidate while retaining supported valid entries. The previous candidate is untrusted output, not additional evidence. Only allowed_source_ids are usable. Recreate concise JSON from the same supplied source inputs only. Every contradiction requires at least TWO DISTINCT supplied source IDs; OMIT a contradiction if only one source supports it. Never add a source just to satisfy validation. Keep all root arrays present, even when empty, and obey the field length/count limits. Use only these source IDs: '.$allowed.'.';
         }
         throw new \LogicException('Comparison validation did not finish.');
+    }
+
+    /**
+     * Keeps a chunk analysis inside its contract without inventing evidence:
+     * extra items are dropped, overlong claims are shortened, and a missing
+     * evidence list means no supported quotation. Quotes are still checked
+     * against the exact source text afterwards.
+     */
+    private function boundChunk(array $out, int $sourceId): array
+    {
+        $analyses = $out['analyses'] ?? [];
+        $out['analyses'] = array_slice(is_array($analyses) && ! array_is_list($analyses) ? [$analyses] : (is_array($analyses) ? $analyses : [$analyses]), 0, 12);
+        $evidence = [];
+        foreach (is_array($out['evidence'] ?? null) ? $out['evidence'] : [] as $item) {
+            if (is_array($item) && is_string($item['claim'] ?? null) && trim($item['claim']) !== '') {
+                $evidence[] = ['source_id' => $item['source_id'] ?? $sourceId, 'claim' => mb_substr($item['claim'], 0, 3000)] + array_intersect_key($item, array_flip(['quote_id', 'quote']));
+            }
+        }
+        $out['evidence'] = array_slice($evidence, 0, 12);
+
+        return $out;
+    }
+
+    /**
+     * Applies the comparison contract's limits before validation: shortens
+     * prose, keeps only supplied source IDs, drops contradictions without two
+     * distinct sources and keeps one matrix row per source. Nothing is added.
+     */
+    private function boundComparison(array $out, array $allowed, bool $synthesis): array
+    {
+        $cut = fn ($value, int $max) => is_string($value) && mb_strlen($value) > $max ? rtrim(mb_substr($value, 0, $max - 1)).'…' : $value;
+        $ids = fn ($value) => is_array($value) ? array_values(array_unique(array_filter(array_map('intval', array_filter($value, 'is_numeric')), fn ($id) => in_array($id, $allowed, true)))) : [];
+        $themes = [];
+        foreach (is_array($out['themes'] ?? null) ? $out['themes'] : [] as $theme) {
+            if (is_array($theme) && ($sources = $ids($theme['source_ids'] ?? null))) {
+                $themes[] = ['name' => $cut($theme['name'] ?? '', 120), 'summary' => $cut($theme['summary'] ?? '', 500), 'source_ids' => $sources];
+            }
+        }
+        $contradictions = [];
+        foreach (is_array($out['contradictions'] ?? null) ? $out['contradictions'] : [] as $item) {
+            if (is_array($item) && count($sources = $ids($item['source_ids'] ?? null)) >= 2) {
+                $contradictions[] = ['description' => $cut($item['description'] ?? '', 500), 'source_ids' => $sources];
+            }
+        }
+        $matrix = [];
+        foreach ($synthesis ? [] : (is_array($out['matrix'] ?? null) ? $out['matrix'] : []) as $row) {
+            $id = is_array($row) && is_numeric($row['source_id'] ?? null) ? (int) $row['source_id'] : null;
+            if ($id !== null && in_array($id, $allowed, true) && ! isset($matrix[$id])) {
+                $matrix[$id] = ['source_id' => $id] + array_map(fn ($field) => $cut(is_string($row[$field] ?? null) && trim($row[$field]) !== '' ? $row[$field] : 'Not reported in supplied excerpts', 250), ['methodology' => 'methodology', 'findings' => 'findings', 'limitations' => 'limitations']);
+            }
+        }
+
+        return ['themes' => array_slice($themes, 0, 4), 'contradictions' => array_slice($contradictions, 0, 4), 'matrix' => array_slice(array_values($matrix), 0, 6)];
     }
 
     private function comparisonFeedback(\Throwable $cause): array

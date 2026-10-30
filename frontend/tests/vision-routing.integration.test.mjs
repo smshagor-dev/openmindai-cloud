@@ -63,7 +63,7 @@ test("direct image chat sends the image only to NVIDIA, not to Laravel or checkp
   assert.ok(!("image" in begin.body));
   const upstream = calls.find(c => c.url.includes("nvidia.com"));
   assert.equal(upstream.body.model,vision);
-  assert.equal(upstream.body.max_tokens,4096);
+  assert.equal(upstream.body.max_tokens,8192);
   assert.equal(upstream.body.messages.at(-1).content[0].type,"text");
   assert.equal(upstream.body.messages.at(-1).content[1].image_url.url,"data:image/png;base64," + png);
   const checkpoints = calls.filter(c => c.url.endsWith("/checkpoint"));

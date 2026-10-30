@@ -1,8 +1,9 @@
 <?php
 
 return [
-    'model' => env('RESEARCH_MODEL', 'nvidia-nemotron-3-ultra-550b-a55b'),
-    'fallback_models' => array_filter(explode(',', env('RESEARCH_FALLBACK_MODELS', 'openmindai-ultra'))),
+    // Hosted slugs from hosted_code_agents; the old provider-ID default never matched a verified model.
+    'model' => env('RESEARCH_MODEL', 'openmindai-ultra'),
+    'fallback_models' => array_filter(explode(',', env('RESEARCH_FALLBACK_MODELS', 'openmindai-ultra,openmindai-super'))),
     'embedding_model' => env('RESEARCH_EMBEDDING_MODEL', ''),
     'worker_url' => env('RESEARCH_WORKER_URL', ''), 'worker_key' => env('RESEARCH_WORKER_KEY', ''),
     'worker_transport' => env('RESEARCH_WORKER_TRANSPORT', 'http'),

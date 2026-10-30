@@ -17,6 +17,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
+use Laravel\Sanctum\Sanctum;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
@@ -206,7 +207,50 @@ class ResearchLiteratureRecoveryTest extends TestCase
         $this->assertSame($text, Evidence::where('project_id', $source->project_id)->sole()->quote);
         Http::assertSentCount(1);
         Http::assertSent(fn ($request) => $request['chat_template_kwargs'] === ['enable_thinking' => false]
-            && $request['max_tokens'] === 6000);
+            && $request['max_tokens'] === 16384);
+    }
+
+    public function test_chunk_analysis_repairs_invalid_json_and_retries_a_brief_provider_failure(): void
+    {
+        $text = 'Controlled synthetic evidence is copied exactly from this source.';
+        $source = $this->source($text);
+        config(['research.model' => 'openmindai-ultra', 'research.fallback_models' => [], 'models.nvidia_key' => 'synthetic-provider-only']);
+        DB::table('hosted_code_agents')->where('slug', 'openmindai-ultra')->update(['enabled' => true, 'api_ready' => true, 'api_protocol' => 'chat', 'last_test_status' => 'success']);
+        $valid = json_encode(['analyses' => ['Synthetic analysis'], 'evidence' => [['source_id' => $source->id, 'claim' => 'Synthetic claim', 'quote_id' => 'q1']]]);
+        $calls = 0;
+        $correction = null;
+        Http::fake(['integrate.api.nvidia.com/*' => function ($request) use (&$calls, &$correction, $valid) {
+            $calls++;
+            if ($calls === 1) {
+                return Http::response(['error' => 'busy'], 502);
+            }
+            if ($calls === 3) {
+                $correction = json_decode(implode('', array_column(array_slice($request['messages'], 1), 'content')), true)['output_correction'] ?? null;
+            }
+
+            return Http::response(['choices' => [['message' => ['role' => 'assistant', 'content' => $calls === 2 ? '{"analyses": ["cut off' : $valid], 'finish_reason' => 'stop']]], 200);
+        }]);
+        $run = $this->start($source);
+        $this->drain($run);
+        $this->assertSame('completed', $run->fresh()->status);
+        $this->assertSame($text, Evidence::where('project_id', $source->project_id)->sole()->quote);
+        $this->assertSame('invalid_json', $correction['error']);
+        $codes = DB::table('research_events')->where('type', 'model.failed')->orderBy('id')->pluck('data')->map(fn ($data) => json_decode($data, true)['error_code'])->all();
+        $this->assertSame(['provider_http_502', 'invalid_json'], $codes);
+        Http::assertSentCount(3);
+    }
+
+    public function test_gateway_accepts_the_larger_output_budget(): void
+    {
+        $user = User::create(['name' => 'Budget', 'email' => uniqid().'@example.com', 'password' => 'StrongPassword123']);
+        $user->forceFill(['email_verified_at' => now()])->save();
+        config(['models.nvidia_key' => 'synthetic-provider-only']);
+        DB::table('hosted_code_agents')->where('slug', 'openmindai-ultra')->update(['enabled' => true, 'api_ready' => true, 'api_protocol' => 'chat', 'last_test_status' => 'success']);
+        Http::fake(['integrate.api.nvidia.com/*' => Http::response(['choices' => [['message' => ['role' => 'assistant', 'content' => 'ok'], 'finish_reason' => 'stop']]], 200)]);
+        Sanctum::actingAs($user, ['user']);
+        $this->postJson('/api/v1/mobile/chat/completions', ['model' => 'openmindai-ultra', 'stream' => false, 'max_tokens' => 16384, 'messages' => [['role' => 'user', 'content' => 'Hi']]])->assertOk();
+        $this->postJson('/api/v1/mobile/chat/completions', ['model' => 'openmindai-ultra', 'stream' => false, 'max_tokens' => 16385, 'messages' => [['role' => 'user', 'content' => 'Hi']]])->assertUnprocessable();
+        Http::assertSent(fn ($request) => $request['max_tokens'] === 16384);
     }
 
     public function test_other_research_agents_also_keep_json_output_available(): void
@@ -222,8 +266,8 @@ class ResearchLiteratureRecoveryTest extends TestCase
         $run->update(['reserved_tokens' => 2000000]);
         $result = app(Inference::class)->json(new Context($task, 'synthetic-claim'), 'Return ready JSON.', [], ['ready' => 'required|boolean']);
         $this->assertSame(['ready' => true], $result);
-        $this->assertSame(2006000, $run->fresh()->reserved_tokens);
-        Http::assertSent(fn ($request) => $request['chat_template_kwargs'] === ['enable_thinking' => false] && $request['max_tokens'] === 6000);
+        $this->assertSame(2016384, $run->fresh()->reserved_tokens);
+        Http::assertSent(fn ($request) => $request['chat_template_kwargs'] === ['enable_thinking' => false] && $request['max_tokens'] === 16384);
     }
 
     public function test_provider_rate_wait_does_not_consume_failure_attempts_or_lose_checkpoint(): void
@@ -328,12 +372,37 @@ class ResearchLiteratureRecoveryTest extends TestCase
         $this->assertSame(0, Finding::where('project_id', $task->project_id)->count());
     }
 
+    public function test_single_source_contradiction_is_omitted_without_weakening_evidence_or_a_repair_call(): void
+    {
+        [$run, $sources] = $this->checkpointedSources(2);
+        config(['research.model' => 'openmindai-ultra', 'research.fallback_models' => [], 'models.nvidia_key' => 'synthetic-provider-only']);
+        DB::table('hosted_code_agents')->where('slug', 'openmindai-ultra')->update(['enabled' => true, 'api_ready' => true, 'api_protocol' => 'chat', 'last_test_status' => 'success']);
+        $long = str_repeat('Reported finding. ', 40);
+        $output = ['themes' => [['name' => 'Glucose', 'summary' => $long, 'source_ids' => [$sources[0]->id, 999999]]],
+            'contradictions' => [['description' => 'A single-source interpretation', 'source_ids' => [$sources[0]->id]]],
+            'matrix' => [['source_id' => $sources[0]->id, 'methodology' => $long, 'findings' => 'Lower glucose'], ['source_id' => $sources[0]->id, 'methodology' => 'Duplicate row', 'findings' => 'x', 'limitations' => 'y']]];
+        Http::fake(['integrate.api.nvidia.com/*' => Http::response(['choices' => [['message' => ['role' => 'assistant', 'content' => 'Here is the JSON: '.json_encode($output)], 'finish_reason' => 'stop']]], 200)]);
+        $this->drain($run);
+        $task = Task::where('run_id', $run->id)->sole();
+        $this->assertSame('completed', $run->fresh()->status);
+        // Unsupported comparisons are dropped, never padded with extra sources.
+        $this->assertSame([], $task->output['contradictions']);
+        $this->assertSame([$sources[0]->id], $task->output['themes'][0]['source_ids']);
+        $this->assertSame(500, mb_strlen($task->output['themes'][0]['summary']));
+        $this->assertCount(1, $task->output['matrix']);
+        $this->assertSame(250, mb_strlen($task->output['matrix'][0]['methodology']));
+        $this->assertSame('Not reported in supplied excerpts', $task->output['matrix'][0]['limitations']);
+        $this->assertSame(0, DB::table('research_events')->where('task_id', $task->id)->where('type', 'literature.comparison_repair')->count());
+        Http::assertSentCount(1);
+    }
+
     public function test_real_inference_schema_failure_gets_one_repair_without_weakening_contradiction_evidence(): void
     {
         [$run, $sources] = $this->checkpointedSources(2);
         config(['research.model' => 'openmindai-ultra', 'research.fallback_models' => [], 'models.nvidia_key' => 'synthetic-provider-only']);
         DB::table('hosted_code_agents')->where('slug', 'openmindai-ultra')->update(['enabled' => true, 'api_ready' => true, 'api_protocol' => 'chat', 'last_test_status' => 'success']);
-        $invalid = ['themes' => [], 'contradictions' => [['description' => 'A single-source interpretation', 'source_ids' => [$sources[0]->id]]], 'matrix' => [], 'debug' => 'SYNTHETIC-EXTRA-FIELD-NOT-FOR-CORRECTION'];
+        // A theme without a name cannot be bounded into validity; it needs the model's correction.
+        $invalid = ['themes' => [['source_ids' => [$sources[0]->id]]], 'contradictions' => [], 'matrix' => [], 'debug' => 'SYNTHETIC-EXTRA-FIELD-NOT-FOR-CORRECTION'];
         $valid = ['themes' => [], 'contradictions' => [], 'matrix' => []];
         $calls = 0;
         $repairContext = null;
@@ -349,12 +418,12 @@ class ResearchLiteratureRecoveryTest extends TestCase
         $this->drain($run);
         $task = Task::where('run_id', $run->id)->sole();
         $this->assertSame('completed', $run->fresh()->status);
-        $this->assertSame([], $task->output['contradictions']);
+        $this->assertSame([], $task->output['themes']);
         $this->assertSame(2, $task->checkpoint['index']);
-        $this->assertSame(12000, $run->fresh()->reserved_tokens);
+        $this->assertSame(32768, $run->fresh()->reserved_tokens);
         $this->assertSame(1, DB::table('research_events')->where('task_id', $task->id)->where('type', 'literature.comparison_repair')->count());
         Http::assertSentCount(2);
-        $this->assertContains('Min', $repairContext['validation_feedback']['fields']['contradictions.0.source_ids']);
+        $this->assertContains('Required', $repairContext['validation_feedback']['fields']['themes.0.name']);
         $this->assertArrayHasKey('previous_candidate_json', $repairContext['validation_feedback']);
         $this->assertFalse($repairContext['validation_feedback']['candidate_truncated']);
         $this->assertSame(120, $repairContext['output_contract']['themes']['name_max_chars']);
@@ -407,7 +476,7 @@ class ResearchLiteratureRecoveryTest extends TestCase
         $this->assertSame('completed', $run->fresh()->status);
         $this->assertSame('invalid_json', $feedback['error']);
         $this->assertArrayNotHasKey('unexpected_debug', $task->output);
-        $this->assertSame(12000, $run->fresh()->reserved_tokens);
+        $this->assertSame(32768, $run->fresh()->reserved_tokens);
         Http::assertSentCount(2);
     }
 }
