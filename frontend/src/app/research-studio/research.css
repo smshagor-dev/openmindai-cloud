@@ -1,13 +1,9 @@
+/* --bg, --panel, --text and --muted come from the chat theme (chat-theme.css). */
 .rs {
-  --bg: #212121;
-  --sidebar: #171717;
-  --panel: #303030;
-  --panel2: #2f2f2f;
-  --line: #3b3b3b;
-  --outline: #424242;
-  --text: #ececec;
-  --muted: #b4b4b4;
-  --accent: #ececec;
+  --panel2: var(--ui-hover);
+  --line: var(--border);
+  --outline: var(--ui-outline);
+  --accent: var(--text);
   background: var(--bg);
   color: var(--text);
   min-height: 100dvh;
@@ -18,17 +14,6 @@
 }
 .rs * {
   box-sizing: border-box;
-}
-.rs.rs-light {
-  --bg: #fff;
-  --sidebar: #f9f9f9;
-  --panel: #f4f4f4;
-  --panel2: #ececec;
-  --line: #e5e5e5;
-  --outline: #e3e3e3;
-  --text: #0d0d0d;
-  --muted: #6b6b6b;
-  --accent: #0d0d0d;
 }
 .rs button,
 .rs input,

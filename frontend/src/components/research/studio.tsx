@@ -1,18 +1,15 @@
 "use client";
 import WorkspaceWelcome from "../workspace-welcome";
+import StudioFrame from "../studio-frame";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ArrowLeft,
   BookOpen,
   CheckCircle2,
   ChevronRight,
   FlaskConical,
-  Menu,
-  Orbit,
-  Moon,
+  LayoutDashboard,
   PanelRight,
-  Plus,
-  Sun,
+  SquarePen,
   X,
 } from "lucide-react";
 import {
@@ -182,7 +179,6 @@ export default function ResearchStudio() {
   const [progressLanguage, setProgressLanguage] = useState("auto");
   const [outputLanguage, setOutputLanguage] = useState("auto");
   const [drawer, setDrawer] = useState(false);
-  const [light, setLight] = useState(false);
   const [question, setQuestion] = useState("");
   const [chatMode, setChatMode] = useState("question");
   const [selection, setSelection] = useState("");
@@ -267,14 +263,16 @@ export default function ResearchStudio() {
     }
   }, []);
   useEffect(() => {
-    void list().catch((e) => setError(e.message));
+    // Signed-out visitors see the empty studio; the sidebar offers Log in.
+    void list().catch((e) => {
+      if (!/sign in|unauthenticated/i.test(e.message)) setError(e.message);
+    });
     const u = new URL(window.location.href);
     const project = Number(u.searchParams.get("project"));
     if (project > 0) setId(project);
     const selected = u.searchParams.get("view");
     if (selected && views.includes(selected as (typeof views)[number]))
       setView(selected);
-    setLight(localStorage.getItem("research-theme") === "light");
   }, [list]);
   useEffect(() => {
     if (!id) return;
@@ -569,114 +567,96 @@ export default function ResearchStudio() {
     </label>
   );
   return (
-    <main
-      className={`rs rs-chat ${light ? "rs-light" : ""} ${id && data && !creating ? "rs-has-project" : ""}`}
-      data-research-version="2026-10-25-chat"
-    >
-      <header className="rs-header">
-        <a href="/research-studio" className="rs-brand">
-          <Orbit />
-          <span>
-            OpenMind <b>Research Studio</b>
-          </span>
-        </a>
-        <div>
-          <a href="/">
-            <ArrowLeft size={16} />
-            <span>Cloud</span>
-          </a>
+    <StudioFrame
+      active="research"
+      primary={{
+        label: "New research",
+        icon: <SquarePen size={19} />,
+        onClick: () => {
+          if (dirty.current) {
+            setError("Save current manuscript first.");
+            return;
+          }
+          setCreating(true);
+        },
+      }}
+      topbarRight={
+        id ? (
           <button
-            aria-label="Toggle theme"
-            onClick={() => {
-              setLight(!light);
-              localStorage.setItem("research-theme", !light ? "light" : "dark");
-            }}
-          >
-            {light ? <Moon size={18} /> : <Sun size={18} />}
-          </button>
-          <button
+            className="icon-button"
             aria-label="Open agent activity"
+            aria-pressed={view === "Live agents"}
+            title="Agent activity"
             onClick={() =>
               setView(view === "Live agents" ? "Chat" : "Live agents")
             }
           >
             <PanelRight size={18} />
           </button>
-          <button
-            className="rs-mobile"
-            aria-label="Open project navigation"
-            onClick={() => setDrawer(!drawer)}
-          >
-            <Menu size={18} />
-          </button>
-        </div>
-      </header>
-      {drawer && (
-        <button
-          className="rs-overlay"
-          aria-label="Close navigation"
-          onClick={() => setDrawer(false)}
-        />
-      )}
-      <aside className={`rs-nav ${drawer ? "open" : ""}`}>
-        <button
-          className="rs-primary"
-          onClick={() => {
-            if (dirty.current) {
-              setError("Save current manuscript first.");
-              return;
-            }
-            setCreating(true);
-            setDrawer(false);
-          }}
-        >
-          <Plus size={17} />
-          New research
-        </button>
-        <button onClick={() => choose(null)}>
-          <BookOpen size={17} />
-          Research dashboard
-        </button>
-        <h2>Projects</h2>
-        <div className="rs-projects">
-          {projects.map((x) => (
+        ) : undefined
+      }
+      sidebar={
+        <>
+          <nav className="sidebar-navigation" aria-label="Research">
             <button
-              className={id === x.id ? "selected" : ""}
-              key={x.id}
-              onClick={() => choose(x.id)}
+              className="sidebar-action"
+              onClick={() => choose(null)}
             >
-              {x.title}
+              <LayoutDashboard size={19} />
+              <span>Research dashboard</span>
             </button>
-          ))}
-        </div>
-        {id && (
-          <details className="rs-tools-menu">
-            <summary>
-              Research tools <ChevronRight size={14} />
-            </summary>
-            {views
-              .filter((v) => v !== "Chat")
-              .map((v) => (
-                <button
-                  key={v}
-                  aria-current={view === v ? "page" : undefined}
-                  onClick={() => {
-                    setView(v);
-                    setDrawer(false);
-                  }}
+          </nav>
+          {id && (
+            <div className="history-list rs-sidebar-tools">
+              <span className="section-label">Research tools</span>
+              {views
+                .filter((v) => v !== "Chat")
+                .map((v) => (
+                  <div
+                    key={v}
+                    className={`history-item ${view === v ? "active" : ""}`}
+                  >
+                    <button
+                      className="history-title"
+                      aria-current={view === v ? "page" : undefined}
+                      onClick={() => setView(v)}
+                    >
+                      {v}
+                    </button>
+                  </div>
+                ))}
+            </div>
+          )}
+          <div className="history-list">
+            <span className="section-label">Projects</span>
+            {!projects.length ? (
+              <p className="sidebar-empty">
+                Your research projects will appear here.
+              </p>
+            ) : (
+              projects.map((x) => (
+                <div
+                  key={x.id}
+                  className={`history-item ${id === x.id ? "active" : ""}`}
                 >
-                  {v}
-                  <ChevronRight size={13} />
-                </button>
-              ))}
-          </details>
-        )}
-        <p>
-          Evidence first.
-          <br />
-          Human decisions recorded.
-        </p>
-      </aside>
+                  <button
+                    className="history-title"
+                    title={x.title}
+                    onClick={() => choose(x.id)}
+                  >
+                    {x.title}
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        </>
+      }
+    >
+    <main
+      className={`rs rs-chat ${id && data && !creating ? "rs-has-project" : ""}`}
+      data-research-version="2026-10-25-chat"
+    >
       <div className="rs-main">
         {error && (
           <div className="rs-error" role="alert">
@@ -2112,5 +2092,6 @@ export default function ResearchStudio() {
         )}
       </div>
     </main>
+    </StudioFrame>
   );
 }
