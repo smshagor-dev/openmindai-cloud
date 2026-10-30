@@ -26,7 +26,7 @@ test('selected web search uses focused native tools, reads the source and saves 
   const begin=requests.find(r=>r.url.endsWith('/begin')).body;
   assert.equal(begin.web_search,false);
   assert.equal(begin.conversation_tools,true);
-  assert.equal(begin.provider_model,'nvidia/nemotron-3.5-lightning-30b-a3b');
+  assert.equal(begin.provider_model,'nvidia/nemotron-3.5-super-vl-120b-a12b');
   const tools=requests.filter(r=>r.url.endsWith('/tool')).map(r=>r.body);
   assert.equal(tools[0].query,'PHP array_map official documentation');
   assert.equal(tools[1].url,source);

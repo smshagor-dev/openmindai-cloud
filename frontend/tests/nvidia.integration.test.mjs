@@ -482,9 +482,9 @@ test("missing model selection defaults to Auto, while explicit choices suppress 
   const rows = [{id:"openmindai-lite"}, {id:"openmindai-ultra"}, {id:"nvidia-laguna-xs-2.1",name:"Code",provider_model:"provider/code"}];
   try {
     for (const scenario of [
-      {message:"Debug my app", expected:"nvidia/nemotron-3.5-lightning-30b-a3b", tools:true},
-      {message:"latest news", expected:"nvidia/nemotron-3.5-lightning-30b-a3b", tools:true},
-      {message:"deep research on UAV security", expected:"nvidia/nemotron-3.5-lightning-30b-a3b", tools:true},
+      {message:"Debug my app", expected:"nvidia/nemotron-3-ultra-550b-a55b", tools:true},
+      {message:"latest news", expected:"nvidia/nemotron-3-ultra-550b-a55b", tools:true},
+      {message:"deep research on UAV security", expected:"nvidia/nemotron-3-ultra-550b-a55b", tools:true},
       {message:"Explain photo composition", model_id:-1, expected:config.model},
     ]) {
       const f = fixture({providerUrl:"https://backend/api/v1/chat/provider", providerAuthorization:"Bearer user-token"});

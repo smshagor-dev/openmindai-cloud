@@ -29,7 +29,7 @@ export function serverRouterConfig(apiKey: string, defaultModel?: string): Route
 export function catalogRouterConfig(cfg: RouterConfig, catalog: {slug: string; provider: string}[]): RouterConfig {
   const pick = (slugs: string[], fallback: string) => slugs.map((slug) => catalog.find((model) => model.slug === slug)?.provider).find(Boolean) || fallback;
   const first = catalog[0]?.provider || cfg.defaultModel || FAST;
-  const fast = pick(["openmindai-lite", "nvidia-deepseek-v4.1-flash", "openmindai-super"], first);
+  const fast = pick(["openmindai-super", "openmindai-ultra", "nvidia-deepseek-v4.1-flash", "openmindai-lite"], first);
   const reasoning = pick(["openmindai-ultra", "openmindai-super", "nvidia-nemotron-3-super-120b-a12b", "nvidia-gpt-oss-20b"], fast);
   return {...cfg, defaultModel: fast, fastModel: fast, reasoningModel: reasoning, classifierModel: fast,
     visionModel: pick(["openmindai-super", "nvidia-muse-glimmer-30b", "nvidia-llama-3.2-90b-vision-instruct", "nvidia-llama-3.2-11b-vision-instruct"], reasoning),
