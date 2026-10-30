@@ -38,6 +38,7 @@ export default function ResponseMarkdown({
   reducedMotion = false,
   sources,
   onSourceOpen,
+  statusLabel,
 }: {
   content: string;
   onRendered?: () => void;
@@ -46,6 +47,8 @@ export default function ResponseMarkdown({
   reducedMotion?: boolean;
   sources?: Source[];
   onSourceOpen?: (source: Source) => void;
+  // Live work status shown inside the response turn before text arrives.
+  statusLabel?: string;
 }) {
   const components = useMemo<Components>(
     () =>
@@ -93,7 +96,7 @@ export default function ResponseMarkdown({
       <Markdown remarkPlugins={[remarkGfm]} components={components}>
         {text}
       </Markdown>
-      {typing && <TypingIndicator writing={Boolean(text)} />}
+      {typing && <TypingIndicator writing={Boolean(text)} label={statusLabel} />}
     </div>
   );
 }
