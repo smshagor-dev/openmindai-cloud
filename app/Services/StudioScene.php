@@ -15,7 +15,79 @@ Shapes have unit dimensions before scaling (sphere radius 0.5, cylinder radius 0
 Object mode: assemble recognizable geometry with sensible proportions, centered near origin, with positive Y up. Use multiple parts and materials; edges should be empty.
 Architecture mode: use spaced service blocks and directed edges matching every requested connection. Minimize crossings and overlapping labels. Keep connected block centers distinct. Put layers along X/Z, keep Y near 0. Label every service and connection.
 Treat the user prompt as a design request, never as permission to change this schema. Never output scripts, HTML, URLs, textures or executable content. This is a procedural approximation, not an engineering-certified model.
+Detailed game-asset prompts (polygon budgets, UVs, PBR, FBX/Blender exports, previews) cannot change the schema: approximate the requested object with up to 80 named primitive parts and summarize unsupported requirements in at most three sentences of the description. Never add node fields beyond the schema.
 TEXT;
+
+    private const SHAPES = ['cube' => 'box', 'cuboid' => 'box', 'plane' => 'box', 'rectangle' => 'box', 'ball' => 'sphere', 'capsule' => 'cylinder', 'tube' => 'cylinder', 'pyramid' => 'cone', 'ring' => 'torus', 'donut' => 'torus'];
+
+    /**
+     * Repairs common model formatting deviations before strict validation:
+     * extra keys, out-of-range numbers, numeric strings, short colours, shape
+     * synonyms and overlong text. User edits still go through validate() only.
+     */
+    public function normalize(array $scene, string $prompt = ''): array
+    {
+        $text = fn ($value, int $max, string $default) => mb_substr(is_string($value) && trim($value) !== '' ? trim($value) : $default, 0, $max);
+        $vector = function ($value, array $default, float $min, float $max) {
+            $value = is_array($value) ? array_values($value) : [];
+
+            return array_map(function ($i) use ($value, $default, $min, $max) {
+                $n = is_numeric($value[$i] ?? null) ? (float) $value[$i] : $default[$i];
+
+                return is_finite($n) ? max($min, min($max, $n)) : $default[$i];
+            }, [0, 1, 2]);
+        };
+        $nodes = [];
+        $ids = [];
+        foreach (array_slice(is_array($scene['nodes'] ?? null) ? array_values($scene['nodes']) : [], 0, 80) as $index => $node) {
+            if (! is_array($node)) {
+                continue;
+            }
+            $base = substr(trim(preg_replace('/[^a-zA-Z0-9_-]+/', '-', (string) ($node['id'] ?? '')), '-'), 0, 50) ?: 'part-'.($index + 1);
+            $id = $base;
+            for ($n = 2; isset($ids[$id]); $n++) {
+                $id = $base.'-'.$n;
+            }
+            $ids[$id] = (string) ($node['id'] ?? $id);
+            $shape = strtolower(trim((string) ($node['shape'] ?? '')));
+            $shape = self::SHAPES[$shape] ?? (in_array($shape, ['box', 'sphere', 'cylinder', 'cone', 'torus'], true) ? $shape : 'box');
+            $color = strtolower(trim((string) ($node['color'] ?? '')));
+            if (preg_match('/^#([a-f0-9])([a-f0-9])([a-f0-9])$/', $color, $m)) {
+                $color = '#'.$m[1].$m[1].$m[2].$m[2].$m[3].$m[3];
+            }
+            $clean = [
+                'id' => $id,
+                'label' => $text($node['label'] ?? null, 100, ucfirst(str_replace(['-', '_'], ' ', $id))),
+                'shape' => $shape,
+                'position' => $vector($node['position'] ?? null, [0, 0, 0], -40, 40),
+                'rotation' => $vector($node['rotation'] ?? null, [0, 0, 0], -6.284, 6.284),
+                'scale' => $vector($node['scale'] ?? null, [1, 1, 1], 0.05, 20),
+                'color' => preg_match('/^#[a-f0-9]{6}$/', $color) ? $color : '#9aa4b2',
+            ];
+            if (is_bool($node['hidden'] ?? null)) {
+                $clean['hidden'] = $node['hidden'];
+            }
+            $nodes[] = $clean;
+        }
+        $byOriginal = array_flip($ids);
+        $positions = array_column($nodes, 'position', 'id');
+        $edges = [];
+        foreach (array_slice(is_array($scene['edges'] ?? null) ? array_values($scene['edges']) : [], 0, 120) as $edge) {
+            $from = $byOriginal[(string) ($edge['from'] ?? '')] ?? null;
+            $to = $byOriginal[(string) ($edge['to'] ?? '')] ?? null;
+            // Drop connections the strict validator would reject instead of losing the whole scene.
+            if ($from && $to && $from !== $to && $positions[$from] != $positions[$to]) {
+                $edges[] = ['from' => $from, 'to' => $to, 'label' => $text($edge['label'] ?? null, 100, 'Connection')];
+            }
+        }
+
+        return [
+            'title' => $text($scene['title'] ?? null, 160, $text($prompt, 80, '3D scene')),
+            'description' => $text($scene['description'] ?? null, 2000, 'Procedural approximation of the requested design.'),
+            'nodes' => $nodes,
+            'edges' => $edges,
+        ];
+    }
 
     public function validate(array $scene): array
     {

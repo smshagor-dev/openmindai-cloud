@@ -1,4 +1,5 @@
 // Server-only task and model router. Never trust a prompt as a provider URL or model ID.
+import { threeDModelIntent } from "./studio-intent.ts";
 export type RouteKind = "chat" | "image" | "speech" | "video" | "document_create";
 export type Route = { kind: RouteKind; model: string; format?: "pdf" | "docx"; webSearch?: boolean; deepResearch?: boolean };
 export type RouterConfig = {
@@ -49,6 +50,8 @@ export function generationNeedsContext(text: string): boolean {
 export function generationIntent(text: string): {kind: Exclude<RouteKind, "chat">; format?: "pdf" | "docx"} | null {
   const p = text.toLowerCase().trim().replace(/\s+/g, " ");
   if (question.test(p) || textTask.test(p) || noMedia.test(p)) return null;
+  // 3D model requests mention renders, previews and animation; they are not video or image jobs.
+  if (threeDModelIntent(p)) return null;
   const make = /(?:\b(?:generate|create|make|draw|produce|render|design|synthesize|convert|export|save)\b|বানাও|বানিয়ে|বানিয়ে|তৈরি|আঁকো|জেনারেট|banao|banaw|toiri koro|tori koro|make koro|generate koro)/iu;
   const file = /(?:\b(?:pdf|docx?|word document|downloadable document|document(?: file)?)\b|পিডিএফ|ডকুমেন্ট)/iu;
   if (codeIntent.test(p) && !(file.test(p) && !/\b(?:api|function|script|source code|code to|code for|endpoint|library)\b/iu.test(p))) return null;

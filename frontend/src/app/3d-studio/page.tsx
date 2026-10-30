@@ -24,6 +24,7 @@ import {
   X,
 } from "lucide-react";
 import { downloadScene, studioApi, type SavedScene } from "@/lib/studio-scene";
+import { STUDIO_HANDOFF_KEY } from "@/lib/studio-intent";
 import { prepareStudioUpload, type StudioReference } from "@/lib/studio-upload";
 import {
   workbenchApi,
@@ -98,6 +99,7 @@ export default function StudioPage() {
   const fileRef = useRef<HTMLInputElement>(null);
   const toolsRef = useRef<HTMLDetailsElement>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
+  const handoffStart = useRef(false);
   async function refresh() {
     const [data, uploads] = await Promise.all([
       studioApi(),
@@ -114,7 +116,23 @@ export default function StudioPage() {
     setInteractive(true);
     refresh().catch(reportLoad);
     workbenchApi("/engines").then(setCapabilities).catch(reportLoad);
+    // A 3D request sent from chat starts here once, then the key is consumed.
+    try {
+      const handoff = sessionStorage.getItem(STUDIO_HANDOFF_KEY);
+      sessionStorage.removeItem(STUDIO_HANDOFF_KEY);
+      if (handoff && handoff.trim().length >= 5) {
+        handoffStart.current = true;
+        setPrompt(handoff.slice(0, 8000));
+      }
+    } catch { /* Storage unavailable: nothing was handed over. */ }
   }, []);
+  useEffect(() => {
+    if (!handoffStart.current || !prompt) return;
+    handoffStart.current = false;
+    void generate();
+    // generate() reads the prompt from this render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prompt]);
   function closeTools() {
     toolsRef.current?.removeAttribute("open");
   }

@@ -81,6 +81,32 @@ class SceneStudioTest extends TestCase
         $this->postJson('/api/v1/3d-scenes', ['mode' => 'script', 'prompt' => 'abc'])->assertUnprocessable();
     }
 
+    public function test_detailed_game_asset_output_is_repaired_instead_of_rejected(): void
+    {
+        Sanctum::actingAs($this->user(), ['user']);
+        // Typical deviations for a long Unity/low-poly prompt: extra node fields,
+        // thin parts below the scale minimum, shape synonyms, short colours,
+        // numeric strings, dotted ids and an overlong description.
+        $raw = ['title' => 'Futuristic Robot', 'description' => str_repeat('FBX, GLB and UV export notes. ', 120), 'nodes' => [
+            ['id' => 'robot.torso', 'label' => 'Torso', 'shape' => 'cube', 'position' => [0, '1.2', 0], 'rotation' => [0, 0, 0], 'scale' => [0.8, 1, 0.5], 'color' => '#3af', 'material' => 'MetalBlue', 'parent' => null],
+            ['id' => 'antenna', 'label' => 'Antenna', 'shape' => 'capsule', 'position' => [0, 2.4, 0], 'scale' => [0.02, 0.4, 0.02], 'color' => 'teal', 'pivot' => [0, 0, 0]],
+            ['id' => 'robot.torso', 'label' => 'Head', 'shape' => 'sphere', 'position' => [0, 2, 0], 'rotation' => [0, 9, 0], 'scale' => [0.5, 0.5, 0.5], 'color' => '#ffffff'],
+        ], 'edges' => [['from' => 'robot.torso', 'to' => 'nowhere', 'label' => 'joint']]];
+        $this->mock(OpenMindAiGatewayController::class)->shouldReceive('mobileChat')->once()->andReturn(response()->json(['choices' => [['message' => ['content' => "```json\n".json_encode($raw)."\n```"]]]]));
+        $scene = $this->postJson('/api/v1/3d-scenes', ['mode' => 'object', 'prompt' => 'Create a stylized low-poly futuristic robot for Unity with FBX and GLB exports.'])
+            ->assertCreated()->json('scene');
+        $this->assertSame(['robot-torso', 'antenna', 'robot-torso-2'], array_column($scene['nodes'], 'id'));
+        $this->assertSame(['box', 'cylinder', 'sphere'], array_column($scene['nodes'], 'shape'));
+        $this->assertSame('#33aaff', $scene['nodes'][0]['color']);
+        $this->assertSame('#9aa4b2', $scene['nodes'][1]['color']);
+        $this->assertSame([0.05, 0.4, 0.05], $scene['nodes'][1]['scale']);
+        $this->assertEquals([0, 0, 0], $scene['nodes'][1]['rotation']);
+        $this->assertEquals(6.284, $scene['nodes'][2]['rotation'][1]);
+        $this->assertArrayNotHasKey('material', $scene['nodes'][0]);
+        $this->assertSame(2000, mb_strlen($scene['description']));
+        $this->assertSame([], $scene['edges']);
+    }
+
     public function test_scene_rejects_dangling_edges_and_executable_fields(): void
     {
         $scene = $this->scene();

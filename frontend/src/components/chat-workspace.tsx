@@ -45,6 +45,7 @@ import dynamic from "next/dynamic";
 import Image from "next/image";
 import CreationProgress from "./creation-progress";
 import { generatedMediaIds } from "@/lib/chat-artifacts";
+import { STUDIO_HANDOFF_KEY, threeDModelIntent } from "@/lib/studio-intent";
 import TypingIndicator from "./typing-indicator";
 import ModelPicker from "./model-picker";
 import Dialog from "./dialog";
@@ -707,6 +708,15 @@ export default function ChatWorkspace() {
         if (generationRef.current === controller) {setBusy(false); setPendingCreation(null); generationRef.current = null;}
       }
       return;
+    }
+    if (!override && mediaMode === "chat" && !inlineImage && !attachments.length && threeDModelIntent(text)) {
+      // Mesh generation lives in 3D Studio. Hand the prompt over in this tab
+      // (sessionStorage, so an external link can never start a generation).
+      try {
+        sessionStorage.setItem(STUDIO_HANDOFF_KEY, text.slice(0, 8000));
+        window.location.assign("/3d-studio");
+        return;
+      } catch { /* Storage blocked: answer in chat instead. */ }
     }
     if (mediaMode !== "chat" && !override && !inlineImage && !mediaKinds.includes(mediaMode))
       return setError("This media engine is not configured.");
