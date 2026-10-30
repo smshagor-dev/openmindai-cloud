@@ -215,6 +215,12 @@ export default function WorkflowEditor({
     }
   }
   async function run() {
+    if (capabilities?.deployment?.queued_jobs === false) {
+      setError(
+        "Workflow execution is not enabled on this hosting profile. Save your workflow to run after a worker is connected.",
+      );
+      return;
+    }
     setBusy(true);
     setError("");
     try {
@@ -277,10 +283,20 @@ export default function WorkflowEditor({
         <button type="button" disabled={busy} onClick={save}>
           Save workflow
         </button>
-        <button type="button" disabled={busy} onClick={run}>
+        <button
+          type="button"
+          disabled={busy || capabilities?.deployment?.queued_jobs === false}
+          onClick={run}
+        >
           Run validated workflow
         </button>
       </div>
+      {capabilities?.deployment?.queued_jobs === false && (
+        <p>
+          Workflows can be saved and edited. Execution becomes available after a
+          worker and queue consumer are connected.
+        </p>
+      )}
       <div className="studio-tool-row">
         <button
           type="button"

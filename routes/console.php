@@ -233,7 +233,14 @@ Artisan::command('studio:recover', function () {
     if (! Schema::hasTable('studio_jobs')) {
         return;
     }
-    StudioJob::whereIn('status', ['queued', 'running', 'cancel_requested'])
+    StudioJob::where('operation', 'direct_scene')->whereIn('status', ['running', 'cancel_requested'])->where('lease_until', '<', now())->get()->each(function ($job) {
+        $scene = DB::table('studio_scenes')->where('user_id', $job->user_id)->where('origin_job_id', $job->id)->first();
+        $job->update(['status' => $scene ? 'completed' : ($job->status === 'cancel_requested' ? 'cancelled' : 'failed'), 'result' => $scene ? ['scene_id' => $scene->id] : null, 'error_code' => $scene ? null : 'provider_outcome_uncertain', 'lease_until' => null]);
+    });
+    if (! config('studio.queue_enabled')) {
+        return;
+    }
+    StudioJob::where('operation', '!=', 'direct_scene')->whereIn('status', ['queued', 'running', 'cancel_requested'])
         ->where(fn ($q) => $q->whereNull('lease_until')->orWhere('lease_until', '<', now()))
         ->where('updated_at', '<', now()->subSeconds(30))->orderBy('created_at')->limit(20)->get()
         ->each(function ($job) {
@@ -243,9 +250,14 @@ Artisan::command('studio:recover', function () {
 });
 Schedule::command('studio:recover')->everyMinute()->withoutOverlapping();
 
-Artisan::command('studio:preflight {--require-gpu : Require at least one verified GPU engine}', function () {
+Artisan::command('studio:preflight {--cpanel : Check the direct scene profile without a worker} {--require-gpu : Require at least one verified GPU engine}', function () {
+    if ($this->option('cpanel') && $this->option('require-gpu')) {
+        $this->error('Choose either the cPanel profile or the GPU profile.');
+
+        return 2;
+    }
     $status = app(App\Services\Studio\Readiness::class)->inspect();
     $this->line(json_encode($status, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
 
-    return $status[$this->option('require-gpu') ? 'gpu_infrastructure_ready' : 'cpu_infrastructure_ready'] ? 0 : 1;
+    return $status[$this->option('cpanel') ? 'cpanel_ready' : ($this->option('require-gpu') ? 'gpu_infrastructure_ready' : 'cpu_infrastructure_ready')] ? 0 : 1;
 })->purpose('Inspect private 3D worker readiness without exposing credentials or generating artifacts.');

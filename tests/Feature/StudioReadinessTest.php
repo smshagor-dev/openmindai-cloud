@@ -27,7 +27,7 @@ class StudioReadinessTest extends TestCase
 
     public function test_verified_cpu_does_not_certify_gpu_or_queue_liveness(): void
     {
-        config(['studio.worker_url' => 'https://worker.example', 'studio.worker_key' => str_repeat('a', 40)]);
+        config(['studio.worker_url' => 'https://worker.example', 'studio.worker_key' => str_repeat('a', 40), 'studio.queue_enabled' => true]);
         $this->mock(Worker::class)->shouldReceive('health')->andReturn(['protocol' => 1, 'ready' => true, 'processors' => ['import', 'inspect', 'smooth', 'decimate', 'repair', 'transform', 'export', 'preprocess', 'compose']]);
         $this->mock(Catalog::class)->shouldReceive('all')->andReturn(['data' => [['id' => 'procedural', 'available' => true], ['id' => 'hunyuan3d-mini', 'available' => false]]]);
         $result = app(Readiness::class)->inspect();

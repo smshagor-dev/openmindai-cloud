@@ -60,6 +60,7 @@ export default function StudioPage() {
     [light, setLight] = useState(false),
     [interactive, setInteractive] = useState(false);
   const pending = useRef(false);
+  const submission = useRef<{ payload: string; key: string } | null>(null);
   async function refresh() {
     const [data, uploads] = await Promise.all([
       studioApi(),
@@ -86,6 +87,16 @@ export default function StudioPage() {
     pending.current = true;
     setBusy(true);
     setError("");
+    const payload = JSON.stringify({
+      mode,
+      engine,
+      prompt,
+      selectedUploads,
+      engineParams,
+    });
+    if (submission.current?.payload !== payload)
+      submission.current = { payload, key: crypto.randomUUID() };
+    const requestKey = submission.current.key;
     try {
       const route = await workbenchApi("/route", "POST", {
         mode,
@@ -96,11 +107,21 @@ export default function StudioPage() {
       let result;
       if (route.output === "scene") {
         result = await workbenchApi("/jobs/scene", "POST", {
-          request_key: crypto.randomUUID(),
+          request_key: requestKey,
           mode: route.mode,
           prompt,
           upload_ids: selectedUploads,
         });
+        if (result.scene) {
+          const scene = result as SavedScene;
+          setSaved(scene);
+          setSelectedAsset(null);
+          setMode(scene.mode);
+          pending.current = false;
+          submission.current = null;
+          await refresh();
+          return;
+        }
       } else {
         const image = references.find(
           (r) => selectedUploads.includes(r.id) && r.mime.startsWith("image/"),
@@ -108,7 +129,7 @@ export default function StudioPage() {
         if (!image)
           throw new Error("Select an image reference for this engine.");
         result = await workbenchApi("/jobs", "POST", {
-          request_key: crypto.randomUUID(),
+          request_key: requestKey,
           engine: route.engine,
           operation: "generate",
           upload_id: image.id,
@@ -116,6 +137,7 @@ export default function StudioPage() {
         });
       }
       setJobId(result.id);
+      submission.current = null;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Generation failed.");
       pending.current = false;
@@ -173,6 +195,7 @@ export default function StudioPage() {
         <button
           disabled={!interactive || busy || loading}
           onClick={() => {
+            submission.current = null;
             setSaved(null);
             setSelectedAsset(null);
             setMode("auto");
@@ -240,6 +263,13 @@ export default function StudioPage() {
             {error}
           </div>
         )}
+        {capabilities?.deployment?.scene_execution === "direct" &&
+          !capabilities.worker.ready && (
+            <p className="studio-muted">
+              Procedural 3D and Architecture run here. Mesh generation and
+              processing become available after a worker is connected.
+            </p>
+          )}
         {loading && <p role="status">Loading your scene…</p>}
         {selectedAsset ? (
           <AssetViewport key={selectedAsset.id} asset={selectedAsset} />

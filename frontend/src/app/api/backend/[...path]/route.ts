@@ -302,7 +302,8 @@ async function proxy(
       signal:
         endpoint.startsWith("chat") ||
         endpoint === "guest/chat" ||
-        endpoint === "3d-scenes"
+        endpoint === "3d-scenes" ||
+        endpoint === "3d-studio/jobs/scene"
           ? request.signal
           : AbortSignal.timeout(30_000),
     });

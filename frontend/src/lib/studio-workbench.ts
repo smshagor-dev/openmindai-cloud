@@ -20,6 +20,7 @@ export type Engine = {
 };
 export type Capabilities = {
   data: Engine[];
+  deployment?: { scene_execution: "direct" | "queued"; queued_jobs: boolean };
   worker: { ready: boolean; reason?: string; processors?: string[] };
 };
 export type Asset = {

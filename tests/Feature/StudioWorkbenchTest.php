@@ -30,7 +30,7 @@ class StudioWorkbenchTest extends TestCase
         $user = User::create(['name' => 'Workbench', 'email' => uniqid().'@example.com', 'password' => 'SyntheticPassword123']);
         $user->forceFill(['email_verified_at' => now()])->save();
         Sanctum::actingAs($user, ['user']);
-        config(['studio.worker_url' => 'https://worker.example', 'studio.worker_key' => str_repeat('test-only-', 5)]);
+        config(['studio.worker_url' => 'https://worker.example', 'studio.worker_key' => str_repeat('test-only-', 5), 'studio.queue_enabled' => true, 'studio.scene_execution' => 'queued']);
 
         return $user;
     }

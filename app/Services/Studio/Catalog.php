@@ -10,7 +10,7 @@ class Catalog
     public function all(): array
     {
         $catalog = json_decode(file_get_contents(base_path('runtime/studio/catalog.json')), true, 64, JSON_THROW_ON_ERROR);
-        $health = Cache::remember('studio:worker-health:'.hash('sha256', config('studio.worker_url').config('studio.worker_key')), 15, fn () => app(Worker::class)->health());
+        $health = config('studio.queue_enabled') ? Cache::remember('studio:worker-health:'.hash('sha256', config('studio.worker_url').config('studio.worker_key')), 15, fn () => app(Worker::class)->health()) : ['ready' => false, 'reason' => 'worker_queue_not_enabled', 'engines' => []];
         $models = app(HostedCodeAgents::class)->enabled();
         $reasoning = (bool) config('models.nvidia_key') && $models->contains(fn ($m) => $m->slug === 'openmindai-ultra' && $m->last_test_status === 'success');
         $builtins = [];
@@ -21,13 +21,13 @@ class Catalog
             $runtime = collect($health['engines'] ?? [])->firstWhere('id', $engine['id']);
             // Catalog presence is not installation evidence. A matching immutable
             // adapter revision, license review, weights and a real smoke are required.
-            $engine['available'] = ($health['ready'] ?? false) === true && ($runtime['ready'] ?? false) === true
+            $engine['available'] = config('studio.queue_enabled') && ($health['ready'] ?? false) === true && ($runtime['ready'] ?? false) === true
                 && ($runtime['revision'] ?? '') === $engine['revision'] && ($runtime['smoke_verified'] ?? false) === true && ($runtime['license_approved'] ?? false) === true;
             $engine['availability'] = $engine['available'] ? 'verified' : 'not_verified';
             $engine['license_status'] = $engine['available'] ? 'operator_reviewed' : 'review_required';
             $engine['reason'] = $engine['available'] ? null : 'licensed_verified_gpu_worker_required';
         }
 
-        return ['data' => [...$builtins, ...$catalog['engines']], 'worker' => ['ready' => ($health['ready'] ?? false) === true, 'reason' => $health['reason'] ?? null, 'hardware' => $health['hardware'] ?? null, 'processors' => $health['processors'] ?? []], 'upstream' => $catalog['upstream']];
+        return ['data' => [...$builtins, ...$catalog['engines']], 'deployment' => ['scene_execution' => config('studio.scene_execution'), 'queued_jobs' => (bool) config('studio.queue_enabled')], 'worker' => ['ready' => config('studio.queue_enabled') && ($health['ready'] ?? false) === true, 'reason' => ! config('studio.queue_enabled') ? 'worker_queue_not_enabled' : ($health['reason'] ?? null), 'hardware' => $health['hardware'] ?? null, 'processors' => $health['processors'] ?? []], 'upstream' => $catalog['upstream']];
     }
 }

@@ -464,3 +464,193 @@ test("Studio preserves early input by waiting for client initialization", async 
     page.getByRole("button", { name: "Generate scene" }),
   ).toBeEnabled();
 });
+
+for (const cpanelMode of ["object", "architecture"] as const) {
+  test(`cPanel ${cpanelMode} generates and edits without a queue worker`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 375, height: 900 });
+    let exists = false,
+      version = 1;
+    let scene = {
+      title: "cPanel robot",
+      description: "Fixture scene",
+      nodes: [
+        {
+          id: "body",
+          label: "Body",
+          shape: "box",
+          position: [0, 0, 0],
+          rotation: [0, 0, 0],
+          scale: [1, 1, 1],
+          color: "#4488ff",
+        },
+      ],
+      edges: [],
+    };
+    const keys: string[] = [],
+      polls: string[] = [];
+    await page.route("**/api/backend/3d-studio/**", async (route) => {
+      const path = new URL(route.request().url()).pathname;
+      if (path.endsWith("/engines"))
+        return route.fulfill({
+          json: {
+            data: [],
+            deployment: { scene_execution: "direct", queued_jobs: false },
+            worker: { ready: false, processors: [] },
+          },
+        });
+      if (path.endsWith("/route"))
+        return route.fulfill({
+          json: {
+            mode: cpanelMode,
+            engine:
+              cpanelMode === "architecture" ? "architecture" : "procedural",
+            output: "scene",
+          },
+        });
+      if (path.endsWith("/jobs/scene")) {
+        const body = route.request().postDataJSON();
+        expect(body.mode).toBe(cpanelMode);
+        keys.push(body.request_key);
+        exists = true;
+        return route.fulfill({
+          status: 201,
+          json: {
+            id: 1,
+            mode: cpanelMode,
+            prompt: body.prompt,
+            scene,
+            version,
+          },
+        });
+      }
+      if (/\/jobs\/[a-f0-9-]{36}$/.test(path)) polls.push(path);
+      return route.fulfill({ json: { data: [] } });
+    });
+    await page.route("**/api/backend/3d-scenes**", async (route) => {
+      const path = new URL(route.request().url()).pathname;
+      if (path.endsWith("/uploads"))
+        return route.fulfill({ json: { data: [] } });
+      if (path.endsWith("/revisions"))
+        return route.fulfill({
+          json: { data: [{ version: 1, scene: JSON.stringify(scene) }] },
+        });
+      if (route.request().method() === "PUT") {
+        scene = route.request().postDataJSON().scene;
+        version++;
+      }
+      return route.fulfill({
+        json: path.endsWith("3d-scenes")
+          ? {
+              data: exists
+                ? [{ id: 1, mode: cpanelMode, title: scene.title }]
+                : [],
+            }
+          : {
+              id: 1,
+              mode: cpanelMode,
+              prompt: "Build a robot",
+              scene,
+              version,
+            },
+      });
+    });
+    await page.goto("/3d-studio");
+    if (cpanelMode === "architecture")
+      await page
+        .getByRole("button", { name: "3D Architecture", exact: true })
+        .click();
+    await page.locator("#scene-prompt").fill("Build a robot");
+    await page.getByRole("button", { name: "Generate scene" }).click();
+    await expect(
+      page.getByRole("heading", { name: scene.title, exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Generate scene" }),
+    ).toBeEnabled();
+    expect(keys).toHaveLength(1);
+    expect(polls).toEqual([]);
+    await page
+      .getByRole("spinbutton", { name: "position X", exact: true })
+      .fill("3");
+    await page.getByRole("button", { name: "Save scene revision" }).click();
+    await expect(page.getByLabel("Previous revisions")).toBeVisible();
+    expect(scene.nodes[0].position[0]).toBe(3);
+    await page
+      .getByRole("tab", { name: "Workflow editor", exact: true })
+      .click();
+    await expect(
+      page.getByRole("button", { name: "Run validated workflow" }),
+    ).toBeDisabled();
+    await expect(
+      page.getByRole("button", { name: "Save workflow" }),
+    ).toBeEnabled();
+  });
+}
+
+test("cPanel reconnect retries reuse the request key instead of charging a second generation", async ({
+  page,
+}) => {
+  const keys: string[] = [];
+  const scene = {
+    title: "Recovered robot",
+    description: "Fixture scene",
+    nodes: [
+      {
+        id: "body",
+        label: "Body",
+        shape: "box",
+        position: [0, 0, 0],
+        rotation: [0, 0, 0],
+        scale: [1, 1, 1],
+        color: "#4488ff",
+      },
+    ],
+    edges: [],
+  };
+  await page.route("**/api/backend/3d-scenes**", (route) =>
+    route.fulfill({ json: { data: [] } }),
+  );
+  await page.route("**/api/backend/3d-studio/**", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/engines"))
+      return route.fulfill({
+        json: {
+          data: [],
+          deployment: { scene_execution: "direct", queued_jobs: false },
+          worker: { ready: false },
+        },
+      });
+    if (path.endsWith("/route"))
+      return route.fulfill({
+        json: { mode: "object", engine: "procedural", output: "scene" },
+      });
+    if (path.endsWith("/jobs/scene")) {
+      keys.push(route.request().postDataJSON().request_key);
+      if (keys.length === 1) return route.abort("connectionreset");
+      return route.fulfill({
+        json: {
+          id: 1,
+          mode: "object",
+          prompt: "Build a robot",
+          scene,
+          version: 1,
+        },
+      });
+    }
+    return route.fulfill({ json: { data: [] } });
+  });
+  await page.goto("/3d-studio");
+  await page.locator("#scene-prompt").fill("Build a robot");
+  await page.getByRole("button", { name: "Generate scene" }).click();
+  await expect(
+    page.getByRole("alert").filter({ hasText: /.+/ }).first(),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Generate scene" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Recovered robot" }),
+  ).toBeVisible();
+  expect(keys).toHaveLength(2);
+  expect(keys[0]).toBe(keys[1]);
+});

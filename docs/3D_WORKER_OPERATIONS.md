@@ -1,6 +1,22 @@
-# Private 3D worker operations — unreleased
+# 3D Studio hosting profiles and worker operations
 
-This feature is not deployed. Run the CPU worker on a separate Linux host. cPanel runs Laravel and bounded queue consumers, not GPU model code. No production change is authorized by this runbook alone.
+The owner authorized a cPanel-only release on 2026-10-30, with external processing deferred until a VPS/Oracle worker is provisioned. Release verification is still required; this document does not itself certify deployment. cPanel runs Laravel and the existing model gateway, not GPU model code.
+
+## cPanel profile — available without a Studio worker
+
+The default is `STUDIO_SCENE_EXECUTION=direct` and `STUDIO_QUEUE_ENABLED=false`. Procedural Object and Architecture requests use the existing authenticated Laravel/model gateway synchronously through `/3d-studio/jobs/scene`. A durable owned request ledger preserves idempotency, records uncertain outcomes and reopens an already persisted scene without a second provider call. Normal generation does not require a queue consumer or a Python/Docker worker. The frontend proxy permits the existing long scene-response budget and handles a scene response directly rather than polling a nonexistent queued job.
+
+Available: prompt-based procedural scenes/Architecture, private reference originals, supported document extraction and provider-dependent reference understanding, browser WebGL/SVG preview, part transforms/visibility/material color, saved revisions/history, GLB and JSON browser export, projects and workflow save/edit. A procedural scene is illustrative geometry, not neural image-to-mesh reconstruction.
+
+Unavailable until a worker is connected: mesh import/processing/converters, neural mesh engines and queued workflow execution. Both API guards and disabled controls enforce that state. The catalog does not probe a remote worker while the queue profile is disabled, so a missing worker cannot add a connection delay to cPanel usage. Image-to-mesh is not silently replaced with procedural output; original uploads remain private even when a provider-dependent operation is unavailable.
+
+After the usual verified rollback/database/config/uploads backup, deploy the green release, install locked production PHP dependencies, apply additive migrations, rebuild Laravel caches, and run `php artisan studio:preflight --cpanel`. Confirm actual Object and Architecture generation with an ordinary signed-in account, reference download checksums, revision save/reopen, real GLB/JSON downloads, unauthorized/foreign access rejection and clear disabled-worker controls. This preflight inspects schema and the verified provider catalog, not live inference; the real smoke remains mandatory.
+
+Run `php artisan studio:recover` through the existing scheduler if desired to resolve expired direct-request records. It never repeats a possibly billed direct provider call. Without a recover cron, successful requests still finish normally, and replay of a request with an already saved scene repairs its ledger safely. Do not alter Research queue lanes or unrelated cron entries.
+
+### Later VPS/Oracle connection
+
+Preserve all current tables, private files, projects and request history. Provision the separate worker below, configure its fixed HTTPS origin/key, validate real CPU/GPU capabilities and rights, then enable `STUDIO_QUEUE_ENABLED=true` and a bounded `studio` consumer. Set `STUDIO_SCENE_EXECUTION=queued` only if queued builtin scene execution is also wanted. GPU engines remain gated until their actual installation/license/smoke checks pass. No frontend rewrite or destructive database migration is required for this upgrade.
 
 ## CPU service
 

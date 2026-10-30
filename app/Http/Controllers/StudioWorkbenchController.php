@@ -7,6 +7,7 @@ use App\Jobs\ExecuteStudioWorkflow;
 use App\Models\StudioJob;
 use App\Services\Studio\Assets;
 use App\Services\Studio\Catalog;
+use App\Services\Studio\DirectScenes;
 use App\Services\Studio\Jobs;
 use App\Services\Studio\Router;
 use App\Services\Studio\Workflow;
@@ -102,6 +103,7 @@ class StudioWorkbenchController
 
     public function createJob(Request $r, Jobs $jobs, Assets $assets, Catalog $catalog)
     {
+        abort_unless(config('studio.queue_enabled'), 503, 'Worker jobs are not enabled on this hosting profile. Procedural and Architecture scenes remain available.');
         $data = $r->validate(['request_key' => 'required|string|regex:/^[a-zA-Z0-9:_-]{1,80}$/', 'project_id' => 'nullable|integer', 'engine' => 'required|string|max:60', 'operation' => 'required|in:generate,inspect,smooth,decimate,repair,transform,export,preprocess', 'asset_id' => 'nullable|integer', 'upload_id' => 'nullable|integer', 'params' => 'present|array']);
         $capabilities = $catalog->all();
         abort_unless($capabilities['worker']['ready'], 503, 'The isolated worker is unavailable.');
@@ -141,6 +143,9 @@ class StudioWorkbenchController
             if (in_array($locked->status, ['queued', 'running'], true)) {
                 $locked->update(['status' => 'cancel_requested']);
                 $jobs->event($job->id, 'cancel_requested');
+                if ($job->operation === 'direct_scene') {
+                    return;
+                }
                 $class = $job->operation === 'workflow' ? ExecuteStudioWorkflow::class : ExecuteStudioJob::class;
                 $class::dispatch($job->id)->onConnection('database')->onQueue('studio')->afterCommit();
             }
@@ -151,6 +156,7 @@ class StudioWorkbenchController
 
     public function runWorkflow(Request $r, Workflow $workflow, Jobs $jobs, Catalog $catalog, Assets $assets)
     {
+        abort_unless(config('studio.queue_enabled'), 503, 'Workflow execution requires a configured Studio queue consumer. You can save and edit workflows now.');
         $data = $r->validate(['request_key' => 'required|string|regex:/^[a-zA-Z0-9:_-]{1,80}$/', 'workflow_id' => 'sometimes|integer', 'graph' => 'sometimes|array', 'project_id' => 'nullable|integer']);
         if (isset($data['workflow_id'])) {
             $saved = DB::table('studio_workflows')->where('user_id', $r->user()->id)->find($data['workflow_id']);
@@ -191,6 +197,9 @@ class StudioWorkbenchController
     public function sceneJob(Request $r, Workflow $workflow, Jobs $jobs, Catalog $catalog, Assets $assets)
     {
         $data = $r->validate(['request_key' => 'required|string|regex:/^[a-zA-Z0-9:_-]{1,80}$/', 'mode' => 'required|in:object,architecture', 'prompt' => 'required|string|min:5|max:8000', 'upload_ids' => 'sometimes|array|max:5', 'upload_ids.*' => 'integer|distinct|min:1']);
+        if (config('studio.scene_execution') === 'direct') {
+            return app(DirectScenes::class)->create($r, $data);
+        }
         $r->replace(['request_key' => $data['request_key'], 'graph' => ['nodes' => [
             ['id' => 'prompt', 'type' => 'prompt', 'params' => ['text' => $data['prompt']]],
             ['id' => 'generate', 'type' => 'generate_scene', 'params' => ['mode' => $data['mode'], 'upload_ids' => $data['upload_ids'] ?? []]],

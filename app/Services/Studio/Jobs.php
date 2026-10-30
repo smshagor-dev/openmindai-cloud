@@ -10,7 +10,7 @@ use Illuminate\Support\Str;
 
 class Jobs
 {
-    public function create(int $user, array $data): StudioJob
+    public function create(int $user, array $data, bool $dispatch = true): StudioJob
     {
         $canonical = function ($value) use (&$canonical) {
             if (! is_array($value)) {
@@ -23,7 +23,7 @@ class Jobs
         };
         $hash = hash('sha256', json_encode($canonical($data)));
 
-        return DB::transaction(function () use ($user, $data, $hash) {
+        return DB::transaction(function () use ($user, $data, $hash, $dispatch) {
             DB::table('users')->where('id', $user)->lockForUpdate()->first();
             $existing = StudioJob::where('user_id', $user)->where('request_key', $data['request_key'])->first();
             if ($existing) {
@@ -35,7 +35,9 @@ class Jobs
             $job = StudioJob::create(['id' => (string) Str::uuid(), 'user_id' => $user, 'project_id' => $data['project_id'] ?? null, 'request_key' => $data['request_key'], 'payload_hash' => $hash, 'engine' => $data['engine'], 'operation' => $data['operation'], 'input' => $data]);
             $this->event($job->id, 'queued');
             $class = $job->operation === 'workflow' ? ExecuteStudioWorkflow::class : ExecuteStudioJob::class;
-            $class::dispatch($job->id)->onConnection('database')->onQueue('studio')->afterCommit();
+            if ($dispatch) {
+                $class::dispatch($job->id)->onConnection('database')->onQueue('studio')->afterCommit();
+            }
 
             return $job;
         });
