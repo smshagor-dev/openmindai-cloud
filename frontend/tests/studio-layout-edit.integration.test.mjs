@@ -21,3 +21,16 @@ test("with a scene open, the 3D composer edits it through the proxied edit endpo
   // Model edits can take longer than the generic 30s proxy timeout.
   assert.ok(proxy.includes(String.raw`/^3d-scenes\/\d+\/edit$/.test(endpoint)`), "edit waits for the model");
 });
+
+test("both studios show a Back button one level up from an open project, scene or view", () => {
+  const frame = read("components/studio-frame.tsx");
+  assert.match(frame, /back\?: \{ label: string; onClick: \(\) => void; disabled\?: boolean \}/);
+  assert.match(frame, /className="studio-back-button"/);
+  const research = read("components/research/studio.tsx");
+  assert.match(research, /Back to the conversation/);
+  assert.match(research, /Back to all research/);
+  assert.match(research, /back=\{back\}/);
+  const studio = read("app/3d-studio/page.tsx");
+  assert.match(studio, /Back to 3D Studio/);
+  assert.match(studio, /back=\{back\}/);
+});

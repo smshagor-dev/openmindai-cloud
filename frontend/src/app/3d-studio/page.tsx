@@ -297,9 +297,19 @@ export default function StudioPage() {
   const selectedFiles = references.filter((file) =>
     selectedUploads.includes(file.id),
   );
+  // One level up: an open mesh asset returns to its panel, the asset panel
+  // returns to the scene view, and an open scene returns to the 3D Studio home.
+  const back = selectedAsset
+    ? { label: "Back", onClick: () => setSelectedAsset(null) }
+    : panel === "assets"
+      ? { label: "Back to 3D Studio", onClick: () => setPanel("create") }
+      : saved
+        ? { label: "Back to 3D Studio", onClick: newScene, disabled: busy || loading }
+        : undefined;
   return (
     <StudioFrame
       active="3d"
+      back={back}
       primary={{
         label: "New scene",
         icon: <SquarePen size={19} />,

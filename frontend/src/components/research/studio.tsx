@@ -566,9 +566,30 @@ export default function ResearchStudio() {
       />
     </label>
   );
+  // One level up: the creation form or a tool view returns to the
+  // conversation, and an open project returns to the Research Studio home.
+  const back = creating
+    ? { label: "Back to Research Studio", onClick: () => setCreating(false) }
+    : id && view !== "Chat"
+      ? { label: "Back to the conversation", onClick: () => setView("Chat") }
+      : id
+        ? {
+            label: "Back to all research",
+            onClick: () => {
+              if (dirty.current) {
+                setError("Save current manuscript first.");
+                return;
+              }
+              setId(null);
+              setData(null);
+              dataRef.current = null;
+            },
+          }
+        : undefined;
   return (
     <StudioFrame
       active="research"
+      back={back}
       primary={{
         label: "New research",
         icon: <SquarePen size={19} />,
