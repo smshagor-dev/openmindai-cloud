@@ -255,17 +255,19 @@ for (const [width, height] of sizes) {
       .click();
     await fits(page, "dialog[open]");
   });
-  test(`standalone pages ${width}x${height}`, async ({ page }) => {
-    await page.setViewportSize({ width, height });
-    await fixtures(page);
-    for (const route of [
-      "/explore",
-      "/research-studio",
-      "/3d-studio",
-      "/reset-password",
-      "/confirm-email",
-      `/share/${"a".repeat(64)}`,
-    ]) {
+  for (const route of [
+    "/explore",
+    "/research-studio",
+    "/3d-studio",
+    "/reset-password",
+    "/confirm-email",
+    `/share/${"a".repeat(64)}`,
+  ]) {
+    test(`standalone ${route.startsWith("/share/") ? "shared snapshot" : route.slice(1)} ${width}x${height}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height });
+      await fixtures(page);
       await page.goto(route);
       await expect(page.locator("h1")).toBeVisible();
       if (route === "/explore")
@@ -306,20 +308,24 @@ for (const [width, height] of sizes) {
           fullPage: true,
         });
       }
-    }
+
+      if (route === "/research-studio" && width <= 760) {
+        await page
+          .getByRole("button", { name: "Open project navigation" })
+          .click();
+        await fits(page, ".rs-nav");
+      }
+    });
+  }
+  test(`saved conversation ${width}x${height}`, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    await fixtures(page);
     await page.goto("/c/42-responsive-qa");
     await expect(
       page.getByText("Responsive rich content.", { exact: true }),
     ).toBeVisible();
     await fits(page);
     await fits(page, ".composer");
-    if (width <= 760) {
-      await page.goto("/research-studio");
-      await page
-        .getByRole("button", { name: "Open project navigation" })
-        .click();
-      await fits(page, ".rs-nav");
-    }
   });
   test(`guest authentication ${width}x${height}`, async ({ page }) => {
     await page.setViewportSize({ width, height });
