@@ -434,7 +434,9 @@ export async function nvidiaChat(
                 ? generateHostedImage(JSON.stringify({prompt:work.prompt}),token,base,upstreamAbort.signal,{fetcher})
                 : hostedMediaRequest(JSON.stringify({...work,...(work.kind === "document_create" ? {format:work.format || requestedGeneration?.format || "docx"} : {})}),token,base,upstreamAbort.signal,{fetcher,config:{apiKey:config.apiKey,bridgeKey:config.bridgeKey,chatModel:activeModel}}));
               if (!response.ok) return {ok:false,message:work.kind === "image"
-                ? "The image request could not be confirmed. Check Library before trying again; the service may have accepted it."
+                ? [502, 503, 504].includes(response.status)
+                  ? "The image service is unavailable (HTTP " + response.status + "). The request may have been accepted. Check Library before trying again."
+                  : "The image request could not be confirmed. Check Library before trying again; the service may have accepted it."
                 : "The requested file could not be generated. Check Library before trying again."};
               const saved = await response.json();
               if (!Number.isSafeInteger(saved.id) || saved.id < 1 || !["queued","running","complete"].includes(saved.status))
