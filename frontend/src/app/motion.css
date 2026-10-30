@@ -276,83 +276,52 @@
 @keyframes creation-reveal{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 @media(prefers-reduced-motion:reduce){.work-spark,.work-status-label,.creation-glow,.creation-grid,.creation-glyph,.creation-result{animation:none}.work-status-label{background:none;color:inherit}}
 
-/* Image generation percentage is backed by persisted workflow milestones.
-   The shimmer indicates activity while the provider runs synchronously. */
-.creation-status-line {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-}
-.creation-status-line .typing-indicator {
-  min-width: 0;
-  font-size: 13px;
-}
-.creation-percent {
-  flex: none;
-  font-size: 19px;
-  font-weight: 650;
-  letter-spacing: -.45px;
-  font-variant-numeric: tabular-nums;
-  color: var(--text, #f5f5f5);
+/* The number belongs to the artwork, not a horizontal progress meter.
+   Values are backend-reported generation workflow milestones. */
+.creation-progress:has(.creation-canvas-percent) .creation-glyph {
+  top: 0;
+  bottom: 52%;
+  align-items: end;
+  padding-bottom: 10px;
+  font-size: clamp(36px, 4vw, 48px);
 }
 .creation-canvas-percent {
   position: absolute;
   z-index: 2;
+  top: 48%;
   left: 0;
   right: 0;
-  bottom: 26px;
-  display: block;
-  text-align: center;
+  bottom: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 12px;
   color: #fff;
-  font-size: clamp(25px, 4vw, 36px);
+  font-size: clamp(52px, 7vw, 72px);
   font-weight: 650;
   line-height: 1.1;
   font-variant-numeric: tabular-nums;
-  text-shadow: 0 2px 16px #0009;
+  letter-spacing: -2px;
+  text-shadow: 0 2px 20px #0008;
 }
-.creation-meter {
-  height: 7px;
-  width: 100%;
-  position: relative;
-  border-radius: 999px;
-  overflow: hidden;
-  background: color-mix(in srgb, var(--text, #fff) 13%, transparent);
-}
-.creation-meter > span {
-  position: relative;
-  display: block;
-  height: 100%;
-  min-width: 0;
-  border-radius: inherit;
-  background: linear-gradient(90deg, #326cf5 0%, #8b5cf6 60%, #d477e0 100%);
-  transition: width 500ms ease-out;
-  overflow: hidden;
-}
-.creation-meter > span::after {
-  content: "";
+.creation-progress-announcement {
   position: absolute;
-  inset: 0;
-  background: linear-gradient(90deg, transparent, #ffffff65, transparent);
-  transform: translateX(-120%);
-  animation: generation-meter-sheen 2.8s ease-in-out infinite;
-}
-@keyframes generation-meter-sheen {
-  0%, 15% { transform: translateX(-120%); }
-  75%, 100% { transform: translateX(120%); }
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 @media (max-width: 480px) {
-  .creation-canvas-percent { font-size: 28px; bottom: 18px; }
-  .creation-percent { font-size: 17px; }
-  .creation-status-line .typing-indicator { font-size: 12px; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .creation-meter > span { transition: none; }
-  .creation-meter > span::after { animation: none; }
-}
-:root[data-reduced-motion="true"] .creation-meter > span,
-:root[data-reduced-motion="true"] .creation-meter > span::after {
-  animation: none;
-  transition: none;
+  .creation-canvas-percent {
+    font-size: clamp(42px, 10vw, 58px);
+    padding-top: 6px;
+  }
+  .creation-progress:has(.creation-canvas-percent) .creation-glyph {
+    font-size: 36px;
+    padding-bottom: 6px;
+  }
 }

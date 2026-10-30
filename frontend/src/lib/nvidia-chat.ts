@@ -1,11 +1,14 @@
-import { automaticModels, automaticCoordinator, automaticReasoner, automaticSpecialists } from "./auto-models.ts";
-import { groundResearchAnswer } from "./research-evidence.ts";
+import { automaticModels, automaticCoordinator, automaticWebCoordinator, automaticReasoner, automaticSpecialists } from "./auto-models.ts";
+import {compactResearchMetadata,type ResearchMetadata} from "./research-status.ts";
+import { duplicateOf, evidenceUrl, groundResearchAnswer } from "./research-evidence.ts";
 import { withPromptUnderstanding } from "./prompt-understanding.ts";
 import { runConversationTools } from "./conversation-tools.ts";
 import { generateHostedImage } from "./hosted-image.ts";
 import { hostedMediaRequest } from "./hosted-media.ts";
+import { generationIntent, generationNeedsContext } from "./prompt-router.ts";
 import { parseInlineImage, imageMessage } from "./vision-input.ts";
 import {
+  ResearchToolUnavailableError,
   plannerInstruction,
   researchLoop,
   type Source,
@@ -80,6 +83,7 @@ export function nvidiaModel() {
 type Config = { apiKey: string; bridgeKey: string; model: string };
 type Checkpoint = {
   stage: "research" | "writing";
+  metadata?: ResearchMetadata;
   research?: ResearchState;
   messages?: { role: string; content: string }[];
   content?: string;
@@ -143,6 +147,11 @@ export async function nvidiaChat(
     return rawFetch(url, init);
   };
   const input = JSON.parse(body);
+  const generationKinds = ["image", "speech", "video", "document_create"] as const;
+  if (input.generation_kind !== undefined && !generationKinds.includes(input.generation_kind))
+    return Response.json({message:"Unknown generation tool."}, {status:422});
+  if (input.generation_format !== undefined && !["pdf", "docx"].includes(input.generation_format))
+    return Response.json({message:"Unsupported document format."}, {status:422});
   let inlineImage: ReturnType<typeof parseInlineImage>;
   try {
     inlineImage = parseInlineImage(input.image);
@@ -152,8 +161,18 @@ export async function nvidiaChat(
     return Response.json({message: (error as Error).message}, {status: 422});
   }
   // Only text and metadata are sent to Laravel. Image bytes stay inside Next.js.
-  const {image: _discardImage, ...backendInput} = input;
+  const {image: _discardImage, generation_kind: _generationKind, generation_format: _generationFormat, ...backendInput} = input;
   void _discardImage;
+  void _generationKind; void _generationFormat;
+  const requestedGeneration = !inlineImage && !input.resume_message_id
+    ? input.generation_kind
+      ? {kind:input.generation_kind as typeof generationKinds[number], format:input.generation_format || generationIntent(typeof input.message === "string" ? input.message : "")?.format || "docx"}
+      : generationIntent(typeof input.message === "string" ? input.message : "")
+    : null;
+  const generation = requestedGeneration && !input.deep_research && !input.web_search && !input.attachment_ids?.length && !generationNeedsContext(typeof input.message === "string" ? input.message : "")
+    ? requestedGeneration : null;
+  if (generation && (typeof input.message !== "string" || !input.message.trim() || input.message.length > 4000))
+    return Response.json({message:"Describe what to create in up to 4000 characters."}, {status:422});
   let catalog: HostedModel[] = [...NVIDIA_HOSTED_MODELS];
   if (!options.config) {
     try {
@@ -174,7 +193,8 @@ export async function nvidiaChat(
   if (!selected && !isAuto && !input.resume_message_id && !options.config)
     return Response.json({message: "Unknown hosted model."}, {status: 404});
   const eligibleModels = automaticModels(catalog);
-  const coordinator = automaticCoordinator(eligibleModels);
+  const coordinator = input.web_search && !input.deep_research
+    ? automaticWebCoordinator(eligibleModels) : automaticCoordinator(eligibleModels);
   if (isAuto && !input.resume_message_id && !coordinator)
     return Response.json({message:"No healthy automatic model is available. Retest or configure a chat model."}, {status:503});
   const visionModel = selectVisionModel(isAuto ? eligibleModels : (selected && selectVisionModel([selected]) ? [selected] : catalog));
@@ -204,13 +224,14 @@ export async function nvidiaChat(
   // automatic requests use the prompt's result. Images require a configured vision model.
   if (selected && !inlineImage) { routedModel = selected.provider; fallbackModel = selected.provider; }
   if (inlineImage) routedModel = visionModel?.provider || NVIDIA_HOSTED_MODELS[0].provider;
-  const conversationTools = isAuto && !input.resume_message_id && !inlineImage && !input.deep_research;
+  if (input.deep_research && !input.resume_message_id) backendInput.conversation_tools = true;
+  const conversationTools = (isAuto || Boolean(requestedGeneration)) && !input.resume_message_id && !inlineImage && !input.deep_research;
   if (conversationTools) {
     backendInput.conversation_tools = true;
     // The native search tool forms a focused query from the full request.
     // Avoid the legacy quick-search path searching the entire instruction.
     backendInput.web_search = false;
-    routedModel = coordinator?.provider || config.model;
+    if (isAuto || !generation) routedModel = coordinator?.provider || config.model;
   }
   const backend = async (
     path: string,
@@ -315,6 +336,7 @@ export async function nvidiaChat(
       let checkpoint: Checkpoint = lease.checkpoint || {
         stage: deep ? "research" : "writing",
       };
+      let researchMetadata:ResearchMetadata=checkpoint.metadata||{version:1,mode:deep?'deep_research':'web_search',status:'running',plan:[],activity:[]};
       let generationMessages = checkpoint.messages || lease.messages;
       // Send multimodal content to NVIDIA, but never checkpoint or persist the image.
       const imageIndex = generationMessages.length - 1;
@@ -328,6 +350,7 @@ export async function nvidiaChat(
             ticket: lease.ticket,
             state: {
               ...checkpoint,
+              ...(deep || lease.sources.length || researchMetadata.activity.length ? {metadata:compactResearchMetadata(researchMetadata)} : {}),
               modelId: activeModel,
               imageRequired: Boolean(inlineImage),
               content,
@@ -342,6 +365,11 @@ export async function nvidiaChat(
           throw new Error(
             "NVIDIA progress could not be saved. Generation stopped.",
           );
+      };
+      const activity=(phase: import('./research-loop').ResearchEvent['phase'],state:import('./research-loop').ResearchEvent['status'],label:string,extra:Record<string,string>={})=>{
+        const event={id:(researchMetadata.activity.at(-1)?.id||0)+1,at:new Date().toISOString(),phase,status:state,label,...extra};
+        researchMetadata.activity=[...researchMetadata.activity.slice(-119),event];
+        emit('research',{label,sources:lease.sources,metadata:researchMetadata});
       };
       let status = "complete";
       let finished = false;
@@ -368,7 +396,7 @@ export async function nvidiaChat(
           sources: lease.sources,
           provider: "nvidia",
           content,
-          resumable: Boolean(lease.message_id) && !inlineImage && !conversationTools,
+          resumable: Boolean(lease.message_id) && !inlineImage && (!conversationTools || deep),
         });
         if (cancelled) throw new Error("Cancelled");
         // Mark image turns non-resumable before inference so a failed request
@@ -398,58 +426,96 @@ export async function nvidiaChat(
         if (conversationTools && !checkpoint.finished) {
           checkpoint.toolRunStarted = true;
           await saveCheckpoint();
-          const generatedFiles: {id:number;kind:string}[] = [];
-          await runConversationTools({
-            model:activeModel, apiKey:config.apiKey, fetcher, messages:generationMessages, webSearchSelected:Boolean(input.web_search),
+          const artifact = async (work: {kind:"image"|"speech"|"video"|"document_create";prompt:string;format?:"pdf"|"docx"}) => {
+            if (!config.apiKey && !["document_create", "image"].includes(work.kind)) return {ok:false,message:"This media service has not been configured on the server."};
+            emit("creation", {kind:work.kind,status:"running"});
+            try {
+              const response = await (work.kind === "image"
+                ? generateHostedImage(JSON.stringify({prompt:work.prompt}),token,base,upstreamAbort.signal,{fetcher})
+                : hostedMediaRequest(JSON.stringify({...work,...(work.kind === "document_create" ? {format:work.format || requestedGeneration?.format || "docx"} : {})}),token,base,upstreamAbort.signal,{fetcher,config:{apiKey:config.apiKey,bridgeKey:config.bridgeKey,chatModel:activeModel}}));
+              if (!response.ok) return {ok:false,message:work.kind === "image"
+                ? "The image request could not be confirmed. Check Library before trying again; the service may have accepted it."
+                : "The requested file could not be generated. Check Library before trying again."};
+              const saved = await response.json();
+              if (!Number.isSafeInteger(saved.id) || saved.id < 1 || !["queued","running","complete"].includes(saved.status))
+                return {ok:false,message:"The generated task was not saved."};
+              // Persist the accepted ID immediately, including queued tasks, so
+              // reload/disconnect never loses it or requires a duplicate request.
+              const link = `\n\n[View generated ${work.kind === "document_create" ? "document" : work.kind}](/api/backend/media/${saved.id}/output)`;
+              content += link;
+              await saveCheckpoint();
+              emit("artifact", {id:saved.id,kind:work.kind,status:saved.status});
+              emit("delta", {content:link});
+              return {ok:true,id:saved.id,kind:work.kind,status:saved.status,message:saved.status === "complete"
+                ? "The saved file is displayed in this chat. Do not invent a download URL."
+                : "The request was accepted and is processing. The task in this chat updates when ready. Do not retry generation or claim the file is complete."};
+            } finally { emit("creation", {kind:work.kind,status:"finished"}); }
+          };
+          if (generation) {
+            // A clear creation request or explicit composer tool is an execution
+            // request, independent of the selected text model's willingness to
+            // call a function. Reuse the same authenticated artifact service.
+            const result = await artifact({...generation,prompt:input.message});
+            const bangla = /[\u0980-\u09ff]|\b(?:bangla|bengali|koro|daw|dao)\b/i.test(input.message);
+            const text = !result.ok ? result.message : result.status === "complete"
+              ? bangla ? "\n\nতৈরি হয়েছে। নিচের preview থেকে দেখতে ও download করতে পারবেন।" : "\n\nCreated. Preview or download your file below."
+              : bangla ? "\n\nআপনার অনুরোধ গ্রহণ করা হয়েছে। তৈরি হলে এখানেই দেখা যাবে; Library-তেও সংরক্ষিত আছে।" : "\n\nYour request was accepted. The result will appear here when ready and is saved in Library.";
+            content += text; emit("delta", {content:text});
+            if (!result.ok) {status="failed"; emit("error", {message:result.message});}
+          } else await runConversationTools({
+            model:activeModel, apiKey:config.apiKey, fetcher, messages:requestedGeneration
+              ? [...generationMessages,{role:"system",content:`The user requested a generated ${requestedGeneration.kind}, format ${requestedGeneration.format || "docx"}. Use the conversation and attached evidence, perform requested research before creating the file, and use create_artifact. Never claim the file exists without a successful tool result.`}]
+              : generationMessages, webSearchSelected:Boolean(input.web_search),
             signal:AbortSignal.any([upstreamAbort.signal, AbortSignal.timeout(240000)]), specialists:automaticSpecialists(eligibleModels, activeModel),
             progress: label => emit("research", {label, sources:lease.sources}),
             delta: text => {content += text; emit("delta", {content:text});},
             web: async action => {
-              const response = await backend("tool", {ticket:lease.ticket, ...action}, 30000, upstreamAbort.signal);
-              if (!response.ok) throw new Error("Tool unavailable");
-              const data = await response.json();
+              if(action.action==='read' && !evidenceUrl(action.url)) {
+                activity('reading','failed','Unsupported source URL was rejected');
+                return {read_status:'unavailable'};
+              }
+              activity(action.action === "search" ? "searching" : "reading","running",action.action === "search" ? "Searching the web" : "Reading source passages",action.query?{query:action.query}:{url:action.url||""});
+              let data;
+              try {
+                const response = await backend("tool", {ticket:lease.ticket, ...action, question:input.message||""}, 30000, upstreamAbort.signal);
+                if (!response.ok) throw new Error("Tool unavailable");
+                data = await response.json();
+              } catch {
+                activity(action.action === "search" ? "searching" : "reading","failed",action.action === "search" ? "Search request unavailable" : "Source request unavailable",action.query?{query:action.query}:{url:action.url||""});
+                throw new Error("Tool unavailable");
+              }
               if (Array.isArray(data.sources)) {
                 const sources = new Map(lease.sources.map(source=>[source.url,source]));
                 for (const source of data.sources) {
-                  if (typeof source.url === "string") sources.set(source.url, {url:source.url,title:String(source.title || source.url).slice(0,200),snippet:String(source.snippet || "").slice(0,2000)});
+                  // A later search must not downgrade an already inspected page
+                  // or replace its retrieval timestamp/passages with a snippet.
+                  if (evidenceUrl(source.url) && !sources.has(source.url)) sources.set(source.url, {url:source.url,title:String(source.title || source.url).slice(0,200),snippet:String(source.snippet || "").slice(0,2000),provider:source.provider,retrieved_at:source.retrieved_at,read_status:"snippet_only"});
                 }
                 lease.sources = [...sources.values()].slice(0,40).map((source,index)=>({...source,citation:index+1}));
               }
               if (action.action === "read" && typeof data.url === "string") {
                 const existing = lease.sources.find(source=>source.url === data.url);
-                const source = {...(existing || {url:data.url,title:data.url.slice(0,200),citation:lease.sources.length+1}),read_status:data.read_status === "read" ? "read" : "unavailable"};
-                lease.sources = [...lease.sources.filter(item=>item.url !== data.url),source];
+                const source = {...(existing || {url:data.url,title:String(data.title || data.url).slice(0,200),citation:lease.sources.length+1}),read_status:data.read_status === "read" ? "read" : "unavailable",passages:Array.isArray(data.passages)?data.passages:[],mime:data.mime,pdf:data.pdf,retrieved_at:data.retrieved_at};
+                const duplicate=duplicateOf(source,lease.sources.filter(old=>old.url!==source.url));
+                Object.assign(source,{duplicate_of:duplicate});
+                lease.sources = existing
+                  ? lease.sources.map(item => item.url === data.url ? source : item)
+                  : [...lease.sources,source];
               }
-              emit("research", {label:action.action === "search" ? "Reviewing search results" : "Reading sources", sources:lease.sources});
-              return data;
-            },
-            artifact: async work => {
-              if (!config.apiKey && !["document_create", "image"].includes(work.kind)) return {ok:false,message:"This media service has not been configured on the server."};
-              emit("creation", {kind:work.kind,status:"running"});
-              try {
-              const request = work.kind === "image"
-                ? generateHostedImage(JSON.stringify({prompt:work.prompt}),token,base,upstreamAbort.signal,{fetcher})
-                : hostedMediaRequest(JSON.stringify(work),token,base,upstreamAbort.signal,{fetcher,config:{apiKey:config.apiKey || "backend-managed",bridgeKey:config.bridgeKey,chatModel:activeModel}});
-              const response = await request;
-              if (!response.ok) return {ok:false,message:"The requested file could not be generated."};
-              const saved = await response.json();
-              if (!Number.isSafeInteger(saved.id) || saved.id < 1) return {ok:false,message:"The generated task was not saved."};
-              if (saved.status === "queued" || saved.status === "running" || response.status === 202) {
-                emit("artifact", {id:saved.id,kind:work.kind});
-                return {ok:true,id:saved.id,kind:work.kind,status:"queued",message:"The request was accepted and the displayed task is processing. This is not a failure or a completed image. Do not retry generation. Tell the user the task will update when ready; do not claim the output already exists."};
+              for(const attempt of (data.sources?.[0]?.provider_events||[]).slice(0,12)) {
+                if(['failed','unavailable','cooldown'].includes(attempt.status))activity('searching','failed','Search provider unavailable; fallback attempted',{provider:String(attempt.provider)});
               }
-              if (!Number.isSafeInteger(saved.id) || saved.id < 1 || saved.status !== "complete") return {ok:false,message:"The generated output was not saved."};
-              generatedFiles.push({id:saved.id,kind:work.kind});
-              emit("artifact", {id:saved.id,kind:work.kind});
-              return {ok:true,id:saved.id,kind:work.kind,status:"complete",message:"The saved file is displayed in this chat. Refer to it without inventing a download URL."};
-              } finally { emit("creation", {kind:work.kind,status:"finished"}); }
+              activity(action.action === "search" ? "searching" : "reading",data.read_status === "unavailable"?"failed":"completed",action.action === "search" ? "Search results collected" : "Source reading finished",data.sources?.[0]?.provider?{provider:String(data.sources[0].provider)}:{});
+              const citationFor = (url: unknown) => {
+                const source = lease.sources.find(item => item.url === url);
+                return source ? {citation:source.citation,citation_markdown:`[${source.citation}](${source.url.replace(/\(/g, "%28").replace(/\)/g, "%29")})`} : {};
+              };
+              // Give the model the exact persisted source mapping; do not ask it
+              // to invent numbering or infer a URL from a domain label.
+              return {...data,...citationFor(data.url),...(Array.isArray(data.sources) ? {sources:data.sources.map((source: {url?: string}) => ({...source,...citationFor(source.url)}))} : {})};
             },
+            artifact,
           });
-          for (const file of generatedFiles) {
-            const link = `\n\n[Download generated ${file.kind === "document_create" ? "document" : file.kind}](/api/backend/media/${file.id}/output)`;
-            content += link;
-            emit("delta", {content:link});
-          }
           checkpoint.finished = true;
           await saveCheckpoint();
         }
@@ -460,12 +526,15 @@ export async function nvidiaChat(
             state: checkpoint.research,
             checkpoint: async (research) => {
               checkpoint = { ...checkpoint, research };
+              researchMetadata.plan=research.plan||[];
+              researchMetadata.activity=research.activity||[];
               await saveCheckpoint();
             },
             signal: upstreamAbort.signal,
-            progress: (label, sources) => {
+            progress: (label, sources, event) => {
               lease.sources = sources;
-              emit("research", { label, sources });
+              if(event)researchMetadata.activity=[...researchMetadata.activity.slice(-119),event];
+              emit("research", { label, sources,metadata:researchMetadata });
             },
             tool: async (action) => {
               const r = await backend(
@@ -473,6 +542,7 @@ export async function nvidiaChat(
                 {
                   ticket: lease.ticket,
                   ...action,
+                  question: input.message || String(lease.messages.at(-1)?.content || "").slice(0,16000),
                   time_range:
                     lease.search_time_range ||
                     JSON.parse(body).search_time_range ||
@@ -481,14 +551,18 @@ export async function nvidiaChat(
                 30000,
                 upstreamAbort.signal,
               );
-              if (!r.ok)
-                throw new Error(
-                  "NVIDIA research tool failed. Check search availability or stop status.",
-                );
+              if (!r.ok) {
+                if ([429,502,503,504].includes(r.status)) throw new ResearchToolUnavailableError("Research evidence service unavailable.");
+                throw new Error("NVIDIA research tool failed. Check search availability or stop status.");
+              }
               return r.json();
             },
-            decide: async (context) => {
-              const r = await fetcher(endpoint, {
+            decide: async (context, recordRetry) => {
+              // Both attempts share one deadline and cancellation signal.
+              const planningSignal = AbortSignal.any([
+                upstreamAbort.signal, AbortSignal.timeout(110000),
+              ]);
+              const requestDecision = () => fetcher(endpoint, {
                 method: "POST",
                 redirect: "error",
                 cache: "no-store",
@@ -501,6 +575,8 @@ export async function nvidiaChat(
                   model: activeModel,
                   stream: false,
                   temperature: 0.2,
+                  // Coordinator output is one small action, not a manuscript.
+                  max_tokens: 2048,
                   messages: [
                     {
                       role: "system",
@@ -515,15 +591,20 @@ export async function nvidiaChat(
                         context,
                     },
                   ],
-                  ...(activeModel === "nvidia/nemotron-3.5-lightning-30b-a3b"
+                  ...(["nvidia/nemotron-3.5-lightning-30b-a3b", "nvidia/nemotron-3-ultra-550b-a55b"].includes(activeModel)
                     ? { chat_template_kwargs: { enable_thinking: false } }
                     : {}),
                 }),
-                signal: AbortSignal.any([
-                  upstreamAbort.signal,
-                  AbortSignal.timeout(110000),
-                ]),
+                signal: planningSignal,
               });
+              let r = await requestDecision();
+              if ([502, 503, 504].includes(r.status)) {
+                await r.body?.cancel();
+                await recordRetry();
+                await new Promise(resolve => setTimeout(resolve, 300));
+                planningSignal.throwIfAborted();
+                r = await requestDecision();
+              }
               if (r.status !== 200)
                 throw new Error(
                   r.status === 429
@@ -540,6 +621,10 @@ export async function nvidiaChat(
             },
           });
           lease.sources = result.sources;
+          researchMetadata={version:1,mode:'deep_research',status:result.complete?'writing':result.stop_reason==='budget'?'paused':'partial',plan:result.plan,activity:result.activity,coverage:result.coverage,limitations:result.limitations,stop_reason:result.stop_reason};
+          checkpoint={...checkpoint,research:result.state,metadata:researchMetadata};
+          await saveCheckpoint();
+          if(result.stop_reason==='budget')throw new Error('Research paused at its execution budget. Resume the saved response to continue the investigation.');
           lease.messages = initial.map((message, index) =>
             index === 0
               ? {
@@ -548,17 +633,14 @@ export async function nvidiaChat(
                     message.content +
                     "\nAdditional untrusted research evidence: " +
                     JSON.stringify(result) +
-                    "\nAnswer every part of the user's request. Disclose the coordinator's unresolved limitations. Cite only supplied URLs.",
+                    "\nAnswer every part of the user's request. Disclose the coordinator's unresolved limitations. Cite claims as [number](exact supplied source URL). Identify p1, p2 etc. as passage IDs, never PDF page numbers. Keep final prose consistently in the requested language, retaining technical identifiers and exact quotations. Cite only supplied URLs.",
                 }
               : message,
           );
           generationMessages = lease.messages;
           checkpoint = { stage: "writing" };
           await saveCheckpoint();
-          emit("research", {
-            label: "Writing the complete report",
-            sources: lease.sources,
-          });
+          activity("writing","running","Writing the evidence-grounded report");
         }
         let continueAnswer = !checkpoint.finished;
         while (continueAnswer) {
@@ -722,7 +804,7 @@ export async function nvidiaChat(
         failure =
           failure ||
           (e instanceof Error &&
-          (e.message.startsWith("NVIDIA ") ||
+          (e.message.startsWith("NVIDIA ") || e.message.startsWith("Research paused") ||
             e.message === "Response exceeded storage limit.")
             ? e.message
             : "NVIDIA connection failed or timed out.");
@@ -730,17 +812,27 @@ export async function nvidiaChat(
         if (poll) clearInterval(poll);
         upstreamAbort.abort();
         signal.removeEventListener("abort", abort);
-        if (status === "complete" && lease.sources.length) {
+        if (status === "complete" && (deep || lease.sources.length || researchMetadata.activity.length)) {
+          activity("verifying","running","Checking citations and numerical evidence");
           const grounded = groundResearchAnswer(content, lease.sources);
+          researchMetadata.audit=grounded.audit;
+          researchMetadata.answer_body_length=grounded.text.length;
+          activity("verifying","completed","Citation and passage checks recorded; review flagged claims");
           content = grounded.text + grounded.footer;
           emit("answer", {content});
+        }
+        if(lease.sources.length || deep || researchMetadata.activity.length){
+          researchMetadata.status=status==='cancelled'?'cancelled':status==='failed'?(researchMetadata.status==='paused'?'paused':'failed'):researchMetadata.status==='partial'?'partial':'complete';
+          const read=lease.sources.filter(s=>s.read_status==='read');
+          researchMetadata.coverage ||= {actions:researchMetadata.activity.filter(e=>e.status==='completed').length,sources:lease.sources.length,pagesRead:read.length,domainsRead:new Set(read.map(s=>new URL(s.url).hostname)).size};
+          emit('research',{label:researchMetadata.status==='complete'?'Research finished':researchMetadata.status==='partial'?'Report ready with unresolved evidence gaps':'Research '+researchMetadata.status,sources:lease.sources,metadata:researchMetadata});
         }
         let saved = false;
         for (let attempt = 0; attempt < 3; attempt++) {
           try {
             const r = await backend(
               "finish",
-              { ticket: lease.ticket, content, status, sources: lease.sources, provider_model: activeModel },
+              { ticket: lease.ticket, content, status, sources: lease.sources, ...(deep || lease.sources.length || researchMetadata.activity.length ? {research_metadata:compactResearchMetadata(researchMetadata)} : {}), provider_model: activeModel },
               8000,
             );
             if (r.ok && (await r.json()).stored) {
@@ -816,7 +908,7 @@ export async function nvidiaChat(
             /* Optional memory extraction must not fail the saved chat. */
           }
         }
-        if (failure && status !== "cancelled")
+        if (failure && status !== "cancelled" && !(saved && researchMetadata.status === "paused" && failure.startsWith("Research paused")))
           emit("error", { message: failure });
         emit("done", { status, saved });
         try {

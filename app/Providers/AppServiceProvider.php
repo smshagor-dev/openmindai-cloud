@@ -27,6 +27,7 @@ class AppServiceProvider extends ServiceProvider
         ]);
         RateLimiter::for('hub', fn ($r) => Limit::perMinute(10)->by('hub:'.$r->user()->id));
         RateLimiter::for('api', fn ($r) => Limit::perMinute(60)->by($r->user()?->id ?: $r->ip()));
+        RateLimiter::for('research-events', fn ($r) => Limit::perMinute(30)->by('research-events:'.$r->user()->id));
         RateLimiter::for('sensitive', fn ($r) => Limit::perMinute(5)->by('sensitive:'.$r->user()->id));
         RateLimiter::for('media', fn ($r) => Limit::perMinute(20)->by('media:'.$r->user()->id));
         // Completion/rejection callbacks belong to a previously approved

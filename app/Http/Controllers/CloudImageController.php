@@ -9,6 +9,7 @@ use App\Services\CloudImageEngine;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 
@@ -44,6 +45,13 @@ class CloudImageController
         $count = (int) ($data['count'] ?? 1);
         abort_if(trim($data['prompt']) === '', 422, 'Enter an image description.');
         $engine->options($mode, $ratio);
+        // Do not enqueue images on an older database schema: the worker's first
+        // progress update would otherwise fail before its exception handler runs.
+        abort_unless(
+            Schema::hasColumns('media_tasks', ['progress_percent', 'progress_stage']),
+            503,
+            'The image service database needs its latest migrations. Ask an administrator to run php artisan migrate --force.'
+        );
         abort_if($mode !== 'generate' && $ratio !== '1:1', 422, 'Editing preserves the input image aspect ratio.');
         abort_if($mode === 'generate' && (isset($data['image']) || isset($data['mask'])), 422, 'Image inputs require image editing mode.');
         abort_if($mode !== 'generate' && ! isset($data['image']), 422, 'An input image is required for editing.');

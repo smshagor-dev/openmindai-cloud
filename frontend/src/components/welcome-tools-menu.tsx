@@ -1,10 +1,10 @@
 "use client";
 import {
-  BookOpen, FlaskConical, FolderOpen, Globe, ImagePlus, Paperclip, PanelsTopLeft,
+  BookOpen, FileText, FlaskConical, FolderOpen, Globe, ImagePlus, Paperclip, PanelsTopLeft,
 } from "lucide-react";
 
 export type WelcomeToolAction =
-  | "files" | "library" | "image" | "tabs" | "web"
+  | "files" | "library" | "image" | "document" | "tabs" | "web"
   | "project" | "research" | "voice" | "code" | "planner";
 
 export default function WelcomeToolsMenu({
@@ -29,7 +29,8 @@ export default function WelcomeToolsMenu({
   const items = [
     { action: "files", icon: Paperclip, title: "Add photos & files", subtitle: "Upload from your computer", blocked: false, active: false },
     { action: "library", icon: BookOpen, title: "Add from library", subtitle: "Browse and search your files", blocked: false, active: false },
-    { action: "image", icon: ImagePlus, title: "Create image", subtitle: !signedIn ? "Sign in to generate images" : imageAvailable ? "Visualize anything" : "Image runtime not configured", blocked: !imageAvailable, active: false },
+    { action: "image", icon: ImagePlus, title: "Create image", subtitle: !signedIn ? "Sign in to generate images" : imageAvailable ? "Create and preview directly in chat" : "Image runtime not configured", blocked: !imageAvailable, active: mediaMode === "image" },
+    { action: "document", icon: FileText, title: "Create document", subtitle: "Draft and preview a PDF or Word file in chat", blocked: !mediaKinds.includes("document_create"), active: mediaMode === "document_create" },
     { action: "tabs", icon: PanelsTopLeft, title: "Add browser tabs", subtitle: "Paste links from your open tabs", blocked: false, active: false },
     { action: "web", icon: Globe, title: "Web search", subtitle: !signedIn ? "Sign in to search the web" : searchAvailable ? "Find real-time news and information" : "Search provider not configured", blocked: !searchAvailable, active: webSearch && !deepResearch },
     { action: "project", icon: FolderOpen, title: "Work in a project", subtitle: "Start a chat in a project", blocked: false, active: false },
@@ -48,7 +49,7 @@ export default function WelcomeToolsMenu({
           type="button"
           className={"welcome-tool-item" + (item.active ? " is-active" : "")}
           disabled={busy || (signedIn && item.blocked)}
-          aria-pressed={item.action === "web" || item.action === "research" ? item.active : undefined}
+          aria-pressed={["web", "research", "image", "document"].includes(item.action) ? item.active : undefined}
           title={item.blocked ? item.subtitle : undefined}
           onClick={() => onSelect(item.action)}
         >
@@ -64,7 +65,7 @@ export default function WelcomeToolsMenu({
         <button type="button" disabled={busy} onClick={() => onSelect("planner")}>Research planner</button>
       </div>
       {mediaKinds.some((kind) => ["image", "speech", "video", "document_create"].includes(kind)) && (
-        <label className="welcome-tools-select">Media mode
+        <label className="welcome-tools-select">Create in chat
           <select aria-label="Media task mode" value={mediaMode} disabled={busy} onChange={(e) => onMediaMode(e.target.value)}>
             <option value="chat">Chat</option>
             {["image", "speech", "video", "document_create"].filter((kind) => mediaKinds.includes(kind)).map((kind) => (

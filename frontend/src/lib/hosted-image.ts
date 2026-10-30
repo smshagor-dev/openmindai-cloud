@@ -28,6 +28,11 @@ export async function generateHostedImage(
   try {
     const started = await request("media/cloud-image", "POST", data);
     if (!started.ok) {
+      if ([502, 503, 504].includes(started.status)) {
+        return Response.json({
+          message: "Image backend unavailable (HTTP " + started.status + "). The queue may have accepted your request. Check Library before retrying.",
+        }, {status: started.status, headers: {"Cache-Control":"no-store"}});
+      }
       const result = await started.json().catch(() => ({}));
       return Response.json({message: typeof result.message === "string" ? result.message : "Image request rejected."},
         {status: started.status, headers: {"Cache-Control":"no-store"}});
@@ -39,6 +44,8 @@ export async function generateHostedImage(
     // chat can display and poll it without occupying the inference tool loop.
     return Response.json(created, {status:202, headers:{"Cache-Control":"no-store"}});
   } catch {
-    return Response.json({message:"Cannot reach the cloud image service. Check Library before retrying."}, {status:503});
+    // A slow request can be accepted upstream even if the acknowledgement
+    // times out. Never retry a non-idempotent generation request automatically.
+    return Response.json({message:"The image service did not acknowledge the request before timeout. Check Library for an accepted task before retrying."}, {status:504, headers:{"Cache-Control":"no-store"}});
   }
 }

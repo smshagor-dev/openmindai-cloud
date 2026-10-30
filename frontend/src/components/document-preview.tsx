@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import ResponseMarkdown from "./response-markdown";
-export default function DocumentPreview({ file, onAttach }: { file: File; onAttach?: (file: File) => void }) {
+export default function DocumentPreview({ file, onAttach, compact = false }: { file: File; onAttach?: (file: File) => void; compact?: boolean }) {
   const [text, setText] = useState("");
   const [url, setUrl] = useState("");
   const [error, setError] = useState("");
@@ -71,7 +71,7 @@ export default function DocumentPreview({ file, onAttach }: { file: File; onAtta
             throw new Error(result.message || "Unable to preview document.");
           content = result.text;
         }
-        if (!cancelled) setText(content.slice(0, 250000));
+        if (!cancelled) setText(content.slice(0, compact ? 1200 : 250000));
       } catch (e) {
         if (!cancelled) setError((e as Error).message);
       } finally {
@@ -84,12 +84,12 @@ export default function DocumentPreview({ file, onAttach }: { file: File; onAtta
       controller.abort();
       URL.revokeObjectURL(objectUrl);
     };
-  }, [file, extension]);
+  }, [file, extension, compact]);
   return (
-    <section className="document-preview" aria-label={file.name + " preview"}>
+    <section className={"document-preview" + (compact ? " document-preview-compact" : "")} aria-label={file.name + " preview"}>
       {loading && <p role="status">Preparing preview…</p>}
       {error && <p role="alert">{error}</p>}
-      {extension === "pdf" && url && (
+      {!compact && extension === "pdf" && url && (
         <iframe title={file.name} className="pdf-preview" src={url} />
       )}
       {["md", "markdown"].includes(extension || "") ? (
@@ -108,7 +108,7 @@ export default function DocumentPreview({ file, onAttach }: { file: File; onAtta
             <p role="alert">The extracted text exceeds the chat attachment limit. Split the document; no text was attached or silently omitted.</p>}
         </>
       )}
-      {url && (
+      {!compact && url && (
         <a href={url} download={file.name}>
           Download {file.name}
         </a>

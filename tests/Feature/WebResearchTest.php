@@ -65,6 +65,19 @@ class WebResearchTest extends TestCase
         $this->assertSame('https://www.php.net/manual/en/function.array-map.php', $sources[0]['url']);
     }
 
+    public function test_unrelated_search_noise_falls_through_to_relevant_official_sources(): void
+    {
+        config(['models.search_url' => null, 'models.public_search_fallback' => true]);
+        Http::fake([
+            'www.bing.com/*' => Http::response('<rss><channel><item><title>Soup Restaurant</title><link>https://example.org/restaurant</link></item></channel></rss>'),
+            'html.duckduckgo.com/*' => Http::response('<a class="result__a" href="https://sqlite.org/wal.html">SQLite WAL concurrency</a>'),
+        ]);
+        $sources = app(WebSearch::class)->search('SQLite WAL');
+        $this->assertCount(1, $sources);
+        $this->assertSame('https://sqlite.org/wal.html', $sources[0]['url']);
+        $this->assertSame('duckduckgo', $sources[0]['provider']);
+    }
+
     public function test_research_merges_queries_limits_domains_and_keeps_failed_page_labels(): void
     {
         $found = [];
@@ -135,6 +148,20 @@ class WebResearchTest extends TestCase
         $this->assertDatabaseHas('messages', ['content' => 'Report [1](https://example.org/paper)', 'status' => 'complete']);
     }
 
+    public function test_native_deep_research_defers_search_until_a_focused_query_is_planned(): void
+    {
+        config(['models.frontend_chat_key' => str_repeat('b', 32)]);
+        Sanctum::actingAs(User::create(['name' => 'Research', 'email' => 'native-research@example.org', 'password' => 'Password123!']));
+        Http::fake();
+        $this->mock(WebSearch::class)->shouldNotReceive('search');
+        $response = $this->postJson('/api/v1/chat/frontend/begin', [
+            'message' => 'Compare SQLite WAL with rollback journal. Write in Bangla.',
+            'deep_research' => true, 'conversation_tools' => true,
+        ], ['X-Chat-Bridge-Key' => str_repeat('b', 32)])->assertOk();
+        $this->assertSame([], $response->json('sources'));
+        Http::assertNothingSent();
+    }
+
     public function test_search_falls_back_to_public_rss_without_exposing_primary_errors(): void
     {
         config(['models.search_url' => 'https://search.example/search', 'models.public_search_fallback' => true]);
@@ -146,7 +173,7 @@ class WebResearchTest extends TestCase
         $this->assertSame('https://example.org/paper', $sources[0]['url']);
         $this->assertSame('bing_rss', $sources[0]['provider']);
         $this->assertFalse($sources[0]['time_filter_applied']);
-        Http::assertSentCount(2);
+        Http::assertSentCount(3);
     }
 
     public function test_quick_search_reads_pages_and_preserves_unavailable_source_status(): void

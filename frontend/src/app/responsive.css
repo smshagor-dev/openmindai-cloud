@@ -1,0 +1,122 @@
+/* Shared small-screen and long-content constraints. Scroll only the data region. */
+.dialog-header h2,
+.manage-card :is(h2, h3, strong),
+.gallery-page :is(h1, h2, h3),
+.shared-page h1,
+.shared-message .markdown,
+.settings-content :is(p, a, code),
+.studio-main :is(h1, h2, p),
+.rs-project-header h1 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.dialog-header > .icon-button {
+  flex-shrink: 0;
+}
+.dialog-inner,
+.settings-layout,
+.workspace-tabs,
+.tool-cards,
+.manage-card {
+  min-width: 0;
+  max-width: 100%;
+}
+.studio-history,
+.studio-history > div,
+.studio-sidebar {
+  min-width: 0;
+}
+.studio-meta,
+.studio-submit {
+  flex-wrap: wrap;
+}
+.studio-viewport {
+  touch-action: none;
+}
+.studio-viewport > svg {
+  display: block;
+}
+.studio-compatibility {
+  margin: 0;
+  padding: 10px 16px;
+  color: #bad2f1;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.studio-node {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 760px) {
+  /* A translated drawer must not remain in the keyboard or accessibility tree. */
+  .workspace .sidebar:not(.mobile-open),
+  .rs-chat .rs-nav:not(.open) {
+    visibility: hidden;
+  }
+  .workspace .sidebar.mobile-open,
+  .rs-chat .rs-nav.open {
+    visibility: visible;
+  }
+  .settings-nav {
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+  }
+  .settings-nav button {
+    flex-shrink: 0;
+  }
+  .dialog {
+    max-height: calc(100dvh - 24px);
+  }
+  .dialog-header {
+    position: sticky;
+    top: -1px;
+    background: var(--panel);
+    z-index: 2;
+    padding-block: 4px;
+  }
+  .studio-composer textarea,
+  .dialog :is(input, textarea, select) {
+    font-size: 16px;
+  }
+}
+@media (pointer: coarse) {
+  .workspace .icon-button,
+  .dialog .icon-button,
+  .rs-header button,
+  .studio-viewer-tools button,
+  .studio-history button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+@media (max-height: 500px) and (max-width: 760px) {
+  .dialog-inner {
+    padding: 14px;
+  }
+  .dialog .settings-content {
+    max-height: none;
+  }
+  .studio-viewport {
+    height: 65dvh;
+    min-height: 220px;
+  }
+}
+
+.studio-inspect {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  font-size: 12px;
+}
+.studio-inspect select {
+  min-width: 0;
+  max-width: 100%;
+  flex: 1 1 140px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: inherit;
+  text-overflow: ellipsis;
+}

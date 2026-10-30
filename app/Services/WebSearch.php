@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
 class WebSearch
@@ -14,6 +15,9 @@ class WebSearch
         }
         $host = rtrim(strtolower($p['host']), '.');
         if (! preg_match('/^[a-z0-9.-]+$/', $host) || ! str_contains($host, '.') || str_ends_with($host, '.local') || str_ends_with($host, '.localhost') || (filter_var($host, FILTER_VALIDATE_IP) && ! filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE))) {
+            return null;
+        }
+        if (preg_match('/^[0-9.]+$/', $host) && ! filter_var($host, FILTER_VALIDATE_IP)) {
             return null;
         }
         parse_str($p['query'] ?? '', $query);
@@ -46,35 +50,67 @@ class WebSearch
         if (config('models.search_url')) {
             $providers[] = ['searxng', config('models.search_url'), $params];
         }
+        if (config('web_research.brave_key')) {
+            $providers[] = ['brave', 'https://api.search.brave.com/res/v1/web/search', ['q' => $params['q'], 'count' => 10]];
+        }
+        if (config('web_research.google_key') && config('web_research.google_cx')) {
+            $providers[] = ['google', 'https://www.googleapis.com/customsearch/v1', ['q' => $params['q'], 'key' => config('web_research.google_key'), 'cx' => config('web_research.google_cx'), 'num' => 10]];
+        }
         if (config('models.public_search_fallback')) {
             $providers[] = ['bing_rss', 'https://www.bing.com/search', ['q' => $params['q'], 'format' => 'rss']];
             $providers[] = ['duckduckgo', 'https://html.duckduckgo.com/html/', ['q' => $params['q']]];
         }
+        $events = [];
         foreach ($providers as [$provider, $url, $queryParams]) {
-            try {
-                $r = Http::withHeaders(['Accept' => $provider === 'searxng' ? 'application/json' : 'application/rss+xml,text/html', 'User-Agent' => 'OpenMindAI-Research/1.0'])->connectTimeout(3)->timeout(8)->withOptions(['allow_redirects' => false, 'stream' => true])->get($url, $queryParams);
-                if (! $r->successful()) {
-                    continue;
-                }
-                $stream = $r->toPsrResponse()->getBody();
+            $cooldown = 'web-search:cooldown:'.hash('sha256', $provider.$url.(string) config('web_research.brave_key').(string) config('web_research.google_key'));
+            if (Cache::has($cooldown)) {
+                $events[] = ['provider' => $provider, 'status' => 'cooldown'];
+
+                continue;
+            }
+            for ($attempt = 1; $attempt <= config('web_research.attempts', 2); $attempt++) {
                 try {
-                    $body = '';
-                    while (! $stream->eof()) {
-                        $body .= $stream->read(65536);
-                        if (strlen($body) > 1000000) {
-                            throw new \RuntimeException('Search response too large.');
+                    $r = Http::withHeaders(['Accept' => in_array($provider, ['searxng', 'brave', 'google']) ? 'application/json' : 'application/rss+xml,text/html', 'User-Agent' => 'OpenMindAI-Research/2.0', ...($provider === 'brave' ? ['X-Subscription-Token' => config('web_research.brave_key')] : [])])->connectTimeout(3)->timeout(8)->withOptions(['allow_redirects' => false, 'stream' => true])->get($url, $queryParams);
+                    if (! $r->successful()) {
+                        $r->toPsrResponse()->getBody()->close();
+                        $events[] = ['provider' => $provider, 'status' => 'failed', 'http_status' => $r->status(), 'attempt' => $attempt];
+                        if (in_array($r->status(), [429, 500, 502, 503, 504]) && $attempt < config('web_research.attempts', 2) && $r->status() !== 429) {
+                            if (! app()->runningUnitTests()) {
+                                usleep(150000);
+                            }
+
+                            continue;
                         }
+                        if (in_array($r->status(), [401, 403, 429, 500, 502, 503, 504])) {
+                            Cache::put($cooldown, true, max(1, min(120, (int) ($r->header('Retry-After') ?: config('web_research.cooldown_seconds', 30)))));
+                        }
+                        break;
                     }
-                } finally {
-                    $stream->close();
+                    $stream = $r->toPsrResponse()->getBody();
+                    try {
+                        $body = '';
+                        while (! $stream->eof()) {
+                            $body .= $stream->read(65536);
+                            if (strlen($body) > 1000000) {
+                                throw new \RuntimeException('Search response too large.');
+                            }
+                        }
+                    } finally {
+                        $stream->close();
+                    }
+                    $rows = $this->parseResults($provider, $body);
+                    $results = $this->normalize($rows, $options, $query);
+                    if ($results) {
+                        return array_map(fn ($source) => [...$source, 'provider' => $provider, 'retrieved_at' => now()->toIso8601String(), 'provider_events' => [...$events, ['provider' => $provider, 'status' => 'completed', 'attempt' => $attempt]], 'time_filter_applied' => $provider === 'searxng' && isset($params['time_range'])], $results);
+                    }
+                    $events[] = ['provider' => $provider, 'status' => 'empty', 'attempt' => $attempt];
+                    break;
+                } catch (\Throwable $e) {
+                    $events[] = ['provider' => $provider, 'status' => 'unavailable', 'attempt' => $attempt];
+                    if ($attempt >= config('web_research.attempts', 2)) {
+                        Cache::put($cooldown, true, config('web_research.cooldown_seconds', 30));
+                    }
                 }
-                $rows = $this->parseResults($provider, $body);
-                $results = $this->normalize($rows, $options, $query);
-                if ($results) {
-                    return array_map(fn ($source) => [...$source, 'provider' => $provider, 'time_filter_applied' => $provider === 'searxng' && isset($params['time_range'])], $results);
-                }
-            } catch (\Throwable $e) {
-                // Try the next provider without exposing credentials or upstream error bodies.
             }
         }
         abort(503, 'Web search is unavailable. No live sources could be retrieved.');
@@ -82,6 +118,12 @@ class WebSearch
 
     private function parseResults(string $provider, string $body): array
     {
+        if (in_array($provider, ['brave', 'google'])) {
+            $data = json_decode($body, true);
+            $items = $provider === 'brave' ? ($data['web']['results'] ?? []) : ($data['items'] ?? []);
+
+            return array_map(fn ($item) => ['url' => $item[$provider === 'brave' ? 'url' : 'link'] ?? '', 'title' => $item['title'] ?? '', 'content' => $item[$provider === 'brave' ? 'description' : 'snippet'] ?? ''], is_array($items) ? $items : []);
+        }
         if ($provider === 'searxng') {
             $data = json_decode($body, true);
 
@@ -133,6 +175,10 @@ class WebSearch
         // page is not relevant evidence for a requested function.
         preg_match_all('/(?<![\pL\pN_])[\pL][\pL\pN]*_[\pL\pN_]+/u', $query, $matches);
         $identifiers = array_map(fn ($term) => str_replace('_', '-', mb_strtolower($term)), $matches[0]);
+        preg_match_all('/[\pL][\pL\pM\pN_]{2,}/u', $query, $words);
+        $stop = explode(' ', 'the and for from with that this what when where which how are was were does using use into versus official documentation document search web research read sources source report compare comparing explain write concise detailed include exact url urls page pages evidence limitations information please about findings only then its can not could would should have has their they them you your request');
+        $topics = array_values(array_unique(array_diff(array_map('mb_strtolower', $words[0]), $stop)));
+        preg_match('/\bsite:([a-z0-9.-]+)/i', $query, $site);
         $results = [];
         foreach ($rows as $v) {
             if (! is_array($v) || ! is_string($v['url'] ?? null) || strlen($v['url']) > 2000 || ! ($url = self::canonicalUrl($v['url']))) {
@@ -146,6 +192,18 @@ class WebSearch
             $snippet = $text($v['content'] ?? '', 2000);
             $evidence = str_replace('_', '-', mb_strtolower(urldecode($url).' '.$title.' '.$snippet));
             if ($identifiers && ! array_filter($identifiers, fn ($term) => str_contains($evidence, $term))) {
+                continue;
+            }
+            if (isset($site[1])) {
+                $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+                $domain = strtolower($site[1]);
+                if ($host !== $domain && ! str_ends_with($host, '.'.$domain)) {
+                    continue;
+                }
+            }
+            // Reject provider fallback noise rather than treating unrelated pages
+            // as research evidence merely because the HTTP request succeeded.
+            if (count($topics) >= 2 && ! array_filter($topics, fn ($term) => str_contains($evidence, str_replace('_', '-', $term)))) {
                 continue;
             }
             $results[$url] = ['title' => $title, 'url' => $url, 'snippet' => $snippet];

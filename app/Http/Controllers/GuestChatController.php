@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Services\AdminSettings;
 use App\Services\HostedCodeAgents;
 use App\Services\MultilingualPrompt;
+use App\Services\NvidiaRequestRate;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -41,6 +42,7 @@ class GuestChatController
             abort_unless(strlen($key) >= 12, 503, 'Guest chat is not configured.');
             // Charge attempted inference too, so repeated provider failures cannot exhaust resources.
             RateLimiter::hit($bucket, 86400);
+            NvidiaRequestRate::reserve();
             $response = Http::withToken($key)->acceptJson()->connectTimeout(10)->timeout(120)
                 ->withOptions(['allow_redirects' => false])
                 ->post('https://integrate.api.nvidia.com/v1/chat/completions', [

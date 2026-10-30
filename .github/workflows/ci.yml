@@ -13,6 +13,11 @@ jobs:
           php-version: ${{ matrix.php }}
           extensions: mbstring, pdo_sqlite, curl, xml
           coverage: none
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: sudo apt-get update && sudo apt-get install -y pandoc
+      - run: pip install -r runtime/research/requirements.txt -r runtime/web-reader/requirements.txt reportlab
       - run: composer validate --strict
       - run: composer install --no-interaction --prefer-dist
       - run: find app bootstrap config database routes tests -name '*.php' -print0 | xargs -0 -n1 php -l
@@ -38,6 +43,15 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
       - run: npm run test:integration
+      - run: npx playwright install --with-deps chromium
+      - run: node e2e/web-research-run.mjs
+      - run: node e2e/studio-run.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: web-research-browser
+          path: frontend/test-results
+          retention-days: 7
       - run: npm audit --omit=dev
   runtime-contract:
     runs-on: ubuntu-latest
@@ -47,5 +61,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install 'fastapi>=0.115,<1' httpx 'pypdf>=6,<7'
+      - run: pip install -r runtime/web-reader/requirements.txt
+      - run: python -m unittest discover -s runtime/web-reader -v
       - run: python -m unittest discover -s runtime/media -v
       - run: python -m py_compile runtime/media/server.py runtime/media/download.py

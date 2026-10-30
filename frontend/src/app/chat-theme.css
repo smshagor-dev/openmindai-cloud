@@ -183,6 +183,9 @@ html[data-theme="dark"] {
   box-shadow: none;
   color: var(--text);
 }
+.workspace a.sidebar-action[href="/research-studio"] {
+  text-decoration: none;
+}
 .workspace .sidebar-action svg {
   color: var(--text);
   stroke-width: 1.7;
@@ -1162,3 +1165,153 @@ html .dialog .settings-nav button.selected {
     max-height: 210px;
   }
 }
+
+/* Edit a user message in place without blocking native browser dialogs. */
+.workspace .message.user:has(.inline-message-editor) .message-body {
+  flex: 1 1 auto;
+  width: min(100%, 690px);
+  max-width: min(100%, calc(100% - 44px));
+}
+.workspace .inline-message-editor {
+  width: 100%;
+  padding: 15px 16px 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  box-shadow: 0 5px 22px #0000000c;
+  color: var(--text);
+}
+.workspace .inline-edit-label {
+  display: block;
+  margin-bottom: 9px;
+  padding-inline: 2px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+.workspace .inline-message-editor textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 82px;
+  max-height: min(40dvh, 320px);
+  resize: vertical;
+  padding: 4px 2px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.workspace .inline-message-editor textarea:focus-visible {
+  outline: none;
+}
+.workspace .inline-message-editor:focus-within {
+  border-color: color-mix(in srgb, var(--text) 30%, var(--border));
+}
+.workspace .inline-edit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 9px;
+  margin-top: 13px;
+}
+.workspace .inline-edit-actions button {
+  min-height: 36px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--ui-hover);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+.workspace .inline-edit-actions .inline-edit-save {
+  color: var(--ui-inverse);
+  background: var(--text);
+  border-color: var(--text);
+}
+.workspace .inline-edit-actions .inline-edit-save:hover:not(:disabled) {
+  opacity: .85;
+}
+.workspace .inline-edit-actions button:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+.workspace .inline-edit-actions button:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 3px;
+}
+@media (max-width: 760px) {
+  .workspace .message.user:has(.inline-message-editor) .message-body {
+    max-width: calc(100% - 36px);
+  }
+  .workspace .inline-message-editor {
+    padding: 12px;
+    border-radius: 18px;
+  }
+  .workspace .inline-message-editor textarea {
+    font-size: 16px;
+  }
+  .workspace .inline-edit-actions button {
+    min-height: 40px;
+  }
+}
+
+/* A media task has an ID only after Laravel accepts it. Surface queue state
+   and connection failures instead of leaving a silent 0% card indefinitely. */
+.workspace .media-poll-status {
+  width: min(100%, 520px);
+  max-width: 100%;
+  min-width: 0;
+}
+.workspace .media-poll-status .creation-progress {
+  width: 100%;
+  max-width: 100%;
+}
+.workspace .media-queue-warning {
+  margin: 12px 0 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  border-radius: 14px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.workspace .media-queue-warning button {
+  display: block;
+  margin-top: 9px;
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  color: var(--text);
+  background: var(--ui-hover);
+  font: inherit;
+  font-weight: 600;
+}
+
+/* Keep conversation controls separate from the brand on narrow screens. */
+@media (max-width: 380px) {
+  .workspace .topbar-brand > span { display: none; }
+  .workspace .topbar-right { flex-shrink: 0; gap: 3px; }
+}
+.library-media-thumbnail {
+  height: 150px;
+  overflow: hidden;
+  border: 1px solid var(--border, #303038);
+  border-radius: 10px;
+  margin-bottom: 12px;
+  background: var(--surface, #18181b);
+  display: grid;
+  place-items: center;
+}
+.library-media-thumbnail > img { width: 100%; height: 150px; object-fit: cover; }
+.library-media-thumbnail > span { font-size: 12px; padding: 12px; }
+.document-preview-compact { width: 100%; min-height: 150px; padding: 14px; background: #fafafa; color: #27272a; }
+.document-preview-compact .file-text-preview { white-space: pre-wrap; font: 10px/1.6 Georgia, serif; max-height: 130px; overflow: hidden; margin: 0; padding: 0; background: transparent; color: inherit; }
+.generated-media-content { min-width: 0; max-width: 100%; }

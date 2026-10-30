@@ -1,0 +1,31 @@
+services:
+  studio-cpu:
+    # Supply the digest of the image built and verified on your worker host.
+    image: ${STUDIO_CPU_IMAGE:?Set the approved image repository}@sha256:${STUDIO_CPU_DIGEST:?Set the approved 64-character image digest}
+    user: "10001:10001"
+    init: true
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    cpus: 2
+    mem_limit: 2g
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=256m
+    ports:
+      # A separate operator-managed private TLS ingress must proxy this socket.
+      - "127.0.0.1:8087:8000"
+    environment:
+      STUDIO_WORKER_KEY: ${STUDIO_WORKER_KEY:?Set the private matching worker key}
+      STUDIO_WORKER_STATE: /var/lib/openmind-studio
+      STUDIO_WORKER_STORAGE_BYTES: "1000000000"
+    volumes:
+      - studio-state:/var/lib/openmind-studio
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+volumes:
+  studio-state:

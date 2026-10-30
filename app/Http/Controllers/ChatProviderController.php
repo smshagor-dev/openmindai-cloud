@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Services\HostedCodeAgents;
+use App\Services\NvidiaRequestRate;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 
@@ -25,7 +26,7 @@ class ChatProviderController
             'messages.*.tool_calls.*.function.arguments' => 'required|string|max:20000',
             'tools' => 'sometimes|array|max:8',
             'tools.*.type' => 'required|in:function',
-            'tools.*.function.name' => 'required|in:web_search,read_page,ask_specialist,create_artifact',
+            'tools.*.function.name' => 'required|in:web_search,read_page,ask_specialist,create_artifact,decline_web_search',
             'tools.*.function.description' => 'sometimes|string|max:10000',
             'tools.*.function.parameters' => 'required|array',
             'tool_choice' => 'sometimes|in:auto,none,required', 'stream' => 'sometimes|boolean',
@@ -38,6 +39,7 @@ class ChatProviderController
         $key = (string) config('models.nvidia_key');
         abort_unless(strlen($key) >= 12, 503, 'Backend inference is not configured.');
         $stream = (bool) ($data['stream'] ?? false);
+        NvidiaRequestRate::reserve();
         $upstream = Http::withToken($key)->accept($stream ? 'text/event-stream' : 'application/json')
             ->connectTimeout(10)->timeout(240)->withOptions(['allow_redirects' => false, 'stream' => $stream])
             ->post('https://integrate.api.nvidia.com/v1/chat/completions', $data);
