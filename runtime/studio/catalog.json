@@ -1,0 +1,544 @@
+{
+  "upstream": {
+    "source": "https://github.com/lightningpixel/modly",
+    "stable": "0.4.3",
+    "revision": "f11a4d2bd9fe994b9d30f76a36cb6c18ac8733ea"
+  },
+  "engines": [
+    {
+      "id": "hunyuan3d-mini",
+      "name": "Hunyuan3D 2 Mini",
+      "version": "1.1.0",
+      "kind": "model",
+      "input": "image",
+      "output": "mesh",
+      "source": "https://github.com/lightningpixel/modly-hunyuan3d-mini-extension",
+      "revision": "c927d5657249f91d09bb912900d5d4f7b26725fb",
+      "manifest_sha256": "bd768e14e30a96b4875e82bd8e757d640816fe441e65025d48aaccfccf713dbe",
+      "code_sha256": "75f698e17149c0a2f00cff8d787aa7abd80185ec9a316471e68eb2dbf005ebc0",
+      "weight_source": "tencent/Hunyuan3D-2mini",
+      "weight_group": "hunyuan-mini-shared-vae",
+      "weight_check": "hunyuan3d-dit-v2-mini",
+      "variants": {},
+      "parameters": [
+        {
+          "id": "num_inference_steps",
+          "label": "Quality",
+          "type": "select",
+          "default": 30,
+          "options": [
+            {
+              "value": 10,
+              "label": "Fast"
+            },
+            {
+              "value": 30,
+              "label": "Balanced"
+            },
+            {
+              "value": 50,
+              "label": "High"
+            }
+          ],
+          "tooltip": "Number of diffusion steps. More steps = better quality but slower."
+        },
+        {
+          "id": "octree_resolution",
+          "label": "Mesh Resolution",
+          "type": "select",
+          "default": 380,
+          "options": [
+            {
+              "value": 256,
+              "label": "Low"
+            },
+            {
+              "value": 380,
+              "label": "Medium"
+            },
+            {
+              "value": 512,
+              "label": "High"
+            }
+          ],
+          "tooltip": "Octree resolution for mesh reconstruction. Higher = more detail but slower and more VRAM."
+        },
+        {
+          "id": "guidance_scale",
+          "label": "Guidance Scale",
+          "type": "float",
+          "default": 5.5,
+          "min": 1.0,
+          "max": 10.0,
+          "step": 0.5,
+          "tooltip": "Classifier-free guidance strength. Higher = closer to the input image."
+        },
+        {
+          "id": "seed",
+          "label": "Seed",
+          "type": "int",
+          "default": -1,
+          "min": -1,
+          "max": 4294967295,
+          "tooltip": "Seed for reproducibility. Set to -1 for a random seed."
+        }
+      ],
+      "vram_gb": 6,
+      "license_status": "review_required",
+      "extension_license": "No LICENSE file at reviewed revision",
+      "availability": "not_installed",
+      "weight_revision": "f90a0f7df7d5e6f71109cf333f6a95a0ae3194a6"
+    },
+    {
+      "id": "hunyuan3d-mini-turbo",
+      "name": "Hunyuan3D 2 Mini Turbo",
+      "version": "1.0.0",
+      "kind": "model",
+      "input": "image",
+      "output": "mesh",
+      "source": "https://github.com/lightningpixel/modly-hunyuan3d-mini-turbo-extension",
+      "revision": "9457b71b6e3ee5436240cac0d6c1bbcd02e9f53d",
+      "manifest_sha256": "e9019e787f0a3e039f5b7a437386111d835fae29276468a34686d0dc10dd3da0",
+      "code_sha256": "8dc38e8c678a52ea3fdb0f0764f874c633a487a1c86f4e9b2af21453aaaaad48",
+      "weight_source": "tencent/Hunyuan3D-2mini",
+      "weight_group": "hunyuan-mini-shared-vae",
+      "weight_check": "hunyuan3d-dit-v2-mini-turbo",
+      "variants": {},
+      "parameters": [
+        {
+          "id": "num_inference_steps",
+          "label": "Quality",
+          "type": "select",
+          "default": 10,
+          "options": [
+            {
+              "value": 5,
+              "label": "Fast"
+            },
+            {
+              "value": 10,
+              "label": "Balanced"
+            },
+            {
+              "value": 20,
+              "label": "High"
+            }
+          ],
+          "tooltip": "Number of diffusion steps. More steps = better quality but slower."
+        },
+        {
+          "id": "octree_resolution",
+          "label": "Mesh Resolution",
+          "type": "select",
+          "default": 380,
+          "options": [
+            {
+              "value": 256,
+              "label": "Low"
+            },
+            {
+              "value": 380,
+              "label": "Medium"
+            },
+            {
+              "value": 512,
+              "label": "High"
+            }
+          ],
+          "tooltip": "Octree resolution for mesh reconstruction. Higher = more detail but slower and more VRAM."
+        },
+        {
+          "id": "guidance_scale",
+          "label": "Guidance Scale",
+          "type": "float",
+          "default": 5.5,
+          "min": 1,
+          "max": 10,
+          "step": 0.5,
+          "tooltip": "Classifier-free guidance strength. Higher = closer to the input image."
+        },
+        {
+          "id": "seed",
+          "label": "Seed",
+          "type": "int",
+          "default": -1,
+          "min": -1,
+          "max": 4294967295,
+          "tooltip": "Seed for reproducibility. Set to -1 for a random seed."
+        }
+      ],
+      "vram_gb": 6,
+      "license_status": "review_required",
+      "extension_license": "No LICENSE file at reviewed revision",
+      "availability": "not_installed",
+      "weight_revision": "f90a0f7df7d5e6f71109cf333f6a95a0ae3194a6"
+    },
+    {
+      "id": "hunyuan3d-mini-fast",
+      "name": "Hunyuan3D 2 Mini Fast",
+      "version": "1.0.0",
+      "kind": "model",
+      "input": "image",
+      "output": "mesh",
+      "source": "https://github.com/lightningpixel/modly-hunyuan3d-mini-fast-extension",
+      "revision": "56a0bab6b039d9922d3ab228941eb8cd0dbb9ff2",
+      "manifest_sha256": "10e6b2e88f4ccbc252d95296291fb16cf8bdf4105de0728d8b78fb7d96588bf0",
+      "code_sha256": "adafce91646171cde3f9df7c028fdb73f484b17c11e959b624aee4947ff0fca6",
+      "weight_source": "tencent/Hunyuan3D-2mini",
+      "weight_group": "hunyuan-mini-shared-vae",
+      "weight_check": "hunyuan3d-dit-v2-mini-fast",
+      "variants": {},
+      "parameters": [
+        {
+          "id": "num_inference_steps",
+          "label": "Quality",
+          "type": "select",
+          "default": 10,
+          "options": [
+            {
+              "value": 5,
+              "label": "Fast"
+            },
+            {
+              "value": 10,
+              "label": "Balanced"
+            },
+            {
+              "value": 20,
+              "label": "High"
+            }
+          ],
+          "tooltip": "Number of diffusion steps. More steps = better quality but slower."
+        },
+        {
+          "id": "octree_resolution",
+          "label": "Mesh Resolution",
+          "type": "select",
+          "default": 380,
+          "options": [
+            {
+              "value": 256,
+              "label": "Low"
+            },
+            {
+              "value": 380,
+              "label": "Medium"
+            },
+            {
+              "value": 512,
+              "label": "High"
+            }
+          ],
+          "tooltip": "Octree resolution for mesh reconstruction. Higher = more detail but slower and more VRAM."
+        },
+        {
+          "id": "guidance_scale",
+          "label": "Guidance Scale",
+          "type": "float",
+          "default": 5.5,
+          "min": 1.0,
+          "max": 10.0,
+          "step": 0.5,
+          "tooltip": "Classifier-free guidance strength. Higher = closer to the input image."
+        },
+        {
+          "id": "seed",
+          "label": "Seed",
+          "type": "int",
+          "default": -1,
+          "min": -1,
+          "max": 4294967295,
+          "tooltip": "Seed for reproducibility. Set to -1 for a random seed."
+        }
+      ],
+      "vram_gb": 6,
+      "license_status": "review_required",
+      "extension_license": "No LICENSE file at reviewed revision",
+      "availability": "not_installed",
+      "weight_revision": "f90a0f7df7d5e6f71109cf333f6a95a0ae3194a6"
+    },
+    {
+      "id": "triposg",
+      "name": "TripoSG",
+      "version": "1.0.1",
+      "kind": "model",
+      "input": "image",
+      "output": "mesh",
+      "source": "https://github.com/lightningpixel/modly-triposg-extension",
+      "revision": "cc30cb8bedddf8141e78dc6cf88a4cb1a305d128",
+      "manifest_sha256": "8c97bc9b96c52f9a7fdbc5c39c2c7fca91ff53cec8eefb1cfb7db0068db15907",
+      "code_sha256": "84cf22e5a152961ce29498e8f97a0901967a296e98a9fc1711a12924887956ee",
+      "weight_source": "VAST-AI/TripoSG",
+      "weight_group": "triposg",
+      "weight_check": "model_index.json",
+      "variants": {},
+      "parameters": [
+        {
+          "id": "num_inference_steps",
+          "label": "Inference Steps",
+          "type": "int",
+          "default": 50,
+          "min": 8,
+          "max": 50,
+          "tooltip": "Number of diffusion steps. More steps = better quality but slower."
+        },
+        {
+          "id": "guidance_scale",
+          "label": "CFG Scale",
+          "type": "float",
+          "default": 7.0,
+          "min": 0.0,
+          "max": 20.0,
+          "step": 0.5,
+          "tooltip": "Classifier-free guidance strength. Higher = closer to the input image."
+        },
+        {
+          "id": "foreground_ratio",
+          "label": "Foreground Ratio",
+          "type": "float",
+          "default": 0.85,
+          "min": 0.5,
+          "max": 1.0,
+          "step": 0.05,
+          "tooltip": "How much of the canvas the subject fills after background removal."
+        },
+        {
+          "id": "faces",
+          "label": "Max Faces",
+          "type": "int",
+          "default": -1,
+          "min": -1,
+          "max": 500000,
+          "tooltip": "Target face count for mesh simplification. -1 to disable."
+        },
+        {
+          "id": "seed",
+          "label": "Seed",
+          "type": "int",
+          "default": -1,
+          "min": -1,
+          "max": 4294967295,
+          "tooltip": "Seed for reproducibility. Set to -1 for a random seed."
+        },
+        {
+          "id": "use_flash_decoder",
+          "label": "Decoder",
+          "type": "select",
+          "default": "DiffDMC",
+          "options": [
+            {
+              "value": "DiffDMC",
+              "label": "DiffDMC"
+            },
+            {
+              "value": "Marching Cubes",
+              "label": "Marching Cubes"
+            }
+          ],
+          "tooltip": "DiffDMC is faster and produces a watertight mesh. Marching Cubes handles complex geometries better."
+        }
+      ],
+      "vram_gb": 8,
+      "license_status": "review_required",
+      "extension_license": "No LICENSE file at reviewed revision",
+      "availability": "not_installed",
+      "weight_revision": "2c1c516d22d58db486a058d98d31bb6177344e06"
+    },
+    {
+      "id": "trellis2",
+      "name": "Trellis.2 GGUF",
+      "version": "1.0.9",
+      "kind": "model",
+      "input": "image",
+      "output": "mesh",
+      "source": "https://github.com/lightningpixel/modly-trellis2-gguf-extension",
+      "revision": "db287c0c37241c354bb4addf2ca5f53ba0d866f3",
+      "manifest_sha256": "88b997ecd88a3274e793a0ffb8d15965d73714ee8b2ba02d2e21896b9cf4ee17",
+      "code_sha256": "3e98feb26be33aca6241cb5a5e9bc7cdad762aae40fc7f56e9a387f1c871d479",
+      "weight_source": "Aero-Ex/Trellis2-GGUF",
+      "weight_group": "trellis2",
+      "weight_check": "pipeline.json",
+      "variants": {
+        "param": "gguf_quant",
+        "default": "Q5_K_M",
+        "options": [
+          {
+            "id": "Q4_K_M",
+            "label": "Q4_K_M",
+            "size_gb": 2.4,
+            "include_prefixes": [
+              "refiner/ss_flow_img_dit_1_3B_64_bf16_Q4_K_M.gguf",
+              "shape/slat_flow_img2shape_dit_1_3B_512_bf16_Q4_K_M.gguf",
+              "shape/slat_flow_img2shape_dit_1_3B_1024_bf16_Q4_K_M.gguf"
+            ],
+            "checks": [
+              "refiner/ss_flow_img_dit_1_3B_64_bf16_Q4_K_M.gguf",
+              "shape/slat_flow_img2shape_dit_1_3B_512_bf16_Q4_K_M.gguf",
+              "shape/slat_flow_img2shape_dit_1_3B_1024_bf16_Q4_K_M.gguf"
+            ]
+          },
+          {
+            "id": "Q5_K_M",
+            "label": "Q5_K_M",
+            "size_gb": 2.9,
+            "include_prefixes": [
+              "refiner/ss_flow_img_dit_1_3B_64_bf16_Q5_K_M.gguf",
+              "shape/slat_flow_img2shape_dit_1_3B_512_bf16_Q5_K_M.gguf",
+              "shape/slat_flow_img2shape_dit_1_3B_1024_bf16_Q5_K_M.gguf"
+            ],
+            "checks": [
+              "refiner/ss_flow_img_dit_1_3B_64_bf16_Q5_K_M.gguf",
+              "shape/slat_flow_img2shape_dit_1_3B_512_bf16_Q5_K_M.gguf",
+              "shape/slat_flow_img2shape_dit_1_3B_1024_bf16_Q5_K_M.gguf"
+            ]
+          },
+          {
+            "id": "Q6_K",
+            "label": "Q6_K",
+            "size_gb": 3.4,
+            "include_prefixes": [
+              "refiner/ss_flow_img_dit_1_3B_64_bf16_Q6_K.gguf",
+              "shape/slat_flow_img2shape_dit_1_3B_512_bf16_Q6_K.gguf",
+              "shape/slat_flow_img2shape_dit_1_3B_1024_bf16_Q6_K.gguf"
+            ],
+            "checks": [
+              "refiner/ss_flow_img_dit_1_3B_64_bf16_Q6_K.gguf",
+              "shape/slat_flow_img2shape_dit_1_3B_512_bf16_Q6_K.gguf",
+              "shape/slat_flow_img2shape_dit_1_3B_1024_bf16_Q6_K.gguf"
+            ]
+          },
+          {
+            "id": "Q8_0",
+            "label": "Q8_0",
+            "size_gb": 4.3,
+            "include_prefixes": [
+              "refiner/ss_flow_img_dit_1_3B_64_bf16_Q8_0.gguf",
+              "shape/slat_flow_img2shape_dit_1_3B_512_bf16_Q8_0.gguf",
+              "shape/slat_flow_img2shape_dit_1_3B_1024_bf16_Q8_0.gguf"
+            ],
+            "checks": [
+              "refiner/ss_flow_img_dit_1_3B_64_bf16_Q8_0.gguf",
+              "shape/slat_flow_img2shape_dit_1_3B_512_bf16_Q8_0.gguf",
+              "shape/slat_flow_img2shape_dit_1_3B_1024_bf16_Q8_0.gguf"
+            ]
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "id": "pipeline_type",
+          "label": "Quality",
+          "type": "select",
+          "default": "1024_cascade",
+          "tooltip": "Resolution and number of cascade steps. Higher = better detail, slower.",
+          "options": [
+            {
+              "value": "512",
+              "label": "Fast (512)"
+            },
+            {
+              "value": "1024",
+              "label": "Balanced (1024)"
+            },
+            {
+              "value": "1024_cascade",
+              "label": "High (1024 cascade)"
+            },
+            {
+              "value": "1536_cascade",
+              "label": "Ultra (1536 cascade)"
+            }
+          ]
+        },
+        {
+          "id": "gguf_quant",
+          "label": "GGUF Quantization",
+          "type": "select",
+          "default": "Q5_K_M",
+          "tooltip": "GGUF quantization level. Less VRAM = slightly less accurate.",
+          "options": [
+            {
+              "value": "Q4_K_M",
+              "label": "Q4_K_M"
+            },
+            {
+              "value": "Q5_K_M",
+              "label": "Q5_K_M"
+            },
+            {
+              "value": "Q6_K",
+              "label": "Q6_K"
+            },
+            {
+              "value": "Q8_0",
+              "label": "Q8_0"
+            }
+          ]
+        },
+        {
+          "id": "ss_steps",
+          "label": "Sparse Steps",
+          "type": "int",
+          "default": 25,
+          "min": 1,
+          "max": 50,
+          "tooltip": "Diffusion steps for the sparse structure (coarse geometry). More = better quality, slower."
+        },
+        {
+          "id": "slat_steps",
+          "label": "Shape Steps",
+          "type": "int",
+          "default": 25,
+          "min": 1,
+          "max": 50,
+          "tooltip": "Diffusion steps for the geometry SLaT (fine details)."
+        },
+        {
+          "id": "foreground_ratio",
+          "label": "Foreground Ratio",
+          "type": "float",
+          "default": 0.85,
+          "min": 0.5,
+          "max": 1.0,
+          "step": 0.05,
+          "tooltip": "Proportion of the canvas occupied by the subject after background removal."
+        },
+        {
+          "id": "remesh_resolution",
+          "label": "Remesh Resolution",
+          "type": "select",
+          "default": 768,
+          "options": [
+            {
+              "value": 512,
+              "label": "512"
+            },
+            {
+              "value": 768,
+              "label": "768"
+            },
+            {
+              "value": 1024,
+              "label": "1024"
+            }
+          ],
+          "tooltip": "Voxel grid resolution used for the post-generation narrow-band remesh. Higher = fewer holes and junction artifacts, but more VRAM and time. This setting drives the VRAM peak: 512 needs about 3 GB less than 768."
+        },
+        {
+          "id": "seed",
+          "label": "Seed",
+          "type": "int",
+          "default": -1,
+          "min": -1,
+          "max": 4294967295,
+          "tooltip": "Seed for reproducibility. -1 = random."
+        }
+      ],
+      "vram_gb": 8,
+      "license_status": "review_required",
+      "extension_license": "No LICENSE file at reviewed revision",
+      "availability": "not_installed",
+      "weight_revision": "edf81aef93af0823ac8721da3c9cd3c52d539f87"
+    }
+  ]
+}

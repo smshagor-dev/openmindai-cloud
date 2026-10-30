@@ -85,6 +85,18 @@ async function fixtures(page: Page, guest = false) {
     if (path === "conversations" || path === "media" || path === "attachments")
       return json({ data: [], last_page: 1, current_page: 1 });
     if (path === "teams") return json({ teams: [], invites: [] });
+    if (path === "3d-studio/engines")
+      return json({ data: [], worker: { ready: false, processors: [] } });
+    if (
+      [
+        "3d-studio/assets",
+        "3d-studio/jobs",
+        "3d-studio/projects",
+        "3d-studio/workflows",
+        "3d-scenes/uploads",
+      ].includes(path)
+    )
+      return json({ data: [] });
     if (path === "3d-scenes")
       return json({ data: [{ id: 1, title: long, mode: "object" }] });
     if (path === "3d-scenes/1")
@@ -174,7 +186,10 @@ for (const [width, height] of sizes) {
     await page.setViewportSize({ width, height });
     await fixtures(page);
     await page.goto("/");
-    await expect(page.locator('a.sidebar-action[href="/3d-studio"]')).toHaveCSS("text-decoration-line", "none");
+    await expect(page.locator('a.sidebar-action[href="/3d-studio"]')).toHaveCSS(
+      "text-decoration-line",
+      "none",
+    );
     await expect(
       page.getByRole("button", { name: "Open settings", exact: true }),
     ).toBeVisible();
@@ -240,17 +255,19 @@ for (const [width, height] of sizes) {
       .click();
     await fits(page, "dialog[open]");
   });
-  test(`standalone pages ${width}x${height}`, async ({ page }) => {
-    await page.setViewportSize({ width, height });
-    await fixtures(page);
-    for (const route of [
-      "/explore",
-      "/research-studio",
-      "/3d-studio",
-      "/reset-password",
-      "/confirm-email",
-      `/share/${"a".repeat(64)}`,
-    ]) {
+  for (const route of [
+    "/explore",
+    "/research-studio",
+    "/3d-studio",
+    "/reset-password",
+    "/confirm-email",
+    `/share/${"a".repeat(64)}`,
+  ]) {
+    test(`standalone ${route.startsWith("/share/") ? "shared snapshot" : route.slice(1)} ${width}x${height}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height });
+      await fixtures(page);
       await page.goto(route);
       await expect(page.locator("h1")).toBeVisible();
       if (route === "/explore")
@@ -259,9 +276,13 @@ for (const [width, height] of sizes) {
         ).toBeVisible();
       if (route === "/research-studio" || route === "/3d-studio") {
         await expect(page.locator(".workspace-welcome")).toBeVisible();
-        const composer = page.locator(route === "/3d-studio" ? ".studio-composer" : ".rs-chat-composer");
+        const composer = page.locator(
+          route === "/3d-studio" ? ".studio-composer" : ".rs-chat-composer",
+        );
         await expect(composer).toBeVisible();
-        expect(await composer.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+        expect(
+          await composer.evaluate((el) => el.scrollWidth <= el.clientWidth + 1),
+        ).toBe(true);
         await fits(page);
         if ([320, 768, 1440].includes(width))
           await page.screenshot({
@@ -287,20 +308,24 @@ for (const [width, height] of sizes) {
           fullPage: true,
         });
       }
-    }
+
+      if (route === "/research-studio" && width <= 760) {
+        await page
+          .getByRole("button", { name: "Open project navigation" })
+          .click();
+        await fits(page, ".rs-nav");
+      }
+    });
+  }
+  test(`saved conversation ${width}x${height}`, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    await fixtures(page);
     await page.goto("/c/42-responsive-qa");
     await expect(
       page.getByText("Responsive rich content.", { exact: true }),
     ).toBeVisible();
     await fits(page);
     await fits(page, ".composer");
-    if (width <= 760) {
-      await page.goto("/research-studio");
-      await page
-        .getByRole("button", { name: "Open project navigation" })
-        .click();
-      await fits(page, ".rs-nav");
-    }
   });
   test(`guest authentication ${width}x${height}`, async ({ page }) => {
     await page.setViewportSize({ width, height });

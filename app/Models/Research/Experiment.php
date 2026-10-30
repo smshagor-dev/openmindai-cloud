@@ -2,6 +2,7 @@
 
 namespace App\Models\Research;
 
+use App\Services\Research\ExecutionProvenance;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 
@@ -25,7 +26,7 @@ class Experiment extends Model
     {
         $p = $this->result['provenance'] ?? [];
 
-        return $this->status === 'completed' && $this->hasApproval() && ($this->result['exit_code'] ?? -1) === 0 && ($p['execution_id'] ?? '') === $this->execution_id && ($p['code_hash'] ?? '') === hash('sha256', $this->code) && ($p['seed'] ?? null) === $this->seed && preg_match('/^sha256:[a-f0-9]{64}$/', $p['image'] ?? '') === 1;
+        return $this->status === 'completed' && $this->hasApproval() && ($this->result['exit_code'] ?? -1) === 0 && ($p['execution_id'] ?? '') === $this->execution_id && ($p['code_hash'] ?? '') === hash('sha256', $this->code) && ($p['seed'] ?? null) === $this->seed && ExecutionProvenance::runtime($p);
     }
 
     protected function casts(): array

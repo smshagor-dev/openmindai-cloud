@@ -6,6 +6,7 @@ export type SceneNode = {
   rotation: [number, number, number];
   scale: [number, number, number];
   color: string;
+  hidden?: boolean;
 };
 export type StudioScene = {
   title: string;
@@ -14,10 +15,13 @@ export type StudioScene = {
   edges: { from: string; to: string; label: string }[];
 };
 export type SavedScene = {
+  version?: number;
   id: number;
   mode: "object" | "architecture";
   prompt: string;
   scene: StudioScene;
+  upload_ids?: number[];
+  uploads?: { id: number; name: string; mime: string; bytes: number }[];
 };
 export async function studioApi(path = "", method = "GET", body?: unknown) {
   const response = await fetch(`/api/backend/3d-scenes${path}`, {

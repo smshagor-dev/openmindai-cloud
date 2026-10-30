@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
+
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { SVGRenderer } from "three/addons/renderers/SVGRenderer.js";
 import {
@@ -22,7 +23,7 @@ export default function StudioViewport({
   const [selected, setSelected] = useState<string | null>(null),
     [error, setError] = useState(""),
     [exporting, setExporting] = useState(false),
-    [compatibility, setCompatibility] = useState(false),
+    [compatible, setCompatible] = useState(false),
     [ready, setReady] = useState(false);
   useEffect(() => {
     if (!host.current) return;
@@ -31,11 +32,12 @@ export default function StudioViewport({
     setSelected(null);
     setReady(false);
     let renderer: THREE.WebGLRenderer | SVGRenderer;
-    let fallback = false;
+    let svg = false;
     try {
       renderer = new THREE.WebGLRenderer({ antialias: true });
     } catch {
       renderer = new SVGRenderer();
+      renderer.setClearColor(new THREE.Color("#101722"), 1);
       renderer.setQuality("low");
       renderer.setPrecision(2);
       renderer.domElement.setAttribute("role", "img");
@@ -43,9 +45,9 @@ export default function StudioViewport({
         "aria-label",
         "Compatibility 3D preview",
       );
-      fallback = true;
+      svg = true;
     }
-    setCompatibility(fallback);
+    setCompatible(svg);
     const world = new THREE.Scene();
     world.background = new THREE.Color("#101722");
     const camera = new THREE.PerspectiveCamera(45, 1, 0.05, 1000);
@@ -57,9 +59,10 @@ export default function StudioViewport({
     container.appendChild(labels.domElement);
     const controls = new OrbitControls(
       camera,
-      fallback ? container : (renderer.domElement as HTMLCanvasElement),
+      renderer.domElement as unknown as HTMLElement,
     );
-    controls.enableDamping = !fallback;
+    controls.enableDamping = true;
+    world.add(new THREE.AmbientLight(0xffffff, 1.2));
     world.add(new THREE.HemisphereLight(0xffffff, 0x34415e, 3));
     const light = new THREE.DirectionalLight(0xffffff, 4);
     light.position.set(10, 20, 10);
@@ -77,9 +80,10 @@ export default function StudioViewport({
       world.add(obj);
     }
     for (const node of scene.nodes) {
+      if (node.hidden) continue;
       const geometry =
         node.shape === "sphere"
-          ? new THREE.SphereGeometry(0.5, fallback ? 12 : 24, fallback ? 8 : 16)
+          ? new THREE.SphereGeometry(0.5, svg ? 12 : 24, svg ? 8 : 16)
           : node.shape === "cylinder"
             ? new THREE.CylinderGeometry(0.5, 0.5, 1, 24)
             : node.shape === "cone"
@@ -89,10 +93,9 @@ export default function StudioViewport({
                 : new THREE.BoxGeometry(1, 1, 1);
       const mesh = new THREE.Mesh(
         geometry,
-        new THREE.MeshStandardMaterial({
+        new (svg ? THREE.MeshLambertMaterial : THREE.MeshStandardMaterial)({
           color: node.color,
-          roughness: 0.55,
-          metalness: 0.15,
+          ...(svg ? {} : { roughness: 0.55, metalness: 0.15 }),
         }),
       );
       mesh.position.fromArray(node.position);
@@ -111,6 +114,11 @@ export default function StudioViewport({
         );
     }
     for (const edge of scene.edges) {
+      if (
+        scene.nodes.find((n) => n.id === edge.from)?.hidden ||
+        scene.nodes.find((n) => n.id === edge.to)?.hidden
+      )
+        continue;
       const from = scene.nodes.find((n) => n.id === edge.from)!,
         to = scene.nodes.find((n) => n.id === edge.to)!;
       const start = new THREE.Vector3(...from.position),
@@ -156,14 +164,37 @@ export default function StudioViewport({
       controls.update();
     };
     reset();
+    let dirty = true;
+    controls.addEventListener("change", () => {
+      dirty = true;
+    });
     actions.current = {
       reset,
       export: async () => {
         const { GLTFExporter } =
           await import("three/addons/exporters/GLTFExporter.js");
-        const result = await new GLTFExporter().parseAsync(model, {
-          binary: true,
+        const exportModel = model.clone(true);
+        const converted: THREE.Material[] = [];
+        exportModel.traverse((object) => {
+          const mesh = object as THREE.Mesh;
+          if (mesh.material instanceof THREE.MeshLambertMaterial) {
+            const material = new THREE.MeshStandardMaterial({
+              color: mesh.material.color,
+              roughness: 0.55,
+              metalness: 0.15,
+            });
+            mesh.material = material;
+            converted.push(material);
+          }
         });
+        let result: ArrayBuffer | { [key: string]: unknown };
+        try {
+          result = await new GLTFExporter().parseAsync(exportModel, {
+            binary: true,
+          });
+        } finally {
+          converted.forEach((material) => material.dispose());
+        }
         if (!(result instanceof ArrayBuffer)) throw new Error("Export failed");
         downloadScene(result, "openmind-scene.glb", "model/gltf-binary");
       },
@@ -174,6 +205,7 @@ export default function StudioViewport({
       labels.render(world, camera);
     };
     const resize = () => {
+      dirty = true;
       const w = container.clientWidth,
         h = container.clientHeight;
       if (!w || !h) return;
@@ -209,25 +241,35 @@ export default function StudioViewport({
       const hit = ray.intersectObjects(meshes)[0];
       setSelected(hit ? String(hit.object.userData.nodeId) : null);
     };
-    container.addEventListener("pointerdown", pointerDown);
-    container.addEventListener("pointerup", click);
-    if (renderer instanceof THREE.WebGLRenderer) {
-      renderer.setAnimationLoop(() => {
-        controls.update();
-        renderFrame();
-      });
-    } else {
-      controls.addEventListener("change", renderFrame);
-    }
+    renderer.domElement.addEventListener(
+      "pointerdown",
+      pointerDown as EventListener,
+    );
+    renderer.domElement.addEventListener("pointerup", click as EventListener);
+    let frame = 0;
+    const animate = () => {
+      frame = requestAnimationFrame(animate);
+      controls.update();
+      if (dirty) {
+        renderer.render(world, camera);
+        labels.render(world, camera);
+        dirty = false;
+      }
+    };
+    animate();
     return () => {
       actions.current = null;
       observer.disconnect();
-      if (renderer instanceof THREE.WebGLRenderer)
-        renderer.setAnimationLoop(null);
-      controls.removeEventListener("change", renderFrame);
+      cancelAnimationFrame(frame);
       controls.dispose();
-      container.removeEventListener("pointerdown", pointerDown);
-      container.removeEventListener("pointerup", click);
+      renderer.domElement.removeEventListener(
+        "pointerdown",
+        pointerDown as EventListener,
+      );
+      renderer.domElement.removeEventListener(
+        "pointerup",
+        click as EventListener,
+      );
       world.traverse((obj) => {
         const m = obj as THREE.Mesh;
         m.geometry?.dispose();
@@ -242,10 +284,9 @@ export default function StudioViewport({
   return (
     <section className="studio-viewer" aria-label="Interactive 3D preview">
       <div className="studio-viewport" ref={host} />
-      {compatibility && (
-        <p className="studio-compatibility" role="status">
-          Compatibility preview · WebGL unavailable. Orbit, inspect and GLB
-          export remain available.
+      {compatible && (
+        <p role="status" className="studio-compatible">
+          Compatible preview mode · orbit, zoom and GLB export available
         </p>
       )}
       {error && (
@@ -254,7 +295,9 @@ export default function StudioViewport({
         </p>
       )}
       <div className="studio-viewer-tools">
-        <button onClick={() => actions.current?.reset()}>Reset view</button>
+        <button disabled={!ready} onClick={() => actions.current?.reset()}>
+          Reset view
+        </button>
         <button
           disabled={exporting || !ready}
           onClick={async () => {

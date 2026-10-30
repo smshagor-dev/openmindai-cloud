@@ -11,6 +11,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Laravel\Sanctum\PersonalAccessToken;
+use Symfony\Component\HttpKernel\Exception\HttpException;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
 class Inference
 {
@@ -27,7 +29,7 @@ class Inference
             }
             $ctx->fenced(function () use ($ctx) {
                 $r = $ctx->run();
-                abort_if($r->reserved_tokens + 6000 > config('research.token_budget'), 429, 'Research token reservation limit reached.');
+                abort_if((int) config('research.token_budget') > 0 && $r->reserved_tokens + 6000 > (int) config('research.token_budget'), 429, 'Research token reservation limit reached.');
                 $r->increment('reserved_tokens', 6000);
             });
             try {
@@ -48,8 +50,13 @@ class Inference
                     $messages[] = ['role' => 'user', 'content' => $part];
                 }
                 $request = Request::create('/api/v1/mobile/chat/completions', 'POST', ['model' => $slug, 'messages' => $messages, 'stream' => false, 'temperature' => 0.2, 'max_tokens' => 6000]);
+                // Internal request metadata, never a public request parameter.
+                $request->attributes->set('research_literature_json', true);
                 $request->setUserResolver(fn () => $user);
                 $response = app(OpenMindAiGatewayController::class)->mobileChat($request, app(HostedCodeAgents::class), app(ApiCreditUsage::class));
+                if ($response->getStatusCode() === 429) {
+                    throw new HttpException(429, 'provider_rate_limit', null, ['Retry-After' => max(1, (int) $response->headers->get('Retry-After', 60))]);
+                }
                 if ($response->getStatusCode() !== 200) {
                     throw new \RuntimeException('provider_unavailable');
                 }$body = $response->getData(true);
@@ -64,6 +71,12 @@ class Inference
                 $ctx->event('model.completed', ['model' => $slug, 'usage' => $body['usage'] ?? null]);
 
                 return $out;
+            } catch (HttpExceptionInterface $e) {
+                if ($e->getStatusCode() === 429 && $e->getMessage() !== 'Research token reservation limit reached.') {
+                    throw $e;
+                }
+                $last = $e;
+                $ctx->event('model.failed', ['model' => $slug, 'error_code' => 'provider_or_schema_error']);
             } catch (StaleExecution $e) {
                 throw $e;
             } catch (\Throwable $e) {

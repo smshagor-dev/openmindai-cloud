@@ -70,7 +70,7 @@ class SceneStudioTest extends TestCase
         $user = $this->user();
         $token = $user->createToken('Studio session', ['user'])->plainTextToken;
         $this->withToken($token)->postJson('/api/v1/3d-scenes', ['mode' => 'architecture', 'prompt' => 'An application service'])->assertCreated();
-        Http::assertSent(fn ($request) => $request['model'] === 'nvidia/nemotron-3-ultra-550b-a55b' && $request['stream'] === false);
+        Http::assertSent(fn ($request) => $request['model'] === 'nvidia/nemotron-3-ultra-550b-a55b' && $request['stream'] === false && $request['chat_template_kwargs'] === ['enable_thinking' => false]);
         $this->assertDatabaseHas('api_credit_usage', ['user_id' => $user->id, 'credits' => 1]);
     }
 

@@ -1263,7 +1263,7 @@ export default function ChatWorkspace() {
             {user && (
               <>
                 <a className="sidebar-action" href="/3d-studio"><Grid2X2 size={19} /><span>3D Studio</span></a>
-                <a className="sidebar-action" href="/research-studio"><BookOpen size={19} /><span>AI Research Studio</span></a>
+                <a className="sidebar-action" href="/research-studio"><BookOpen size={19} /><span>Research Studio</span></a>
                 <button
                   className="sidebar-action"
                   disabled={busy}

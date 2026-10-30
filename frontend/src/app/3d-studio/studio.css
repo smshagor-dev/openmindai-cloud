@@ -135,8 +135,33 @@
 }
 .studio-modes {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 18px;
+}
+.studio-tools,
+.studio-editor,
+.studio-workbench,
+.studio-workbench *,
+.studio-editor * {
+  box-sizing: border-box;
+  min-width: 0;
+}
+.studio-shell button {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.studio-references {
+  grid-template-columns: minmax(0, 1fr);
+}
+.studio-upload-label,
+.studio-upload-label input {
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+.studio-references small {
+  overflow-wrap: anywhere;
 }
 .studio-modes button[aria-pressed="true"] {
   background: #345078;
@@ -350,4 +375,280 @@
   .studio-node {
     max-width: 180px;
   }
+}
+
+.studio-references {
+  display: grid;
+  gap: 10px;
+  padding: 12px 0;
+  min-width: 0;
+}
+.studio-references small {
+  color: var(--studio-muted, #a0aec0);
+}
+.studio-upload-label {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+.studio-upload-label input {
+  max-width: 100%;
+}
+.studio-reference-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  padding: 6px 0;
+  overflow-wrap: anywhere;
+}
+.studio-reference-row label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.studio-reference-row a {
+  flex-shrink: 0;
+  font-size: 12px;
+}
+.studio-references p {
+  overflow-wrap: anywhere;
+}
+.studio-compatible {
+  position: absolute;
+  bottom: 40px;
+  left: 20px;
+  right: 20px;
+  font-size: 12px;
+  color: #a9c7de;
+  pointer-events: none;
+}
+.studio-tool-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+}
+.studio-tools,
+.studio-editor,
+.studio-workbench {
+  border: 1px solid var(--studio-border, #334155);
+  border-radius: 16px;
+  padding: 1rem;
+  margin: 1rem 0;
+  background: var(--studio-panel, #151e2c);
+}
+.studio-tools label,
+.studio-editor label,
+.studio-workbench label {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 0.5rem 0;
+}
+.studio-tools select,
+.studio-editor select,
+.studio-editor input,
+.studio-workbench select,
+.studio-workbench input,
+.studio-workbench textarea {
+  max-width: 100%;
+  min-width: 0;
+  color: inherit;
+  background: var(--studio-bg, #0c131e);
+  border: 1px solid #475569;
+  border-radius: 8px;
+  padding: 0.5rem;
+}
+.studio-vector {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+.studio-vector label {
+  display: grid;
+}
+.studio-vector input {
+  width: 100%;
+}
+.studio-editor fieldset {
+  border: 1px solid #334155;
+  border-radius: 10px;
+  margin: 0.7rem 0;
+  padding: 0.7rem;
+}
+.studio-workbench button,
+.studio-editor button {
+  padding: 0.5rem 0.8rem;
+  border: 1px solid #475569;
+  border-radius: 8px;
+  background: #1f3045;
+  color: inherit;
+}
+.studio-workbench button:focus-visible,
+.studio-editor button:focus-visible {
+  outline: 2px solid #60a5fa;
+  outline-offset: 2px;
+}
+.studio-asset-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+.studio-asset-list button {
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.studio-error {
+  overflow-wrap: anywhere;
+}
+.studio-workbench small,
+.studio-editor small {
+  display: block;
+  color: #a6b5ca;
+  margin-top: 0.7rem;
+}
+@media (max-width: 600px) {
+  .studio-tool-row > * {
+    max-width: 100%;
+  }
+  .studio-tools,
+  .studio-editor,
+  .studio-workbench {
+    padding: 0.75rem;
+  }
+  .studio-vector {
+    gap: 0.25rem;
+  }
+}
+.studio-workflow-canvas {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2rem;
+  padding: 1rem 0;
+  margin: 1rem 0;
+}
+.studio-workflow-node {
+  position: relative;
+  z-index: 1;
+  border: 1px solid #475569;
+  border-radius: 12px;
+  background: var(--studio-panel, #151e2c);
+  padding: 1rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.studio-workflow-node textarea {
+  width: 100%;
+  min-height: 90px;
+}
+.studio-workflow-node select {
+  width: 100%;
+}
+.studio-workflow-lines {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.studio-asset-viewport {
+  height: 440px;
+  min-height: 240px;
+}
+.studio-workbench article {
+  margin: 1rem 0;
+}
+.studio-workbench details {
+  border-top: 1px solid #334155;
+  padding: 0.7rem 0;
+}
+.studio-workbench [role="tab"][aria-selected="true"] {
+  background: #255a91;
+}
+.studio-tool-row label {
+  max-width: 100%;
+}
+@media (max-width: 650px) {
+  .studio-workflow-canvas {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+  .studio-workflow-node {
+    padding: 0.75rem;
+  }
+  .studio-asset-viewport {
+    height: 320px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .studio-workbench * {
+    scroll-behavior: auto;
+    transition: none !important;
+  }
+}
+
+/* Keep every Studio panel on the same explicit palette. */
+.studio-shell {
+  color-scheme: dark;
+  --studio-panel: #151e2c;
+  --studio-bg: #0c131e;
+  --studio-muted: #a6b5ca;
+}
+.studio-shell select {
+  color: inherit;
+  background: var(--studio-bg);
+  border: 1px solid #475569;
+  border-radius: 8px;
+  padding: 0.5rem;
+  max-width: 100%;
+  min-width: 0;
+}
+.studio-shell.studio-light {
+  color-scheme: light;
+  background: #f8fafc;
+  color: #172033;
+  --studio-panel: #f1f5f9;
+  --studio-bg: #fff;
+  --studio-muted: #475569;
+  --studio-border: #cbd5e1;
+}
+.studio-light .studio-sidebar,
+.studio-light .studio-composer {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+.studio-light button,
+.studio-light .studio-examples button {
+  background: #e2e8f0;
+  color: #172033;
+  border-color: #94a3b8;
+}
+.studio-light button:hover {
+  background: #cbd5e1;
+}
+.studio-light a,
+.studio-light header p,
+.studio-light .studio-muted,
+.studio-light .studio-submit small,
+.studio-light .studio-composer label,
+.studio-light .studio-workbench small,
+.studio-light .studio-editor small {
+  color: #475569;
+}
+.studio-light .studio-modes button[aria-pressed="true"],
+.studio-light .studio-workbench [role="tab"][aria-selected="true"] {
+  background: #bfdbfe;
+  color: #172033;
+}
+.studio-light .studio-workflow-node,
+.studio-light .studio-tools,
+.studio-light .studio-editor,
+.studio-light .studio-workbench {
+  border-color: #94a3b8;
 }

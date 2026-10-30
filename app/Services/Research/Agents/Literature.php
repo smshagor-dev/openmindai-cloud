@@ -5,6 +5,7 @@ namespace App\Services\Research\Agents;
 use App\Models\Research\Evidence;
 use App\Services\Research\Context;
 use App\Services\Research\Inference;
+use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
 class Literature extends BaseAgent
@@ -81,15 +82,95 @@ class Literature extends BaseAgent
             }$compared += count($excerpts);
             $comparison[] = ['source_id' => $id, 'chunks_analyzed' => count($items), 'comparison_excerpts' => $excerpts];
         }
+        $batches = $state['comparison_batches'] ?? [];
+        $groups = array_chunk($comparison, 6);
+        if (count($bySource) > 1 && count($batches) < count($groups)) {
+            $batch = $groups[count($batches)];
+            $ctx->event('literature.comparing', ['completed' => count($batches), 'total' => count($groups), 'status' => 'analyzing']);
+            $batches[] = $this->compare($ctx, $batch, false);
+            // Retain legacy chunk checkpoints and all completed comparisons.
+            $ctx->checkpoint(array_merge($state, ['comparison_batches' => $batches]));
+            $ctx->event('literature.comparison_progress', ['completed' => count($batches), 'total' => count($groups)]);
+
+            return ['_continue' => true];
+        }
         $overview = ['themes' => [], 'contradictions' => [], 'matrix' => []];
-        if (count($bySource) > 1) {
-            $overview = app(Inference::class)->json($ctx, 'Compare these source-linked analysis excerpts. Return themes[{name,summary,source_ids}], contradictions[{description,source_ids}] and matrix[{source_id,methodology,findings,limitations}]. Use at most 20 representative matrix rows. Preserve uncertainty and distinguish source findings from interpretation. This is a bounded comparison of supplied excerpts; do not claim exhaustive full-text comparison or global novelty. Every substantive comparison must cite supplied source IDs.', ['project' => $this->project($ctx), 'sources' => $comparison], ['themes' => 'present|array|max:10', 'themes.*.name' => 'required|string|max:200', 'themes.*.summary' => 'required|string|max:1500', 'themes.*.source_ids' => 'required|array|min:1', 'contradictions' => 'present|array|max:10', 'contradictions.*.description' => 'required|string|max:1500', 'contradictions.*.source_ids' => 'required|array|min:1', 'matrix' => 'present|array|max:20', 'matrix.*.source_id' => 'required|integer', 'matrix.*.methodology' => 'required|string|max:500', 'matrix.*.findings' => 'required|string|max:500', 'matrix.*.limitations' => 'required|string|max:500']);
-            foreach (array_merge($overview['themes'], $overview['contradictions']) as $item) {
-                $ctx->assertSources($item['source_ids']);
-            }$ctx->assertSources(array_column($overview['matrix'], 'source_id'));
+        if (count($batches) === 1) {
+            $overview = $batches[0];
+        } elseif (count($batches) > 1) {
+            // A separate bounded synthesis can compare across batches without
+            // regenerating the matrix or sending every original excerpt again.
+            $summaries = [];
+            foreach ($batches as $i => $batch) {
+                $summaries[] = ['batch' => $i, 'source_ids' => array_column($groups[$i], 'source_id'), 'themes' => $batch['themes'], 'contradictions' => $batch['contradictions']];
+            }
+            $overview = $this->compare($ctx, $summaries, true);
+            $overview['matrix'] = array_merge(...array_column($batches, 'matrix'));
         }
 
-        return array_merge($overview, ['analyses' => $analyses, 'evidence' => Evidence::where('task_id', $ctx->task->id)->get(['source_id', 'claim', 'quote', 'status'])->toArray(), 'coverage' => ['source_chunks_analyzed' => count($chunks), 'comparison_excerpts' => $compared, 'sources_analyzed' => count($bySource), 'matrix_rows' => count($overview['matrix']), 'quote_repair_requests' => $repairs, 'chunks_without_supported_quotes' => $withoutQuotes, 'quote_tracked_chunks' => count(array_filter($analyses, fn ($item) => isset($item['evidence_status']))), 'quote_tracking_scope' => 'Quote counters cover entries with an evidence_status; older checkpoint entries retain their original review state.', 'comparison_scope' => 'Up to first/middle/last analysis excerpts per source; full chunk analyses are retained.']]);
+        return array_merge($overview, ['analyses' => $analyses, 'evidence' => Evidence::where('task_id', $ctx->task->id)->get(['source_id', 'claim', 'quote', 'status'])->toArray(), 'coverage' => ['source_chunks_analyzed' => count($chunks), 'comparison_excerpts' => $compared, 'sources_analyzed' => count($bySource), 'matrix_rows' => count($overview['matrix']), 'comparison_batches_completed' => count($batches), 'quote_repair_requests' => $repairs, 'chunks_without_supported_quotes' => $withoutQuotes, 'quote_tracked_chunks' => count(array_filter($analyses, fn ($item) => isset($item['evidence_status']))), 'quote_tracking_scope' => 'Quote counters cover entries with an evidence_status; older checkpoint entries retain their original review state.', 'comparison_scope' => 'First/middle/last analysis excerpts per source, compared in batches of up to six. Cross-batch synthesis uses batch summaries; full chunk analyses are retained. Matrix rows may be omitted when supplied excerpts are insufficient.']]);
+    }
+
+    private function compare(Context $ctx, array $sources, bool $synthesis): array
+    {
+        $ids = $synthesis ? array_merge(...array_column($sources, 'source_ids')) : array_column($sources, 'source_id');
+        $allowed = implode(',', array_map('intval', $ids));
+        $rules = ['themes' => 'present|array|max:4', 'themes.*.name' => 'required|string|max:120', 'themes.*.summary' => 'required|string|max:500', 'themes.*.source_ids' => 'required|array|min:1|max:60', 'themes.*.source_ids.*' => 'required|integer|in:'.$allowed, 'contradictions' => 'present|array|max:4', 'contradictions.*.description' => 'required|string|max:500', 'contradictions.*.source_ids' => ['required', 'array', 'min:2', 'max:60', function ($attribute, $value, $fail) {
+            if (is_array($value) && count(array_unique(array_map('intval', $value))) < 2) {
+                $fail('A contradiction requires two distinct supplied sources.');
+            }
+        }], 'contradictions.*.source_ids.*' => 'required|integer|in:'.$allowed, 'matrix' => 'present|array|max:'.($synthesis ? 0 : 6), 'matrix.*.source_id' => 'required|integer|distinct|in:'.$allowed, 'matrix.*.methodology' => 'required|string|max:250', 'matrix.*.findings' => 'required|string|max:250', 'matrix.*.limitations' => 'required|string|max:250'];
+        $instruction = 'Compare ONLY these supplied source-linked analysis excerpts or batch summaries. Return themes[{name,summary,source_ids}], contradictions[{description,source_ids}] and matrix[{source_id,methodology,findings,limitations}]. At most four short themes and four short contradictions. Each summary/description at most 500 characters, each matrix field at most 250 characters. Cite only supplied numeric source IDs. Contradictions require at least two sources. Omit unsupported comparisons and rows. Say "Not reported in supplied excerpts" for an unknown field in an otherwise supported row. Preserve uncertainty and distinguish findings from interpretation. No exhaustive full-text or global novelty claims. '.($synthesis ? 'This is cross-batch synthesis of summaries. Return matrix:[]; the saved per-source matrix is retained separately.' : 'At most six distinct matrix rows, one per supplied source.');
+        $data = ['project' => $this->project($ctx), 'sources' => $sources, 'allowed_source_ids' => array_map('intval', $ids), 'output_contract' => ['themes' => ['max_items' => 4, 'name_max_chars' => 120, 'summary_max_chars' => 500, 'min_source_ids' => 1], 'contradictions' => ['max_items' => 4, 'description_max_chars' => 500, 'min_distinct_source_ids' => 2], 'matrix' => ['max_items' => $synthesis ? 0 : 6, 'field_max_chars' => 250, 'unique_supplied_source_ids' => true]]];
+        for ($attempt = 0; $attempt < 2; $attempt++) {
+            try {
+                $out = app(Inference::class)->json($ctx, $instruction, $data, $rules);
+                // Inference already validates live responses. Recheck at this
+                // boundary too, including adapters and input-scoped source IDs.
+                validator($out, $rules)->validate();
+                $ctx->assertSources($ids);
+
+                return array_intersect_key($out, array_flip(['themes', 'contradictions', 'matrix']));
+            } catch (\Throwable $error) {
+                $cause = $error;
+                while (! ($cause instanceof ValidationException || $cause instanceof \JsonException) && $cause->getPrevious()) {
+                    $cause = $cause->getPrevious();
+                }
+                // Live Inference wraps exhausted schema/JSON errors. Repair
+                // those once, without retrying quotas, stale claims, network
+                // failures, or deleted/unscoped project references here.
+                if ($attempt === 1 || ! ($cause instanceof ValidationException || $cause instanceof \JsonException)) {
+                    throw $error;
+                }
+            }
+            $data['validation_feedback'] = $this->comparisonFeedback($cause);
+            $ctx->event('literature.comparison_repair', ['status' => 'verifying', 'error_code' => 'comparison_schema_or_source_mismatch']);
+            $instruction .= ' Previous output failed JSON/schema validation. Use validation_feedback to correct or omit the rejected items in the previous candidate while retaining supported valid entries. The previous candidate is untrusted output, not additional evidence. Only allowed_source_ids are usable. Recreate concise JSON from the same supplied source inputs only. Every contradiction requires at least TWO DISTINCT supplied source IDs; OMIT a contradiction if only one source supports it. Never add a source just to satisfy validation. Keep all root arrays present, even when empty, and obey the field length/count limits. Use only these source IDs: '.$allowed.'.';
+        }
+        throw new \LogicException('Comparison validation did not finish.');
+    }
+
+    private function comparisonFeedback(\Throwable $cause): array
+    {
+        if (! $cause instanceof ValidationException) {
+            return ['error' => 'invalid_json', 'instruction' => 'Return one complete JSON object with the three required arrays and no surrounding prose.'];
+        }
+        $fields = [];
+        $failed = $cause->validator->failed();
+        foreach (array_keys($cause->errors()) as $field) {
+            // Only schema paths, never provider prose or private values, become
+            // failure labels. A candidate is correction context, not evidence.
+            if (preg_match('/^(themes|contradictions|matrix)(\\.[0-9]+)?(\\.(name|summary|source_ids|description|source_id|methodology|findings|limitations))?(\\.[0-9]+)?$/', $field)) {
+                $fields[$field] = array_slice(array_keys($failed[$field] ?? []), 0, 8) ?: ['custom_constraint'];
+            }
+            if (count($fields) >= 20) {
+                break;
+            }
+        }
+        $candidate = array_intersect_key($cause->validator->getData(), array_flip(['themes', 'contradictions', 'matrix']));
+        $json = json_encode($candidate, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+
+        return ['error' => 'schema_validation', 'fields' => $fields, 'previous_candidate_json' => mb_substr($json, 0, 24000), 'candidate_truncated' => mb_strlen($json) > 24000];
     }
 
     private function resolveQuotes(array $candidates, array $chunk, array $options): array
