@@ -98,7 +98,7 @@ class SceneStudioController
             $scene = json_decode($content, true, 32);
             abort_unless(is_array($scene), 502, 'The model returned invalid scene JSON. Try a more specific prompt.');
             try {
-                $scene = $scenes->validate($scene);
+                $scene = $scenes->validate($scenes->normalize($scene, $data['prompt']));
             } catch (ValidationException $e) {
                 abort(502, 'The generated scene failed validation. Try a simpler or more specific prompt.');
             }
