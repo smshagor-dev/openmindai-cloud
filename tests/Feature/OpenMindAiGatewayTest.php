@@ -26,11 +26,41 @@ class OpenMindAiGatewayTest extends TestCase
         $u = $this->account();
         $token = $u->createToken('developer:Test IDE', ['openmindai:invoke'], now()->addDays(90))->plainTextToken;
         $this->withToken($token)->getJson('/api/v1/openmindai/models')->assertOk()
-            ->assertJsonCount(42, 'data')
-            ->assertJsonFragment(['id' => 'openmindai-super', 'name' => 'OpenMindAI Super']);
+            ->assertJsonCount(3, 'data')
+            ->assertJsonFragment(['id' => 'openmindai-super', 'name' => 'OpenMindAI'])
+            ->assertJsonMissing(['id' => 'nvidia-background-noise-removal']);
         $this->withToken($token)->getJson('/api/v1/me')->assertForbidden();
         $this->withToken($token)->getJson('/api/v1/tokens')->assertForbidden();
         $this->withToken($token)->postJson('/api/v1/chat', ['model_id' => 1, 'message' => 'test'])->assertForbidden();
+    }
+
+    public function test_mobile_chat_reuses_user_login_session_not_developer_keys(): void
+    {
+        config(['models.nvidia_key' => 'test-provider-secret-123']);
+        Http::fake(['integrate.api.nvidia.com/*' => Http::response([
+            'choices' => [['index' => 0, 'message' => [
+                'role' => 'assistant', 'content' => 'Cloud answer',
+            ], 'finish_reason' => 'stop']],
+            'usage' => ['total_tokens' => 10],
+        ])]);
+        $user = $this->account();
+        $session = $user->createToken('OpenMindAI Mobile', ['user'], now()->addDays(30))->plainTextToken;
+        $this->withToken($session)->getJson('/api/v1/mobile/models')->assertOk()
+            ->assertJsonFragment(['id' => 'openmindai-lite', 'available' => true]);
+        $this->withToken($session)->postJson('/api/v1/mobile/chat/completions', [
+            'model' => 'openmindai-lite',
+            'messages' => [['role' => 'user', 'content' => 'Hello']],
+            'stream' => false,
+        ])->assertOk()->assertJsonPath('choices.0.message.content', 'Cloud answer');
+        $this->withToken($session)->getJson('/api/v1/openmindai/models')->assertForbidden();
+        $developer = $user->createToken('developer:test', ['openmindai:invoke'])->plainTextToken;
+        // Sanctum caches the resolved guard within one PHPUnit request lifecycle.
+        $this->app['auth']->forgetGuards();
+        $this->withToken($developer)->getJson('/api/v1/mobile/models')->assertForbidden();
+        $this->withToken($developer)->postJson('/api/v1/mobile/chat/completions', [
+            'model' => 'openmindai-lite',
+            'messages' => [['role' => 'user', 'content' => 'Hello']],
+        ])->assertForbidden();
     }
 
     public function test_developer_key_can_be_generated_and_revoked(): void
@@ -114,26 +144,27 @@ class OpenMindAiGatewayTest extends TestCase
         $this->get($path, [...$headers, 'X-OpenMindAI-Nonce' => bin2hex(random_bytes(16))])->assertUnauthorized();
     }
 
-    public function test_all_models_are_visible_even_when_provider_is_not_ready(): void
+    public function test_developer_catalog_lists_only_openmindai_coding_agents(): void
     {
         $this->assertDatabaseCount('hosted_code_agents', 42);
         $u = $this->account();
         $token = $u->createToken('developer:catalog', ['openmindai:invoke'])->plainTextToken;
         $this->withToken($token)->getJson('/api/v1/openmindai/catalog')->assertOk()
-            ->assertJsonCount(42, 'data')
-            ->assertJsonFragment(['id' => 'openmindai-super', 'available' => true]);
-        DB::table('hosted_code_agents')->where('slug', 'nvidia-background-noise-removal')
+            ->assertJsonCount(3, 'data')
+            ->assertJsonFragment(['id' => 'openmindai-super', 'name' => 'OpenMindAI', 'available' => true])
+            ->assertJsonMissing(['id' => 'nvidia-background-noise-removal'])
+            ->assertDontSee('provider_model');
+
+        DB::table('hosted_code_agents')->where('slug', 'openmindai-lite')
             ->update(['enabled' => false]);
         $this->withToken($token)->getJson('/api/v1/openmindai/catalog')->assertOk()
-            ->assertJsonCount(42, 'data')
-            ->assertJsonFragment([
-                'id' => 'nvidia-background-noise-removal',
-                'available' => false,
-                'path' => null,
-            ]);
+            ->assertJsonCount(3, 'data')
+            ->assertJsonFragment(['id' => 'openmindai-lite', 'available' => false, 'path' => null]);
+
         $this->withToken($token)->getJson('/api/v1/openmindai/models')->assertOk()
-            ->assertJsonCount(42, 'data')
-            ->assertJsonFragment(['id' => 'nvidia-background-noise-removal', 'available' => false]);
+            ->assertJsonCount(3, 'data')
+            ->assertJsonFragment(['id' => 'openmindai-lite', 'name' => 'OpenMindAI', 'available' => false])
+            ->assertJsonMissing(['id' => 'nvidia-background-noise-removal']);
     }
 
     public function test_specialized_json_invoke_requires_admin_verified_configuration_and_tracks_usage(): void
@@ -171,7 +202,7 @@ class OpenMindAiGatewayTest extends TestCase
     public function test_model_configuration_never_forwards_client_supplied_provider_model(): void
     {
         config(['models.nvidia_key' => 'test-provider-secret-123']);
-        Http::fake(['integrate.api.nvidia.com/*' => Http::response(['result' => 'ok'])]);
+        Http::fake(['integrate.api.nvidia.com/*' => Http::response(['data' => [['embedding' => [0.1, 0.2]]]])]);
         $u = $this->account();
         $token = $u->createToken('developer:safe', ['openmindai:invoke'])->plainTextToken;
         $slug = 'nvidia-nemotron-3-embed-1b';

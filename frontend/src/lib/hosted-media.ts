@@ -16,6 +16,8 @@ const SPEECH_VOICES: Record<string, string> = {
 };
 export const hostedMediaEnabled = () =>
   !!process.env.NVIDIA_API_KEY && (process.env.FRONTEND_CHAT_BRIDGE_KEY?.length || 0) >= 32;
+export const hostedDocumentEnabled = () =>
+  (process.env.FRONTEND_CHAT_BRIDGE_KEY?.length || 0) >= 32;
 
 class WorkError extends Error {
   status: number;
@@ -94,7 +96,7 @@ export async function hostedMediaRequest(
     bridgeKey: process.env.FRONTEND_CHAT_BRIDGE_KEY || "",
     chatModel: process.env.NVIDIA_MODEL || "nvidia/nemotron-3.5-lightning-30b-a3b",
   };
-  if (!config.apiKey || config.bridgeKey.length < 32)
+  if (config.bridgeKey.length < 32)
     return Response.json({ message: "Media services are not configured." }, { status: 503 });
   let job: Work;
   try { job = JSON.parse(payload); }
@@ -103,6 +105,8 @@ export async function hostedMediaRequest(
       typeof job.prompt !== "string" || job.prompt.length > 4000 ||
       (job.kind !== "transcription" && !job.prompt.trim()))
     return Response.json({ message: "Invalid media request." }, { status: 422 });
+  if (job.kind !== "document_create" && !config.apiKey)
+    return Response.json({ message: "This media engine is not configured." }, { status: 503 });
   if (job.kind === "document_create" && !["pdf", "docx"].includes(job.format || ""))
     return Response.json({ message: "Choose PDF or DOCX.", status: 422 }, { status: 422 });
   if (job.kind === "speech" && job.prompt.length > 1000)
@@ -134,10 +138,12 @@ export async function hostedMediaRequest(
       redirect: "error", signal: AbortSignal.timeout(timeout),
     });
   const invoke = async (url: string, body: BodyInit, type?: string, timeout = 110000) => {
-    const response = await fetcher(url, {
+    const backendDocument = job.kind === "document_create" && (!options.config || !config.apiKey);
+    const response = await fetcher(backendDocument ? base + "/chat/provider" : url, {
       method: "POST", body,
       headers: {
-        Authorization: "Bearer " + config.apiKey,
+        Authorization: "Bearer " + (backendDocument ? token : config.apiKey),
+        ...(backendDocument ? { "X-Chat-Bridge-Key": config.bridgeKey } : {}),
         Accept: job.kind === "transcription" || job.kind === "document_create" || job.kind === "video" ? "application/json" : "audio/wav",
         ...(type ? { "Content-Type": type } : {}),
       },
@@ -230,10 +236,16 @@ export async function hostedMediaRequest(
     }
     if (signal.aborted) throw new WorkError("Media request was cancelled.", 499);
     const saved = await bridge("media/" + taskId + "/hosted/task/complete", { ...completed, provider_model: providerModel }, 45000);
+    if (!saved.ok) {
+      // Only propagate known actionable validation messages, never raw provider bodies.
+      const detail = await saved.json().catch(() => null);
+      if (detail?.message === "Document verification is unavailable.")
+        throw new WorkError("The backend PHP ZIP extension is required to save DOCX files. Enable it or choose PDF.", 503);
+    }
     if (!saved.ok) throw new WorkError(
       saved.status === 404 || saved.status === 409
         ? "This media task was deleted or cancelled."
-        : "Media created but could not be saved.",
+        : `Media created but the backend could not save it (HTTP ${saved.status}).`,
       saved.status === 404 || saved.status === 409 ? 409 : 503,
     );
     const result = await saved.json();

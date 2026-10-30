@@ -1,17 +1,24 @@
 <?php
 
+use App\Jobs\ExecuteStudioJob;
+use App\Jobs\ExecuteStudioWorkflow;
 use App\Jobs\RunMediaTask;
 use App\Jobs\RunWorkspaceTask;
 use App\Models\ConversationShare;
 use App\Models\MediaTask;
 use App\Models\Message;
 use App\Models\ScheduledTask;
+use App\Models\StudioJob;
 use App\Models\TaskRun;
 use App\Models\User;
 use App\Services\AdminSettings;
+use App\Services\Research\Orchestrator;
+use App\Services\Research\Readiness;
+use App\Services\Research\WorkerTransfers;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schedule;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 
 Artisan::command('admin:create {email} {name}', function () {
@@ -207,3 +214,50 @@ Schedule::call(function () {
             }
         });
 })->hourly();
+
+Artisan::command('research:recover', function () {
+    app(Orchestrator::class)->recover();
+    $this->info('Research leases checked.');
+});
+Schedule::command('research:recover')->everyMinute()->withoutOverlapping();
+Schedule::call(fn () => app(WorkerTransfers::class)->prune())->everyTenMinutes()->name('research-transfer-cleanup')->withoutOverlapping();
+
+Artisan::command('research:preflight {--fresh : Recheck worker instead of using the short health cache}', function () {
+    $status = app(Readiness::class)->inspect((bool) $this->option('fresh'));
+    $this->line(json_encode($status, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+
+    return $status['infrastructure_ready'] ? 0 : 1;
+})->purpose('Check Research Studio infrastructure without revealing credentials or executing research.');
+
+Artisan::command('studio:recover', function () {
+    if (! Schema::hasTable('studio_jobs')) {
+        return;
+    }
+    StudioJob::where('operation', 'direct_scene')->whereIn('status', ['running', 'cancel_requested'])->where('lease_until', '<', now())->get()->each(function ($job) {
+        $scene = DB::table('studio_scenes')->where('user_id', $job->user_id)->where('origin_job_id', $job->id)->first();
+        $job->update(['status' => $scene ? 'completed' : ($job->status === 'cancel_requested' ? 'cancelled' : 'failed'), 'result' => $scene ? ['scene_id' => $scene->id] : null, 'error_code' => $scene ? null : 'provider_outcome_uncertain', 'lease_until' => null]);
+    });
+    if (! config('studio.queue_enabled')) {
+        return;
+    }
+    StudioJob::where('operation', '!=', 'direct_scene')->whereIn('status', ['queued', 'running', 'cancel_requested'])
+        ->where(fn ($q) => $q->whereNull('lease_until')->orWhere('lease_until', '<', now()))
+        ->where('updated_at', '<', now()->subSeconds(30))->orderBy('created_at')->limit(20)->get()
+        ->each(function ($job) {
+            $class = $job->operation === 'workflow' ? ExecuteStudioWorkflow::class : ExecuteStudioJob::class;
+            $class::dispatch($job->id)->onConnection('database')->onQueue('studio');
+        });
+});
+Schedule::command('studio:recover')->everyMinute()->withoutOverlapping();
+
+Artisan::command('studio:preflight {--cpanel : Check the direct scene profile without a worker} {--require-gpu : Require at least one verified GPU engine}', function () {
+    if ($this->option('cpanel') && $this->option('require-gpu')) {
+        $this->error('Choose either the cPanel profile or the GPU profile.');
+
+        return 2;
+    }
+    $status = app(App\Services\Studio\Readiness::class)->inspect();
+    $this->line(json_encode($status, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+
+    return $status[$this->option('cpanel') ? 'cpanel_ready' : ($this->option('require-gpu') ? 'gpu_infrastructure_ready' : 'cpu_infrastructure_ready')] ? 0 : 1;
+})->purpose('Inspect private 3D worker readiness without exposing credentials or generating artifacts.');

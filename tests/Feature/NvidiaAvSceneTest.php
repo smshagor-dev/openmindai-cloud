@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Jobs\RunAvSceneInference;
 use App\Models\User;
 use App\Services\ApiCreditUsage;
+use App\Services\HostedCodeAgents;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -46,7 +47,9 @@ class NvidiaAvSceneTest extends TestCase
             'api_path' => '/v1/av/nvidia/streampetr',
         ]);
         [$user, $token] = $this->account();
-        $data = $this->withToken($token)->getJson('/api/v1/openmindai/catalog')->assertOk()->json('data');
+        $developerData = $this->withToken($token)->getJson('/api/v1/openmindai/catalog')->assertOk()->json('data');
+        $this->assertCount(3, $developerData);
+        $data = app(HostedCodeAgents::class)->publicCatalog();
         $item = collect($data)->firstWhere('id', 'nvidia-streampetr');
         $this->assertSame('scene.process', $item['operation']);
         $this->assertSame('/av/streampetr/jobs', $item['path']);

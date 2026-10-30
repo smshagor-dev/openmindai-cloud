@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Jobs\RunAvWorkerScene;
 use App\Models\User;
 use App\Services\ApiCreditUsage;
+use App\Services\HostedCodeAgents;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -45,8 +46,11 @@ class NvidiaAvWorkerTest extends TestCase
 
     public function test_both_nim_models_expose_dedicated_catalog_routes(): void
     {
+        $this->setupWorker();
         [$user, $token] = $this->account();
-        $rows = collect($this->withToken($token)->getJson('/api/v1/openmindai/catalog')->assertOk()->json('data'));
+        $developerData = $this->withToken($token)->getJson('/api/v1/openmindai/catalog')->assertOk()->json('data');
+        $this->assertCount(3, $developerData);
+        $rows = collect(app(HostedCodeAgents::class)->publicCatalog());
         foreach (['nvidia-sparsedrive', 'nvidia-bevformer'] as $slug) {
             $record = $rows->firstWhere('id', $slug);
             $this->assertTrue($record['available']);

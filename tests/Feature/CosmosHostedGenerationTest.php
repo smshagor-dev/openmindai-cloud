@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Jobs\RunCosmosGeneration;
 use App\Models\User;
 use App\Services\ApiCreditUsage;
+use App\Services\HostedCodeAgents;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -44,8 +45,14 @@ class CosmosHostedGenerationTest extends TestCase
             'api_path' => '/v1/cosmos/nvidia/cosmos3-nano',
         ]);
         [$u, $token] = $this->account();
-        $catalog = $this->withToken($token)->getJson('/api/v1/openmindai/catalog')->assertOk()->json('data');
-        $cosmos = collect($catalog)->firstWhere('id', 'nvidia-cosmos3-nano');
+        $publicCatalog = $this->withToken($token)->getJson('/api/v1/openmindai/catalog')->assertOk()->json('data');
+        $this->assertCount(3, $publicCatalog);
+        $this->assertNull(collect($publicCatalog)->firstWhere('id', 'nvidia-cosmos3-nano'));
+
+        // The specialist remains registered internally and its existing
+        // queued endpoint continues working without appearing in the portal.
+        $cosmos = collect(app(HostedCodeAgents::class)->publicCatalog())
+            ->firstWhere('id', 'nvidia-cosmos3-nano');
         $this->assertSame('generate', $cosmos['operation']);
         $this->assertSame('/cosmos/generations', $cosmos['path']);
         $this->withToken($token)->postJson(

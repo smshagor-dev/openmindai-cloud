@@ -56,3 +56,15 @@ test("malformed task response cannot be reported as saved", async () => {
   const result=await run(async()=>Response.json({id:0,status:"complete"},{status:200}));
   assert.equal(result.status,502);
 });
+
+
+test("Auto image calls return a durable queued task without blocking or polling", async () => {
+  let calls = 0;
+  const response = await run(async () => {
+    calls++;
+    return Response.json({id:73,ids:[73],status:"queued",kind:"image"}, {status:202});
+  }, {prompt}, true);
+  assert.equal(response.status, 202);
+  assert.deepEqual(await response.json(), {id:73,ids:[73],status:"queued",kind:"image"});
+  assert.equal(calls, 1);
+});

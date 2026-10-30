@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Jobs\RunMagpieSynthesis;
 use App\Models\User;
 use App\Services\ApiCreditUsage;
+use App\Services\HostedCodeAgents;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -54,8 +55,11 @@ class MagpieSynthesisTest extends TestCase
 
     public function test_magpie_is_active_and_uses_queued_tts_inference(): void
     {
+        $this->setupNim();
         [$user, $key] = $this->account();
-        $models = collect($this->withToken($key)->getJson('/api/v1/openmindai/catalog')->assertOk()->json('data'));
+        $developerData = $this->withToken($key)->getJson('/api/v1/openmindai/catalog')->assertOk()->json('data');
+        $this->assertCount(3, $developerData);
+        $models = collect(app(HostedCodeAgents::class)->publicCatalog());
         $tts = $models->firstWhere('id', 'nvidia-magpie-tts-zeroshot');
         $this->assertTrue($tts['active']);
         $this->assertTrue($tts['available']);

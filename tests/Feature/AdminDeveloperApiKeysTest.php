@@ -67,7 +67,7 @@ class AdminDeveloperApiKeysTest extends TestCase
         // Authenticate the same kind of key as the desktop client uses.
         $this->app['auth']->forgetGuards();
         $this->withToken($value)->getJson('/api/v1/openmindai/models')->assertOk()
-            ->assertJsonCount(42, 'data');
+            ->assertJsonCount(3, 'data');
     }
 
     public function test_2fa_is_required_when_configured(): void

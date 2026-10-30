@@ -103,3 +103,27 @@ Official references:
 - https://build.nvidia.com/nvidia/parakeet-ctc-1_1b-asr/api
 - https://build.nvidia.com/nvidia/magpie-tts-multilingual/api
 - https://build.nvidia.com/nvidia/cosmos3-nano/modelcard
+
+
+### Image task remains queued
+
+Image creation now uses Laravel's dedicated `media` database connection and the
+`media` queue. A running default queue worker does not consume these jobs.
+On the Laravel host, start a supervised worker from the application directory:
+
+```sh
+php artisan queue:work media --queue=media --sleep=3 --timeout=900 --tries=1
+```
+
+For cPanel hosts that allow cron workers, configure a guarded cron using the
+actual PHP binary and application path:
+
+```cron
+* * * * * flock -n /home/USER/openmind-media.lock /opt/cpanel/ea-php82/root/usr/bin/php /home/USER/online-model/artisan queue:work media --queue=media --stop-when-empty --max-time=900 --timeout=900 --tries=1 >> /home/USER/online-model/storage/logs/media-worker.log 2>&1
+```
+
+Keep the existing scheduler cron. After backend updates, run migrations, refresh
+configuration and restart workers. Verify a new task changes from queued to
+running to complete and that its private image downloads successfully. An
+accepted task is still processing; chat must retain its ID and must not describe
+it as a failed generation or retry it just because the provider is slow.

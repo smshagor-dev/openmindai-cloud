@@ -28,6 +28,11 @@ export async function generateHostedImage(
   try {
     const started = await request("media/cloud-image", "POST", data);
     if (!started.ok) {
+      if ([502, 503, 504].includes(started.status)) {
+        return Response.json({
+          message: "Image backend unavailable (HTTP " + started.status + "). The queue may have accepted your request. Check Library before retrying.",
+        }, {status: started.status, headers: {"Cache-Control":"no-store"}});
+      }
       const result = await started.json().catch(() => ({}));
       return Response.json({message: typeof result.message === "string" ? result.message : "Image request rejected."},
         {status: started.status, headers: {"Cache-Control":"no-store"}});
@@ -35,27 +40,12 @@ export async function generateHostedImage(
     const created = await started.json();
     if (!Number.isSafeInteger(created?.id) || created.id < 1 || !Array.isArray(created.ids))
       return Response.json({message:"Invalid cloud image task response."}, {status:502});
-    if (!options.waitForCompletion) return Response.json(created, {status:202, headers:{"Cache-Control":"no-store"}});
-    // Native chat tools wait for a saved artifact; the Media Studio does not block on it.
-    // Worker may outlive the request; any interruption leaves a resumable task in Library.
-    if (created.ids.length !== 1) return Response.json({message:"Chat image tool supports one generated image per call."}, {status:422});
-    for (let attempts = 0; attempts < 48; attempts++) {
-      if (signal.aborted) throw new Error("Cancelled");
-      await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(resolve, 3000);
-        signal.addEventListener("abort", () => {clearTimeout(timer); reject(new Error("Cancelled"));}, {once:true});
-      });
-      const polled = await request("media/" + created.id, "GET");
-      if (!polled.ok) break;
-      const task = await polled.json();
-      if (task?.status === "complete" && task?.output_mime?.startsWith("image/"))
-        return Response.json({id:created.id,status:"complete",kind:"image"},{status:201});
-      if (task?.status === "failed" || task?.status === "cancelled")
-        return Response.json({message:"Image generation failed. Check the saved task in Library.",task_id:created.id}, {status:502});
-    }
-    return Response.json({message:"Image generation is still processing. Check Library for the result.",task_id:created.id},
-      {status:202, headers:{"Cache-Control":"no-store"}});
+    // A durable task is accepted, not completed. Return its ID immediately so
+    // chat can display and poll it without occupying the inference tool loop.
+    return Response.json(created, {status:202, headers:{"Cache-Control":"no-store"}});
   } catch {
-    return Response.json({message:"Cannot reach the cloud image service. Check Library before retrying."}, {status:503});
+    // A slow request can be accepted upstream even if the acknowledgement
+    // times out. Never retry a non-idempotent generation request automatically.
+    return Response.json({message:"The image service did not acknowledge the request before timeout. Check Library for an accepted task before retrying."}, {status:504, headers:{"Cache-Control":"no-store"}});
   }
 }

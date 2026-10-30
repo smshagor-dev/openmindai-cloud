@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Jobs\RunMaxineInference;
 use App\Models\User;
 use App\Services\ApiCreditUsage;
+use App\Services\HostedCodeAgents;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -44,16 +45,18 @@ class NvidiaMaxineMediaTest extends TestCase
 
     public function test_catalog_contains_three_dedicated_maxine_routes_without_claiming_provider_verification(): void
     {
+        config(['maxine.worker_url' => 'https://maxine-worker.example.test', 'maxine.worker_key' => str_repeat('t', 40)]);
         [$user, $token] = $this->account();
         $response = $this->withToken($token)->getJson('/api/v1/openmindai/catalog')->assertOk();
-        $rows = collect($response->json('data'));
+        $this->assertCount(3, $response->json('data'));
+        $rows = collect(app(HostedCodeAgents::class)->publicCatalog());
         foreach (array_keys(config('maxine.models')) as $slug) {
             $model = $rows->firstWhere('id', $slug);
             $this->assertSame('media.process', $model['operation']);
             $this->assertSame('/maxine/'.$slug.'/jobs', $model['path']);
             $this->assertFalse($model['provider_verified']);
         }
-        $this->assertCount(42, $response->json('data'));
+        $this->assertCount(42, $rows);
     }
 
     public function test_wav_inference_is_queued_private_and_charged_once_on_success(): void

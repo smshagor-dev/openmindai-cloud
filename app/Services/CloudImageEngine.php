@@ -56,27 +56,26 @@ class CloudImageEngine
         $mode = $options['mode'] ?? 'generate';
         $ratio = $options['aspect_ratio'] ?? '1:1';
         $prompt = app(CloudImagePrompt::class)->normalize($task->prompt);
+        MediaTask::whereKey($task->id)->where('status', 'running')
+            ->update(['progress_percent' => 20, 'progress_stage' => 'preparing']);
         $seed = (int) ($options['seed'] ?? 0);
         $headers = ['Accept' => 'application/json'];
         if ($mode === 'generate') {
-            if ($ratio === '1:1') {
-                $url = config('cloud_images.fast_endpoint');
-                $model = config('cloud_images.fast_model');
-                $payload = [
-                    'prompt' => $prompt, 'mode' => 'base',
-                    'cfg_scale' => 0, 'height' => 1024, 'width' => 1024,
-                    'samples' => 1, 'seed' => $seed, 'steps' => 4,
-                ];
-            } else {
-                $url = config('cloud_images.ratio_endpoint');
-                $model = config('cloud_images.ratio_model');
-                $payload = [
-                    'prompt' => $prompt, 'model' => 'sd3',
-                    'mode' => 'text-to-image', 'aspect_ratio' => $ratio,
-                    'output_format' => 'jpeg', 'cfg_scale' => 5,
-                    'seed' => $seed, 'steps' => 30,
-                ];
-            }
+            // Live API validation requires cfg_scale >= 1 and forbids mode.
+            // Keep dimensions aligned to 16 pixels with the exact selected ratio.
+            [$width, $height] = match ($ratio) {
+                '16:9' => [1280, 720], '9:16' => [720, 1280],
+                '5:4' => [1280, 1024], '4:5' => [1024, 1280],
+                '3:2' => [1152, 768], '2:3' => [768, 1152],
+                default => [1024, 1024],
+            };
+            $url = config($ratio === '1:1' ? 'cloud_images.fast_endpoint' : 'cloud_images.ratio_endpoint');
+            $model = config($ratio === '1:1' ? 'cloud_images.fast_model' : 'cloud_images.ratio_model');
+            $payload = [
+                'prompt' => $prompt, 'cfg_scale' => 1,
+                'height' => $height, 'width' => $width,
+                'samples' => 1, 'seed' => $seed, 'steps' => 4,
+            ];
             $key = config('cloud_images.key');
         } else {
             $masked = in_array($mode, ['inpaint', 'outpaint'], true);
@@ -109,8 +108,10 @@ class CloudImageEngine
             }
         }
 
+        MediaTask::whereKey($task->id)->where('status', 'running')
+            ->update(['progress_percent' => 28, 'progress_stage' => 'generating']);
         $response = Http::withToken((string) $key)->withHeaders($headers)
-            ->connectTimeout(10)->timeout(135)->withOptions(['allow_redirects' => false])
+            ->connectTimeout(30)->timeout(max(30, min(720, (int) config('cloud_images.timeout', 720))))->withOptions(['allow_redirects' => false])
             ->post($url, $payload);
         if (! $response->successful()) {
             throw new RuntimeException('Image model unavailable (HTTP '.$response->status().').');
@@ -135,6 +136,9 @@ class CloudImageEngine
             || ! $size || $size[0] * $size[1] > 16000000) {
             throw new RuntimeException('Image output failed content validation.');
         }
+
+        MediaTask::whereKey($task->id)->where('status', 'running')
+            ->update(['progress_percent' => 90, 'progress_stage' => 'finalizing']);
 
         return ['binary' => $binary, 'mime' => $mime, 'model' => $model];
     }

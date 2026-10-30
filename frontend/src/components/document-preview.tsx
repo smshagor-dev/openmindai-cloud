@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import ResponseMarkdown from "./response-markdown";
-export default function DocumentPreview({ file }: { file: File }) {
+export default function DocumentPreview({ file, onAttach, compact = false }: { file: File; onAttach?: (file: File) => void; compact?: boolean }) {
   const [text, setText] = useState("");
   const [url, setUrl] = useState("");
   const [error, setError] = useState("");
@@ -20,7 +20,10 @@ export default function DocumentPreview({ file }: { file: File }) {
         if (file.size > 8_000_000)
           throw new Error("Preview supports files up to 8 MB.");
         let content = "";
-        if (extension === "docx") {
+        if (extension === "pdf") {
+          const { extractPdfText } = await import("@/lib/pdf-text");
+          content = await extractPdfText(new Uint8Array(await file.arrayBuffer()));
+        } else if (extension === "docx") {
           const { unzipSync, strFromU8 } = await import("fflate");
           const files = unzipSync(new Uint8Array(await file.arrayBuffer()), {
             filter: (entry) =>
@@ -68,7 +71,7 @@ export default function DocumentPreview({ file }: { file: File }) {
             throw new Error(result.message || "Unable to preview document.");
           content = result.text;
         }
-        if (!cancelled) setText(content.slice(0, 250000));
+        if (!cancelled) setText(content.slice(0, compact ? 1200 : 250000));
       } catch (e) {
         if (!cancelled) setError((e as Error).message);
       } finally {
@@ -81,12 +84,12 @@ export default function DocumentPreview({ file }: { file: File }) {
       controller.abort();
       URL.revokeObjectURL(objectUrl);
     };
-  }, [file, extension]);
+  }, [file, extension, compact]);
   return (
-    <section className="document-preview" aria-label={file.name + " preview"}>
+    <section className={"document-preview" + (compact ? " document-preview-compact" : "")} aria-label={file.name + " preview"}>
       {loading && <p role="status">Preparing preview…</p>}
       {error && <p role="alert">{error}</p>}
-      {extension === "pdf" && url && (
+      {!compact && extension === "pdf" && url && (
         <iframe title={file.name} className="pdf-preview" src={url} />
       )}
       {["md", "markdown"].includes(extension || "") ? (
@@ -94,7 +97,18 @@ export default function DocumentPreview({ file }: { file: File }) {
       ) : (
         text && <pre className="file-text-preview">{text}</pre>
       )}
-      {url && (
+      {!loading && !error && text.trim() && onAttach && (
+        <>
+          <button className="primary-button"
+            disabled={text.length > 50000 || new TextEncoder().encode(text).length > 100000}
+            onClick={() => onAttach(new File([text], file.name.slice(0, 150) + ".txt", { type: "text/plain" }))}>
+            Attach extracted text to message
+          </button>
+          {(text.length > 50000 || new TextEncoder().encode(text).length > 100000) &&
+            <p role="alert">The extracted text exceeds the chat attachment limit. Split the document; no text was attached or silently omitted.</p>}
+        </>
+      )}
+      {!compact && url && (
         <a href={url} download={file.name}>
           Download {file.name}
         </a>

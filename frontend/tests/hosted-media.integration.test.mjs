@@ -245,3 +245,27 @@ test("invalid requests and absent server credentials never contact provider", as
   assert.equal(second.status, 422);
   assert.equal(s.calls.length, 0);
 });
+
+
+test("document creation uses backend inference without a frontend NVIDIA key", async () => {
+  const calls = [];
+  const response = await hostedMediaRequest(JSON.stringify({kind:"document_create",prompt:"Write a short test",format:"docx"}),
+    "signed-in-user", "https://backend/api/v1", new AbortController().signal, {
+      config:{apiKey:"",bridgeKey:"z".repeat(32)},
+      fetcher:async (url, init) => {
+        calls.push({url,init});
+        if (url.endsWith("/chat/provider")) return Response.json({choices:[{message:{content:"OpenMindAI test document"}}]});
+        if (url.endsWith("/begin")) return Response.json({id:14,status:"running"},{status:202});
+        if (url.endsWith("/complete")) {
+          assert.match(Buffer.from(JSON.parse(init.body).data,"base64").toString("hex"), /^504b/);
+          return Response.json({id:14,status:"complete"});
+        }
+        throw Error("Unexpected request");
+      }
+    });
+  assert.equal(response.status,201);
+  const inference=calls.find(call=>call.url.endsWith("/chat/provider"));
+  assert.equal(inference.init.headers.Authorization,"Bearer signed-in-user");
+  assert.equal(inference.init.headers["X-Chat-Bridge-Key"],"z".repeat(32));
+  assert.ok(calls.every(call=>call.url.startsWith("https://backend/api/v1/")));
+});

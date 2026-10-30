@@ -130,6 +130,37 @@ class FrontendChatTest extends TestCase
         $this->assertArrayNotHasKey('page_text', $saved->sources[0]);
     }
 
+    public function test_finished_source_passages_and_pdf_provenance_survive_the_real_history_endpoint(): void
+    {
+        $this->authenticate();
+        Http::preventStrayRequests();
+        $begin = $this->postJson('/api/v1/chat/frontend/begin', ['message' => 'Evidence persistence', 'deep_research' => true, 'conversation_tools' => true], $this->headers())->assertOk();
+        $source = ['url' => 'https://example.org/paper.pdf', 'title' => 'Paper', 'citation' => 1, 'read_status' => 'read', 'provider' => 'fixture', 'retrieved_at' => now()->toIso8601String(), 'mime' => 'application/pdf', 'final_url' => 'https://example.org/paper.pdf', 'duplicate_of' => null, 'passages' => [['id' => 'p1', 'text' => 'Selected বাংলা evidence', 'page' => 24]], 'pdf' => ['total_pages' => 24, 'sampled_pages' => [1, 24], 'partial' => true, 'ocr' => false], 'page_text' => 'Raw page must not persist', 'private_field' => 'Not approved metadata'];
+        $this->postJson('/api/v1/chat/frontend/finish', ['ticket' => $begin->json('ticket'), 'content' => 'Report [1]', 'status' => 'complete', 'sources' => [$source]], $this->headers())->assertOk();
+        $saved = Message::findOrFail($begin->json('message_id'))->sources[0];
+        $this->assertSame('Selected বাংলা evidence', $saved['passages'][0]['text']);
+        $this->assertSame(24, $saved['passages'][0]['page']);
+        $this->assertSame([1, 24], $saved['pdf']['sampled_pages']);
+        $this->assertSame('fixture', $saved['provider']);
+        $this->assertArrayNotHasKey('page_text', $saved);
+        $this->assertArrayNotHasKey('private_field', $saved);
+        $this->getJson('/api/v1/conversations/'.$begin->json('conversation_id'))->assertOk()
+            ->assertJsonPath('messages.data.1.sources.0.passages.0.page', 24)
+            ->assertJsonPath('messages.data.1.sources.0.passages.0.text', 'Selected বাংলা evidence')
+            ->assertJsonPath('messages.data.1.sources.0.pdf.total_pages', 24);
+    }
+
+    public function test_finish_rejects_oversized_or_malformed_provenance_before_overwriting_saved_evidence(): void
+    {
+        $this->authenticate();
+        Http::preventStrayRequests();
+        $begin = $this->postJson('/api/v1/chat/frontend/begin', ['message' => 'Bounded evidence', 'deep_research' => true, 'conversation_tools' => true], $this->headers())->assertOk();
+        foreach ([['passages' => array_fill(0, 9, ['text' => 'Evidence'])], ['passages' => [['text' => 'Evidence', 'page' => 5001]]], ['pdf' => ['sampled_pages' => 'malformed']]] as $invalid) {
+            $this->postJson('/api/v1/chat/frontend/finish', ['ticket' => $begin->json('ticket'), 'content' => 'Invalid', 'status' => 'complete', 'sources' => [['url' => 'https://example.org/paper', 'title' => 'Paper', ...$invalid]]], $this->headers())->assertUnprocessable();
+            $this->assertSame('generating', Message::findOrFail($begin->json('message_id'))->status);
+        }
+    }
+
     public function test_research_tool_requires_a_live_owned_research_lease(): void
     {
         $this->authenticate();

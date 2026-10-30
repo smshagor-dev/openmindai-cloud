@@ -15,11 +15,11 @@ export type KeyResponse = { base_url: string; keys: ApiKey[] };
 export type CreatedKey = { api_key: string; id: number; base_url: string; expires_at: string };
 export type Model = {
   id: string; name: string; category: string; description?: string;
-  available: boolean; provider_access: string; operation: string; path: string | null;
+  available: boolean; operation: string; path: string | null;
 };
 export type Usage = {
   month: string; used: number; limit: number | null; remaining: number | null;
-  by_model: { provider: string; model: string; kind: string; used: number }[];
+  by_model: { model: string; kind: string; used: number }[];
   daily: { day: string; used: number }[];
   unit: string; note: string;
 };

@@ -8,7 +8,9 @@ use App\Services\ApiCreditUsage;
 use App\Services\CloudImageEngine;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use RuntimeException;
 use Throwable;
@@ -17,7 +19,9 @@ class RunCloudImage implements ShouldQueue
 {
     use Queueable;
 
-    public int $timeout = 180;
+    // Provider wait (up to 720s), prompt normalization and storage must finish
+    // before the media queue reservation expires (retry_after = 1000s).
+    public int $timeout = 900;
 
     public int $tries = 1;
 
@@ -29,7 +33,7 @@ class RunCloudImage implements ShouldQueue
     {
         $task = MediaTask::find($this->taskId);
         if (! $task || ! MediaTask::whereKey($task->id)->where('status', 'queued')
-            ->update(['status' => 'running', 'updated_at' => now()])) {
+            ->update(['status' => 'running', 'progress_percent' => 8, 'progress_stage' => 'preparing', 'updated_at' => now()])) {
             return;
         }
         $path = 'media/'.$task->user_id.'/'.$task->id.'.output';
@@ -51,7 +55,7 @@ class RunCloudImage implements ShouldQueue
                 }
                 abort_unless(Storage::disk('local')->put($path, $result['binary']), 503, 'Cannot save the generated image.');
                 $current->update([
-                    'status' => 'complete', 'output_path' => $path,
+                    'status' => 'complete', 'progress_percent' => 100, 'progress_stage' => 'complete', 'output_path' => $path,
                     'output_mime' => $result['mime'], 'bytes' => strlen($result['binary']),
                     'error' => null,
                 ]);
@@ -74,8 +78,30 @@ class RunCloudImage implements ShouldQueue
         if (! $task) {
             return;
         }
+        $message = 'Image generation could not be completed. Check your configured model and try again.';
+        $reason = 'generation_failed';
+        $httpStatus = null;
+        if ($error instanceof ConnectionException) {
+            $reason = 'provider_connection';
+            $message = 'The image provider timed out or could not be reached. Check the server connection before retrying.';
+        } elseif (preg_match('/^Image model unavailable \(HTTP ([0-9]{3})\)\.$/D', $error?->getMessage() ?? '', $matches)) {
+            $httpStatus = (int) $matches[1];
+            $reason = 'provider_http';
+            $message = match ($httpStatus) {
+                401, 403 => 'The image provider rejected server access (HTTP '.$httpStatus.'). Check the image API key and model entitlement.',
+                404, 410 => 'The configured image provider endpoint is unavailable (HTTP '.$httpStatus.'). Check the model endpoint.',
+                400, 422 => 'The image provider rejected the request format (HTTP '.$httpStatus.'). Check the model parameters.',
+                429 => 'The image provider is rate limited or has no available quota (HTTP 429). Try later or check the provider account.',
+                default => 'The image provider returned HTTP '.$httpStatus.'. Try later or check the provider service.',
+            };
+        } elseif (in_array($error?->getMessage(), ['Image model did not return a valid image.', 'Image output is too large or invalid.', 'Image output failed content validation.', 'Image response exceeded its limit.'], true)) {
+            $reason = 'invalid_output';
+            $message = 'The image provider returned an invalid or unsupported image response. Check the model response format.';
+        }
+        // Never log prompts, keys, provider bodies or raw exception messages.
+        Log::warning('Cloud image generation failed', ['task_id' => $task->id, 'reason' => $reason, 'http_status' => $httpStatus]);
         Storage::disk('local')->delete(array_filter([$task->input_path, $task->cloud_mask_path]));
         MediaTask::whereKey($task->id)->whereIn('status', ['queued', 'running'])
-            ->update(['status' => 'failed', 'error' => 'Image generation could not be completed. Check your configured model and try again.', 'input_path' => null, 'cloud_mask_path' => null]);
+            ->update(['status' => 'failed', 'progress_stage' => 'failed', 'error' => $message, 'input_path' => null, 'cloud_mask_path' => null]);
     }
 }

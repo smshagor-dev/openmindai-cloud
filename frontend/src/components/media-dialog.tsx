@@ -6,6 +6,7 @@ import ArtifactPreviews, { type Artifact } from "./artifact-previews";
 import DocumentPreview from "./document-preview";
 import { documentFile } from "@/lib/preview-file";
 import Dialog from "./dialog";
+import CreationProgress from "./creation-progress";
 import ResponseMarkdown from "./response-markdown";
 
 type Kind =
@@ -22,6 +23,8 @@ type Task = {
   kind: Kind;
   prompt: string;
   status: string;
+  progress_percent?: number | null;
+  progress_stage?: string | null;
   result_text: string | null;
   output_mime: string | null;
   error: string | null;
@@ -390,7 +393,7 @@ export default function MediaDialog({
             <option value="">Select a task</option>
             {tasks.map((t) => (
               <option key={t.id} value={t.id}>
-                {labels[t.kind]} · {t.status} ·{" "}
+                {labels[t.kind]} · {t.status}{t.kind === "image" && t.status !== "failed" && typeof t.progress_percent === "number" ? ` · ${t.progress_percent}%` : ""} ·{" "}
                 {t.prompt.slice(0, 45) || `#${t.id}`}
               </option>
             ))}
@@ -422,9 +425,12 @@ export default function MediaDialog({
         {task && (
           <section aria-label="Task result" className="media-result">
             <p role="status">
-              {labels[task.kind]} · {task.status}
+              {labels[task.kind]} · {task.status}{task.kind === "image" && task.status === "complete" ? " · 100%" : ""}
             </p>
             <p>{task.prompt}</p>
+            {task.kind === "image" && ["queued", "running"].includes(task.status) && (
+              <CreationProgress kind="image" progress={task.progress_percent} stage={task.progress_stage} />
+            )}
             {task.error && <p role="alert">{task.error}</p>}
             {!!artifacts.length && <ArtifactPreviews items={artifacts} />}
             {task.result_text && (

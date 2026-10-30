@@ -31,3 +31,14 @@ test("all portal views keep responsive and keyboard-visible controls", () => {
   assert.match(read("src/components/portal.tsx"), /aria-expanded=\{menu\}/);
   assert.match(read("src/components/portal.tsx"), /aria-label="Six-digit email verification code"/);
 });
+
+test("developer portal exposes OpenMindAI coding agents, not provider names", () => {
+  const catalog = read("src/components/catalog.tsx");
+  const dashboard = read("src/components/dashboard.tsx");
+  const docs = read("src/components/docs.tsx");
+  assert.match(catalog, /<h3>OpenMindAI<\/h3>/);
+  assert.doesNotMatch(catalog, /m\.provider_access|Hosted NVIDIA|\{m\.name\}/);
+  assert.match(dashboard, /<strong>OpenMindAI<\/strong>/);
+  assert.doesNotMatch(dashboard, /m\.provider|\{m\.model\}/);
+  assert.doesNotMatch(docs, /Additional specialist models appear/);
+});

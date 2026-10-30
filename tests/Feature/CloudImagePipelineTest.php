@@ -7,9 +7,12 @@ use App\Models\MediaTask;
 use App\Models\User;
 use App\Services\CloudImageEngine;
 use App\Services\CloudImagePrompt;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -30,6 +33,20 @@ class CloudImagePipelineTest extends TestCase
     private function png(): string
     {
         return base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1kAAAAASUVORK5CYII=');
+    }
+
+    public function test_image_submission_returns_actionable_error_before_queueing_on_outdated_database(): void
+    {
+        $this->signIn();
+        Queue::fake();
+        Schema::table('media_tasks', function (Blueprint $table) {
+            $table->dropColumn(['progress_percent', 'progress_stage']);
+        });
+
+        $this->postJson('/api/v1/media/cloud-image', ['prompt' => 'Sunset over water'])
+            ->assertStatus(503)
+            ->assertJsonPath('message', 'The image service database needs its latest migrations. Ask an administrator to run php artisan migrate --force.');
+        Queue::assertNothingPushed();
     }
 
     public function test_images_are_queued_with_ratios_variations_and_no_frontend_provider_call(): void
@@ -87,7 +104,35 @@ class CloudImagePipelineTest extends TestCase
         $this->assertDatabaseHas('api_credit_usage', ['user_id' => $user->id, 'credits' => 1]);
         $this->get('/api/v1/media/'.$task->id.'/output')->assertOk()->assertHeader('Content-Type', 'image/png');
         Http::assertSent(fn ($request) => $request->url() === config('cloud_images.fast_endpoint')
-            && $request['width'] === 1024 && $request['samples'] === 1);
+            && $request['width'] === 1024 && $request['samples'] === 1
+            && $request['cfg_scale'] === 1 && ! isset($request['mode']));
+    }
+
+    public function test_slow_provider_budget_fits_worker_and_queue_without_duplicate_generation(): void
+    {
+        $this->signIn();
+        Storage::fake('local');
+        Queue::fake();
+        $id = $this->postJson('/api/v1/media/cloud-image', ['prompt' => 'Dog'])->json('id');
+        // Even an excessive operator setting must not outlive the job reservation.
+        config(['cloud_images.timeout' => 3600]);
+        $calls = 0;
+        Http::fake(function ($request, $options) use (&$calls) {
+            $calls++;
+            $this->assertSame(720, $options['timeout']);
+            $this->assertSame(30, $options['connect_timeout']);
+            $this->assertSame('running', MediaTask::latest('id')->first()->status);
+
+            return Http::response(['artifacts' => [['base64' => base64_encode($this->png())]]]);
+        });
+        $job = new RunCloudImage($id);
+        $this->assertGreaterThan(750, $job->timeout);
+        $this->assertGreaterThan($job->timeout, config('queue.connections.media.retry_after'));
+        $job->handle(app(CloudImageEngine::class));
+        $job->handle(app(CloudImageEngine::class));
+        $this->assertSame(1, $calls);
+        $this->assertDatabaseHas('media_tasks', ['id' => $id, 'status' => 'complete']);
+        $this->assertDatabaseCount('api_credit_usage', 1);
     }
 
     public function test_failed_provider_request_is_not_counted_as_success(): void
@@ -98,11 +143,24 @@ class CloudImagePipelineTest extends TestCase
         $id = $this->postJson('/api/v1/media/cloud-image', ['prompt' => 'Mountain'])->json('id');
         Http::fake(['ai.api.nvidia.com/*' => Http::response(['message' => 'rate limited'], 429)]);
         (new RunCloudImage($id))->handle(app(CloudImageEngine::class));
-        $this->assertDatabaseHas('media_tasks', ['id' => $id, 'status' => 'failed']);
+        $this->assertDatabaseHas('media_tasks', ['id' => $id, 'status' => 'failed', 'error' => 'The image provider is rate limited or has no available quota (HTTP 429). Try later or check the provider account.']);
         $this->assertDatabaseCount('api_credit_usage', 0);
     }
 
-    public function test_nonsquare_generation_uses_aspect_ratio_provider_not_unsupported_flux_dimensions(): void
+    public function test_connection_failure_is_actionable_without_exposing_exception_details(): void
+    {
+        $this->signIn();
+        Storage::fake('local');
+        $task = MediaTask::create(['user_id' => auth()->id(), 'kind' => 'image', 'prompt' => 'Dog', 'status' => 'running']);
+        (new RunCloudImage($task->id))->failed(new ConnectionException('private-token and provider request details'));
+        $task->refresh();
+        $this->assertSame('failed', $task->status);
+        $this->assertStringContainsString('timed out or could not be reached', $task->error);
+        $this->assertStringNotContainsString('private-token', $task->error);
+        $this->assertDatabaseCount('api_credit_usage', 0);
+    }
+
+    public function test_nonsquare_generation_uses_live_validated_klein_dimensions_and_payload(): void
     {
         $this->signIn();
         Storage::fake('local');
@@ -115,7 +173,9 @@ class CloudImagePipelineTest extends TestCase
         ])]);
         (new RunCloudImage($id))->handle(app(CloudImageEngine::class));
         Http::assertSent(fn ($request) => $request->url() === config('cloud_images.ratio_endpoint')
-            && $request['aspect_ratio'] === '16:9' && ! isset($request['width']));
+            && $request['width'] === 1280 && $request['height'] === 720
+            && $request['cfg_scale'] === 1 && $request['steps'] === 4
+            && ! isset($request['mode']) && ! isset($request['aspect_ratio']));
     }
 
     public function test_language_bridge_preserves_source_and_falls_back_when_unavailable(): void

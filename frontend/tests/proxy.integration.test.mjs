@@ -55,6 +55,18 @@ before(async () => {
             user: { id: 1, name: "Test User", email: "test@example.com" },
           }),
         );
+      if (req.url === "/api/v1/media/image-capabilities") {
+        return res.end(JSON.stringify({ enabled: true, ratios: ["1:1"] }));
+      }
+      if (req.url === "/api/v1/media/cloud-image" && req.method === "POST") {
+        res.statusCode = 202;
+        return res.end(JSON.stringify({ id: 9, status: "queued", kind: "image" }));
+      }
+      if (req.url === "/api/v1/media/9") {
+        return res.end(JSON.stringify({
+          id: 9, kind: "image", status: "complete", output_mime: "image/png",
+        }));
+      }
       if (req.url === "/api/v1/media/9/output") {
         res.setHeader("Content-Type", "image/png");
         return res.end(Buffer.from("private-png-fixture"));
@@ -750,6 +762,44 @@ test("mobile APIs reject browser cookies and require a bearer token", async () =
   assert.equal(response.status, 200);
   assert.equal((await response.json()).data[0].id, "openmindai-lite");
   assert.equal(lastRequest.authorization, "Bearer fixture-mobile-secret-token");
+});
+
+test("native Cloud image requests use private authenticated media routes", async () => {
+  const token = { Authorization: "Bearer fixture-mobile-secret-token" };
+  assert.equal((await mobileRequest("media/image-capabilities")).status, 401);
+  const capabilities = await mobileRequest("media/image-capabilities",
+    { headers: token });
+  assert.equal(capabilities.status, 200);
+  assert.equal((await capabilities.json()).enabled, true);
+
+  const create = await mobileRequest("media/cloud-image", {
+    method: "POST",
+    headers: { ...token, "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt: "a dog in a park", mode: "generate", count: 1 }),
+  });
+  assert.equal(create.status, 202);
+  assert.equal((await create.json()).id, 9);
+  assert.equal(lastRequest.authorization, token.Authorization);
+
+  const status = await mobileRequest("media/9", { headers: token });
+  assert.equal((await status.json()).status, "complete");
+  const output = await mobileRequest("media/9/output", { headers: token });
+  assert.equal(output.status, 200);
+  assert.equal(output.headers.get("content-type"), "image/png");
+  assert.equal(output.headers.get("set-cookie"), null);
+  assert.match(output.headers.get("cache-control") || "", /no-store/);
+  assert.equal(await output.text(), "private-png-fixture");
+});
+
+test("media gateway rejects arbitrary paths and non-image HTML downloads", async () => {
+  const headers = { Authorization: "Bearer fixture-mobile-secret-token" };
+  assert.equal((await mobileRequest("media/../tokens",
+    { headers })).status, 404);
+  assert.equal((await mobileRequest("media/abc/output",
+    { headers })).status, 404);
+  const response = await mobileRequest("media/10/output", { headers });
+  assert.equal(response.status, 502);
+  assert.equal(JSON.stringify(await response.json()).includes("<script>"), false);
 });
 
 test("native mobile SSE streams and preserves bearer authentication", async () => {

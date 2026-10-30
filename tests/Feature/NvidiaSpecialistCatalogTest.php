@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\User;
+use App\Services\HostedCodeAgents;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -58,12 +59,16 @@ class NvidiaSpecialistCatalogTest extends TestCase
         $user->forceFill(['email_verified_at' => now()])->save();
         $key = $user->createToken('developer:Studio', ['openmindai:invoke'])->plainTextToken;
         $resp = $this->withToken($key)->getJson('/api/v1/openmindai/catalog')->assertOk();
-        $this->assertCount(42, $resp->json('data'));
-        $model = collect($resp->json('data'))->firstWhere('id', 'nvidia-synthetic-video-detector');
+        $this->assertCount(3, $resp->json('data'));
+        $this->assertNull(collect($resp->json('data'))->firstWhere('id', 'nvidia-synthetic-video-detector'));
+        // Specialist metadata belongs to the internal/admin catalog, not developer API.
+        $internal = app(HostedCodeAgents::class)->publicCatalog();
+        $this->assertCount(42, $internal);
+        $model = collect($internal)->firstWhere('id', 'nvidia-synthetic-video-detector');
         $this->assertFalse($model['provider_verified']);
         $this->assertSame('grpc_stream', $model['integration_requirements']['transport']);
         $this->assertStringContainsString('Private access', $model['integration_requirements']['requirement']);
-        $cosmos = collect($resp->json('data'))->firstWhere('id', 'nvidia-cosmos3-nano');
+        $cosmos = collect($internal)->firstWhere('id', 'nvidia-cosmos3-nano');
         $this->assertSame('generate', $cosmos['operation']);
     }
 }

@@ -1,4 +1,6 @@
 "use client";
+import WorkspaceWelcome from "./workspace-welcome";
+import type {ResearchMetadata} from "@/lib/research-status";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   ArrowUp,
@@ -8,6 +10,7 @@ import {
   Paperclip,
   FolderOpen,
   FolderPlus,
+  GitBranch,
   Images,
   Grid2X2,
   Archive,
@@ -40,6 +43,8 @@ import {
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import Image from "next/image";
+import CreationProgress from "./creation-progress";
+import { generatedMediaIds } from "@/lib/chat-artifacts";
 import TypingIndicator from "./typing-indicator";
 import ModelPicker from "./model-picker";
 import Dialog from "./dialog";
@@ -51,11 +56,10 @@ const FilePreview = dynamic(() => import("./file-preview"));
 const InlineMedia = dynamic(() => import("./inline-media"));
 const AuthDialog = dynamic(() => import("./auth-dialog"));
 const AccountDialog = dynamic(() => import("./account-dialog"));
-const MediaDialog = dynamic(() => import("./media-dialog"));
 const CanvasDialog = dynamic(() => import("./canvas-dialog"));
 const WorkspaceDialog = dynamic(() => import("./workspace-dialog"));
 const ConversationDialog = dynamic(() => import("./conversation-dialog"));
-const ResponseMarkdown = dynamic(() => import("./response-markdown"));
+const ResearchResponse = dynamic(() => import("./research-response"));
 import {
   api,
   streamChat,
@@ -147,11 +151,11 @@ export default function ChatWorkspace() {
   const [searchAvailable, setSearchAvailable] = useState(false);
   const [webSearch, setWebSearch] = useState(false);
   const [deepResearch, setDeepResearch] = useState(false);
+  const [pendingCreation, setPendingCreation] = useState<string | null>(null);
   const [researchProgress, setResearchProgress] = useState("");
   const [memoryNotice, setMemoryNotice] = useState("");
   const [searchTimeRange, setSearchTimeRange] = useState("");
   const [canvasInitial, setCanvasInitial] = useState<string | null>(null);
-  const [mediaOpen, setMediaOpen] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [projectToolOpen, setProjectToolOpen] = useState(false);
   const [browserTabLinksOpen, setBrowserTabLinksOpen] = useState(false);
@@ -192,6 +196,10 @@ export default function ChatWorkspace() {
   const [conversationId, setConversationId] = useState<number | null>(null);
   const [messagePage, setMessagePage] = useState(1);
   const [draft, setDraft] = useState("");
+  const [editingMessageIndex, setEditingMessageIndex] = useState<number | null>(null);
+  const [editingText, setEditingText] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
+  const editTextareaRef = useRef<HTMLTextAreaElement>(null);
   const [search, setSearch] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -228,11 +236,10 @@ export default function ChatWorkspace() {
     setWorkspaceOpen(false);
     setProjectToolOpen(false);
     setBrowserTabLinksOpen(false);
-    setMediaOpen(false);
     setToolsOpen(null);
     setFilePreview(null);
     setInlineImage(null);
-    setInlineMedia([]);
+    setInlineMedia([]); setPendingCreation(null);
     setAssistant(null);
     setBranches(null);
     setCanvasInitial(null);
@@ -250,6 +257,9 @@ export default function ChatWorkspace() {
     setModelId(null);
     setConversations([]);
     setMessages([]);
+    setEditingMessageIndex(null);
+    setEditingText("");
+    setSavingEdit(false);
     setConversationId(null);
     setAccountOpen(false);
     setAccountMenu(false);
@@ -394,6 +404,13 @@ export default function ChatWorkspace() {
     return () => observer.disconnect();
   }, [draft]);
   useEffect(() => {
+    if (editingMessageIndex !== null) {
+      const textarea = editTextareaRef.current;
+      textarea?.focus();
+      textarea?.setSelectionRange(textarea.value.length, textarea.value.length);
+    }
+  }, [editingMessageIndex]);
+  useEffect(() => {
     if (skipScroll.current) {
       skipScroll.current = false;
       return;
@@ -403,7 +420,7 @@ export default function ChatWorkspace() {
         top: scrollRef.current.scrollHeight,
         behavior: preferences?.reduced_motion ? "instant" : "smooth",
       });
-  }, [messages.length, busy, loadingChat]);
+  }, [messages.length, busy, loadingChat, pendingCreation, inlineMedia.length]);
   useEffect(() => {
     function dismiss(event: MouseEvent) {
       if (!accountMenuRef.current?.contains(event.target as Node))
@@ -527,8 +544,10 @@ export default function ChatWorkspace() {
     setAssistant(null);
     setMediaMode("chat");
     setInlineImage(null);
-    setInlineMedia([]);
+    setInlineMedia([]); setPendingCreation(null);
     setMessages([]);
+    setEditingMessageIndex(null);
+    setEditingText("");
     setMessagePage(1);
     setAttachments([]);
     setDraft("");
@@ -543,6 +562,8 @@ export default function ChatWorkspace() {
     const controller = new AbortController();
     chatRequest.current = controller;
     setLoadingChat(true);
+    setEditingMessageIndex(null);
+    setEditingText("");
     setTemporary(false);
     setAttachments([]);
     setError("");
@@ -562,7 +583,7 @@ export default function ChatWorkspace() {
       if (controller.signal.aborted) return;
       setConversationId(id);
       changeUrl(chatUrl(id, result.conversation.title));
-      setInlineMedia([]);
+      setInlineMedia([]); setPendingCreation(null);
       setInlineImage(null);
       setAssistant(
         result.conversation.assistant_id
@@ -586,7 +607,8 @@ export default function ChatWorkspace() {
     generationRef.current?.abort();
     generationRef.current = null;
     setBusy(false);
-    setInlineMedia([]); setInlineImage(null); setAttachments([]); setDraft("");
+    setInlineMedia([]); setPendingCreation(null); setInlineImage(null); setAttachments([]); setDraft("");
+    setEditingMessageIndex(null); setEditingText("");
     const slug = /^\/c\/([^/]+)\/?$/.exec(window.location.pathname)?.[1];
     if (!slug) { newChat(false); return; }
     if (slug.startsWith("guest-")) {
@@ -682,37 +704,12 @@ export default function ChatWorkspace() {
         if (e instanceof ApiError && [403, 429].includes(e.status)) setAuthOpen(true);
         report(e);
       } finally {
-        if (generationRef.current === controller) {setBusy(false); generationRef.current = null;}
+        if (generationRef.current === controller) {setBusy(false); setPendingCreation(null); generationRef.current = null;}
       }
       return;
     }
-    if (mediaMode !== "chat" && !override && !inlineImage) {
-      if (!mediaKinds.includes(mediaMode))
-        return setError("This media engine is not configured.");
-      if (text.length > 4000)
-        return setError("Media prompts must be at most 4000 characters.");
-      const controller = new AbortController();
-      generationRef.current = controller;
-      setBusy(true);
-      setError("");
-      try {
-        const task = await api<{ id: number }>(
-          ["image", "speech", "video", "document_create"].includes(mediaMode) ? "media/" + mediaMode : "media",
-          "POST",
-          { kind: mediaMode, prompt: text, ...(mediaMode === "document_create" ? { format: "docx" } : {}) },
-          controller.signal,
-        );
-        if (!controller.signal.aborted) {
-          setInlineMedia((ids) => [...ids, task.id]);
-          setDraft("");
-        }
-      } catch (e) {
-        report(e);
-      } finally {
-        if (!controller.signal.aborted) setBusy(false);
-      }
-      return;
-    }
+    if (mediaMode !== "chat" && !override && !inlineImage && !mediaKinds.includes(mediaMode))
+      return setError("This media engine is not configured.");
     if (inlineImage && !models.some((m) => m.id === -2)) {
       setError("Image chat requires OpenMindAI hosted vision to be enabled.");
       return;
@@ -748,6 +745,7 @@ export default function ChatWorkspace() {
             : {}),
           ...(assistant ? { assistant_id: assistant.id } : {}),
           message: text,
+          ...(!override && mediaMode !== "chat" ? {generation_kind: mediaMode} : {}),
           ...(!override && inlineImage ? {image: {mime: inlineImage.mime, data: inlineImage.data}} : {}),
           ...(id ? { conversation_id: id } : {}),
           ...(projectId ? { project_id: projectId } : {}),
@@ -768,14 +766,16 @@ export default function ChatWorkspace() {
         },
         (event, data) => {
           if (controller.signal.aborted) return;
+          if (event === "creation") setPendingCreation(data.status === "running" ? String(data.kind) : null);
           if (event === "artifact" && Number.isSafeInteger(data.id) && Number(data.id) > 0) {
-            setInlineMedia((ids) => ids.includes(Number(data.id)) ? ids : [...ids, Number(data.id)]);
+            setPendingCreation(null);
+            // The next delta contains the persisted task link, rendered in its
+            // assistant turn rather than a transient workspace-only list.
           }
           if (event === "media" && Number.isSafeInteger(data.id) && Number(data.id) > 0) {
-            // A media task is stored in the existing private Library, not as a text chat turn.
+            // Compatibility with older media events: preserve the submitted turn.
             autoMedia = true;
             setInlineMedia((ids) => [...ids, Number(data.id)]);
-            setMessages(history);
           }
           if (event === "meta") {
             receivedMeta = true;
@@ -824,6 +824,7 @@ export default function ChatWorkspace() {
               `Saved ${Number(data.saved)} new memory. Manage it in Memory settings.`,
             );
           if (event === "research") {
+            if(data.metadata)setMessages(previous=>previous.map((m,i)=>i===previous.length-1?{...m,research_metadata:data.metadata as ResearchMetadata}:m));
             setResearchProgress(String(data.label));
             if (Array.isArray(data.sources))
               setMessages((previous) =>
@@ -903,7 +904,7 @@ export default function ChatWorkspace() {
       }
     } finally {
       if (generationRef.current === controller) {
-        setBusy(false);
+        setBusy(false); setPendingCreation(null);
         generationRef.current = null;
         activeStream.current = null;
         inputRef.current?.focus();
@@ -911,6 +912,7 @@ export default function ChatWorkspace() {
     }
   }
   async function stop() {
+    setPendingCreation(null);
     const active = activeStream.current;
     if (active?.conversation_id && active.message_id) {
       try {
@@ -921,22 +923,49 @@ export default function ChatWorkspace() {
       } catch (e) {
         report(e);
       }
-    } else generationRef.current?.abort();
+    } else { generationRef.current?.abort(); setBusy(false); }
   }
-  async function branch(index: number, edit = false) {
-    if (busy || !conversationId) return;
+  function startEditingMessage(index: number) {
+    if (busy || savingEdit || !conversationId) return;
     const target = messages[index];
-    if (!target?.id) return;
-    const content = edit
-      ? prompt("Edit your message", target.content)
-      : target.content;
-    if (!content?.trim()) return;
+    if (!target?.id || target.role !== "user") return;
+    setEditingMessageIndex(index);
+    setEditingText(target.content);
+  }
+  function cancelEditingMessage() {
+    if (savingEdit) return;
+    setEditingMessageIndex(null);
+    setEditingText("");
+  }
+  async function saveEditedMessage(index: number) {
+    const original = messages[index];
+    const content = editingText.trim();
+    if (editingMessageIndex !== index || savingEdit || busy || !conversationId ||
+        !original?.id || original.role !== "user" || !content ||
+        content === original.content.trim()) return;
+    setSavingEdit(true);
+    try {
+      const saved = await branch(index, content);
+      if (saved) {
+        setEditingMessageIndex(null);
+        setEditingText("");
+      }
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+  async function branch(index: number, revisedText?: string): Promise<boolean> {
+    if (busy || !conversationId) return false;
+    const target = messages[index];
+    if (!target?.id) return false;
+    const content = (revisedText ?? target.content).trim();
+    if (!content) return false;
     try {
       const result = await api<{
         conversation_id: number;
         message: string;
         attachment_ids: number[];
-      }>(`conversations/${conversationId}/branch`, "POST", {
+      }>("conversations/" + conversationId + "/branch", "POST", {
         message_id: target.id,
       });
       setConversationId(result.conversation_id);
@@ -947,8 +976,10 @@ export default function ChatWorkspace() {
         history: messages.slice(0, index),
         attachmentIds: result.attachment_ids,
       });
+      return true;
     } catch (e) {
       report(e);
+      return false;
     }
   }
   async function feedback(index: number, value: "up" | "down") {
@@ -970,6 +1001,15 @@ export default function ChatWorkspace() {
       report(e);
     }
   }
+  function selectGenerationTool(kind: string) {
+    composerToolsRef.current?.removeAttribute("open");
+    setToolMenuOpen(false);
+    if (!user) {setAuthOpen(true); return;}
+    if (kind !== "chat" && !mediaKinds.includes(kind)) {setError("This generation tool is unavailable."); return;}
+    setMediaMode(kind);
+    setWebSearch(false); setDeepResearch(false);
+    inputRef.current?.focus();
+  }
   function selectWelcomeTool(action: WelcomeToolAction) {
     composerToolsRef.current?.removeAttribute("open");
     if (action === "tabs") {
@@ -982,9 +1022,8 @@ export default function ChatWorkspace() {
     }
     if (action === "files") fileRef.current?.click();
     if (action === "library") setToolsOpen("library");
-    if (action === "image") {
-      if (mediaKinds.includes("image")) setMediaOpen(true);
-      else setError("Image generation needs a configured image runtime.");
+    if (action === "image" || action === "document") {
+      selectGenerationTool(action === "image" ? "image" : "document_create");
     }
     if (action === "project") {
       setProjectToolOpen(true);
@@ -1223,6 +1262,8 @@ export default function ChatWorkspace() {
             )}
             {user && (
               <>
+                <a className="sidebar-action" href="/3d-studio"><Grid2X2 size={19} /><span>3D Studio</span></a>
+                <a className="sidebar-action" href="/research-studio"><BookOpen size={19} /><span>Research Studio</span></a>
                 <button
                   className="sidebar-action"
                   disabled={busy}
@@ -1238,7 +1279,7 @@ export default function ChatWorkspace() {
                   className="sidebar-action"
                   disabled={busy}
                   onClick={() => {
-                    setMediaOpen(true);
+                    selectGenerationTool("image");
                     setSidebarOpen(false);
                   }}
                 >
@@ -1491,7 +1532,7 @@ export default function ChatWorkspace() {
       <main
         className={
           "main-panel " +
-          (messages.length === 0 && !loadingChat ? "is-empty" : "")
+          (messages.length === 0 && !loadingChat && !pendingCreation && inlineMedia.length === 0 ? "is-empty" : "")
         }
       >
         <header className="topbar">
@@ -1573,6 +1614,24 @@ export default function ChatWorkspace() {
                 Log in
               </button>
             )}
+            {conversationId && (
+              <button
+                type="button"
+                className="icon-button"
+                aria-label="Conversation branches"
+                title="Conversation branches"
+                disabled={busy}
+                onClick={() =>
+                  void api<{ id: number; title: string }[]>(
+                    `conversations/${conversationId}/branches`,
+                  )
+                    .then(setBranches)
+                    .catch(report)
+                }
+              >
+                <GitBranch size={18} />
+              </button>
+            )}
             {user && (
               <button
                 className="icon-button"
@@ -1588,13 +1647,9 @@ export default function ChatWorkspace() {
           const container = event.currentTarget;
           followOutput.current = container.scrollHeight - container.scrollTop - container.clientHeight < 160;
         }}>
-          {messages.length === 0 && !loadingChat ? (
+          {messages.length === 0 && !loadingChat && !pendingCreation && inlineMedia.length === 0 ? (
             <section className="welcome">
-              <div className="welcome-identity">
-                <Image src="/openmindai-logo.png" width={36} height={36} alt="" />
-                <strong>OpenMindAI</strong>
-              </div>
-              <h1>What can I help with?</h1>
+              <WorkspaceWelcome title="What can I help with?" />
             </section>
           ) : (
             <div className="thread">
@@ -1638,22 +1693,68 @@ export default function ChatWorkspace() {
                   )}
                   <div className="message-body">
                     {message.role === "user" ? (
-                      <div className="user-bubble">
-                        {message.content}
-                        {message.id && (
-                          <button
-                            className="icon-button edit-message"
-                            disabled={busy}
-                            onClick={() => void branch(index, true)}
-                            aria-label="Edit message"
-                          >
-                            <Pencil size={14} />
-                          </button>
-                        )}
-                      </div>
+                      editingMessageIndex === index ? (
+                        <form
+                          className="inline-message-editor"
+                          aria-label="Edit your message"
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            void saveEditedMessage(index);
+                          }}
+                        >
+                          <label htmlFor={"message-edit-" + message.id} className="inline-edit-label">Edit message</label>
+                          <textarea
+                            id={"message-edit-" + message.id}
+                            ref={editTextareaRef}
+                            value={editingText}
+                            onChange={(event) => setEditingText(event.target.value)}
+                            maxLength={16000}
+                            rows={Math.min(8, Math.max(3, editingText.split("\n").length))}
+                            disabled={savingEdit}
+                            onKeyDown={(event) => {
+                              if (event.key === "Escape") {
+                                event.preventDefault();
+                                cancelEditingMessage();
+                              } else if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                                event.preventDefault();
+                                void saveEditedMessage(index);
+                              }
+                            }}
+                          />
+                          <div className="inline-edit-actions">
+                            <button type="button" className="inline-edit-cancel"
+                              disabled={savingEdit} onClick={cancelEditingMessage}>
+                              Cancel
+                            </button>
+                            <button type="submit" className="inline-edit-save"
+                              disabled={savingEdit || !editingText.trim() || editingText.trim() === message.content.trim()}>
+                              {savingEdit ? "Saving…" : "Save & send"}
+                            </button>
+                          </div>
+                        </form>
+                      ) : (
+                        <div className="user-bubble">
+                          {message.content}
+                          {message.id && conversationId && (
+                            <button
+                              type="button"
+                              className="icon-button edit-message"
+                              disabled={busy || savingEdit}
+                              onClick={() => startEditingMessage(index)}
+                              aria-label="Edit message"
+                              title="Edit message"
+                            >
+                              <Pencil size={14} />
+                            </button>
+                          )}
+                        </div>
+                      )
                     ) : (
                       <>
-                        <ResponseMarkdown
+                        <ResearchResponse
+                          sources={message.sources}
+                          metadata={message.research_metadata}
+                          status={message.status}
                           content={message.content}
                           animate={Boolean(message.animate) && index === messages.length - 1}
                           streaming={message.status === "generating" && busy && index === messages.length - 1}
@@ -1664,40 +1765,20 @@ export default function ChatWorkspace() {
                               : undefined
                           }
                         />
+                        {generatedMediaIds(message.content).map(id => (
+                          <div className="generated-media-content" key={id}>
+                            <InlineMedia id={id} onText={setDraft} />
+                          </div>
+                        ))}
                         {message.status &&
                           message.status !== "complete" &&
-                          message.status !== "generating" && (
+                          message.status !== "generating" && message.research_metadata?.status !== "paused" && (
                             <small className="muted">
                               {message.status === "cancelled"
                                 ? "Stopped"
                                 : "Response interrupted"}
                             </small>
                           )}
-                        {!!message.sources?.length && (
-                          <div className="source-links">
-                            {message.sources.map((source, sourceIndex) => (
-                              <details key={source.url}>
-                                <summary>
-                                  {source.citation || sourceIndex + 1}.{" "}
-                                  {source.title} ·{" "}
-                                  {source.read_status === "read"
-                                    ? "Page read"
-                                    : source.read_status === "unavailable"
-                                      ? "Page unavailable · snippet only"
-                                      : "Search snippet"}
-                                </summary>
-                                <a
-                                  href={source.url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                >
-                                  {source.url}
-                                </a>
-                                {source.snippet && <p>{source.snippet}</p>}
-                              </details>
-                            ))}
-                          </div>
-                        )}
                         {message.resumable &&
                           message.id &&
                           message.status !== "complete" &&
@@ -1818,14 +1899,31 @@ ${source.read_status === "read" ? "Page read" : "Snippet only"}`,
                   </div>
                 </article>
               ))}
-              {busy && messages[messages.length - 1]?.role === "user" && (
-                <div className="thinking"><span className="assistant-avatar"><Image src="/openmindai-logo.png" alt="" width={23} height={23} /></span><TypingIndicator /></div>
+              {busy && !pendingCreation && messages[messages.length - 1]?.role === "user" && (
+                <div className="thinking"><span className="assistant-avatar"><Image src="/openmindai-logo.png" alt="" width={23} height={23} /></span><TypingIndicator label={researchProgress || "Thinking"} /></div>
               )}
+              {pendingCreation && (
+                <div className="generated-media-entry" role="status" aria-live="polite">
+                  <span className="assistant-avatar" aria-hidden="true">
+                    <Image src="/openmindai-logo.png" alt="" width={23} height={23} />
+                  </span>
+                  <div className="generated-media-content">
+                    <CreationProgress kind={pendingCreation} />
+                  </div>
+                </div>
+              )}
+              {inlineMedia.map((id) => (
+                <div className="generated-media-entry" key={id}>
+                  <span className="assistant-avatar" aria-hidden="true">
+                    <Image src="/openmindai-logo.png" alt="" width={23} height={23} />
+                  </span>
+                  <div className="generated-media-content">
+                    <InlineMedia id={id} onText={setDraft} />
+                  </div>
+                </div>
+              ))}
             </div>
           )}
-          {inlineMedia.map((id) => (
-            <InlineMedia key={id} id={id} onText={setDraft} />
-          ))}
           {loadingChat && (
             <div className="chat-loading" role="status">
               <LoaderCircle className="spin" size={21} />
@@ -1834,7 +1932,7 @@ ${source.read_status === "read" ? "Page read" : "Snippet only"}`,
           )}
         </div>
         <div
-          className={`composer-area ${messages.length === 0 ? "empty-composer" : ""}`}
+          className={`composer-area ${messages.length === 0 && !pendingCreation && inlineMedia.length === 0 ? "empty-composer" : ""}`}
         >
           {error && (
             <div className="chat-error" role="alert">
@@ -1861,25 +1959,10 @@ ${source.read_status === "read" ? "Page read" : "Snippet only"}`,
               </button>
             </div>
           )}
-          {conversationId && (
-            <button
-              className="text-button"
-              disabled={busy}
-              onClick={() =>
-                void api<{ id: number; title: string }[]>(
-                  `conversations/${conversationId}/branches`,
-                )
-                  .then(setBranches)
-                  .catch(report)
-              }
-            >
-              Conversation branches
-            </button>
-          )}
           {mediaMode !== "chat" && (
             <p className="muted">
-              Media tasks are saved separately in Library. They are not
-              temporary chat messages.
+              {mediaMode === "document_create" ? "Document creation" : `Create ${mediaMode}`} selected. Describe it below; the result appears in this chat and Library.
+              <button type="button" onClick={() => selectGenerationTool("chat")}>Clear tool</button>
             </p>
           )}
           <form
@@ -1968,9 +2051,7 @@ ${source.read_status === "read" ? "Page read" : "Snippet only"}`,
             )}
             {busy && (deepResearch || researchProgress) && (
               <p className="muted tool-progress" role="status">
-                <LoaderCircle size={14} className="spin" aria-hidden="true" />
-                {researchProgress ||
-                  "Researching sources and drafting your report…"}
+                <TypingIndicator label={researchProgress || "Researching sources"} />
               </p>
             )}
             <div className="composer-toolbar">
@@ -2007,7 +2088,7 @@ ${source.read_status === "read" ? "Page read" : "Snippet only"}`,
                   imageAvailable={mediaKinds.includes("image")}
                   mediaKinds={mediaKinds}
                   mediaMode={mediaMode}
-                  onMediaMode={setMediaMode}
+                  onMediaMode={selectGenerationTool}
                   webSearch={webSearch}
                   deepResearch={deepResearch}
                   searchTimeRange={searchTimeRange}
@@ -2082,7 +2163,7 @@ ${source.read_status === "read" ? "Page read" : "Snippet only"}`,
               </div>
             </div>
           </form>
-          {messages.length === 0 && !loadingChat && (
+          {messages.length === 0 && !loadingChat && !pendingCreation && inlineMedia.length === 0 && (
             <div className="suggestions" aria-label="Try a prompt">
               {suggestions.slice(0, 4).map((item) => (
                 <button
@@ -2146,7 +2227,7 @@ ${source.read_status === "read" ? "Page read" : "Snippet only"}`,
           onResearch={() => {
             if (!searchAvailable) {
               setError(
-                "Web research needs a configured search service. Ask your administrator to enable SearXNG.",
+                "Web research needs an available search provider. Retry or ask your administrator to check search configuration.",
               );
               setToolsOpen(null);
               return;
@@ -2204,21 +2285,6 @@ ${source.read_status === "read" ? "Page read" : "Snippet only"}`,
           ))}
         </Dialog>
       )}
-      {mediaOpen && (
-        <MediaDialog
-          initialKind="image"
-          onClose={() => setMediaOpen(false)}
-          onUse={(text) => {
-            setDraft(text);
-            setMediaOpen(false);
-            setToolsOpen(null);
-            setFilePreview(null);
-            setInlineMedia([]);
-            setAssistant(null);
-            setBranches(null);
-          }}
-        />
-      )}
       {workspaceOpen && (
         <WorkspaceDialog
           initialTab={projectToolOpen ? "projects" : "instructions"}
@@ -2269,7 +2335,7 @@ ${source.read_status === "read" ? "Page read" : "Snippet only"}`,
           onDataChanged={() => {
             generationRef.current?.abort();
             chatRequest.current?.abort();
-            setBusy(false);
+            setBusy(false); setPendingCreation(null);
             setLoadingChat(false);
             setConversationId(null);
             setMessages([]);

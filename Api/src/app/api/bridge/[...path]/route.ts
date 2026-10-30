@@ -6,10 +6,10 @@ const cookieName = "om_developer_session";
 
 const allowed: Record<string, RegExp> = {
   GET: /^(me|public-config|developer\/keys|developer\/catalog|developer\/usage)$/,
-  POST: /^(register|login|login\/verify-ip|email\/resend|forgot-password|developer\/keys|logout)$/,
+  POST: /^(register|login|login\/verify-ip|email\/resend|email\/verify-code|forgot-password|developer\/keys|logout)$/,
   DELETE: /^developer\/keys\/[0-9]{1,18}$/
 };
-const publicRoutes = new Set(["public-config", "register", "login", "login/verify-ip", "forgot-password", "email/resend"]);
+const publicRoutes = new Set(["public-config", "register", "login", "login/verify-ip", "forgot-password", "email/resend", "email/verify-code"]);
 const authRoutes = new Set(["register", "login", "login/verify-ip"]);
 
 export async function handler(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {

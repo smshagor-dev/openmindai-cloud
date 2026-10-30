@@ -229,6 +229,35 @@ class MediaTest extends TestCase
             ->assertHeader('Content-Type', 'application/pdf');
     }
 
+    public function test_hosted_docx_saves_full_registered_mime_type_and_downloads_privately(): void
+    {
+        if (! class_exists(\ZipArchive::class)) {
+            $this->markTestSkipped('PHP ZIP is required for DOCX validation.');
+        }
+        $this->setupEngine();
+        config(['models.frontend_chat_key' => str_repeat('s', 32)]);
+        $this->withHeaders(['X-Chat-Bridge-Key' => str_repeat('s', 32)]);
+        $id = $this->postJson('/api/v1/media/hosted/task/begin', [
+            'kind' => 'document_create', 'prompt' => 'DOCX save regression',
+        ])->assertStatus(202)->json('id');
+        $tmp = tempnam(sys_get_temp_dir(), 'om-docx-test');
+        try {
+            $zip = new \ZipArchive;
+            $this->assertTrue($zip->open($tmp, \ZipArchive::OVERWRITE));
+            $zip->addFromString('[Content_Types].xml', '<Types/>');
+            $zip->addFromString('word/document.xml', '<document>OMA-4729</document>');
+            $zip->close();
+            $mime = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+            $this->postJson('/api/v1/media/'.$id.'/hosted/task/complete', [
+                'mime' => $mime, 'data' => base64_encode(file_get_contents($tmp)),
+            ])->assertOk()->assertJsonPath('output_mime', $mime);
+            $this->get('/api/v1/media/'.$id.'/output')->assertOk()->assertHeader('Content-Type', $mime);
+            $this->assertDatabaseHas('media_tasks', ['id' => $id, 'status' => 'complete', 'output_mime' => $mime]);
+        } finally {
+            unlink($tmp);
+        }
+    }
+
     public function test_hosted_video_completion_requires_mp4_header_and_owner(): void
     {
         $this->setupEngine();

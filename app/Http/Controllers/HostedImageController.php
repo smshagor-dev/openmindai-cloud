@@ -52,6 +52,7 @@ class HostedImageController
             $task = MediaTask::create([
                 'user_id' => $userId, 'kind' => 'image',
                 'prompt' => $d['prompt'], 'status' => 'running',
+                'progress_percent' => 28, 'progress_stage' => 'generating',
             ]);
             $usage->increment('requests');
 
@@ -80,7 +81,7 @@ class HostedImageController
             abort_unless(Storage::disk('local')->put($path, $raw), 503, 'Unable to save image.');
             try {
                 $task->update([
-                    'status' => 'complete', 'output_mime' => $d['mime'],
+                    'status' => 'complete', 'progress_percent' => 100, 'progress_stage' => 'complete', 'output_mime' => $d['mime'],
                     'output_path' => $path, 'bytes' => strlen($raw),
                     'error' => null,
                 ]);
@@ -104,7 +105,7 @@ class HostedImageController
         $task = MediaTask::where('user_id', $r->user()->id)->findOrFail($id);
         abort_unless($task->kind === 'image', 404);
         MediaTask::whereKey($task->id)->where('status', 'running')->update([
-            'status' => 'failed',
+            'status' => 'failed', 'progress_stage' => 'failed',
             'error' => 'Image generation was not completed. Please try again later.',
             'bytes' => 0,
         ]);

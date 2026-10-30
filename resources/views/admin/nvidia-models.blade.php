@@ -29,7 +29,11 @@
 <section class="admin-card">
  <div class="entity-card-header"><div><h2 style="word-break:break-word">{{ $model->name }}</h2><p class="entity-meta">{{ $model->slug === 'nvidia-nemotron-voicechat' ? 'Realtime VoiceChat WebSocket' : ($model->slug === 'nvidia-magpie-tts-zeroshot' ? 'Queued Magpie speech synthesis' : ($model->slug === 'nvidia-cosmos-transfer2.5-2b' ? 'Controlled video NIM generation' : (isset(config('nvidia_av.routes', [])[$model->slug]) ? 'Self-hosted AV NIM scene processing' : ($model->slug === 'nvidia-streampetr' ? 'Queued AV scene inference' : (isset(config('maxine.models', [])[$model->slug]) ? 'Queued gRPC media processing' : ($model->slug === 'nvidia-cosmos3-nano' ? 'Queued image/video generation' : ($model->api_protocol === 'chat' ? 'Chat completions' : 'Specialized JSON request'))))))) }}</p></div><span class="status-pill {{ $model->enabled ? 'success' : 'warning' }}">{{ $model->enabled ? 'Active' : 'Inactive' }}</span></div>
  <p class="entity-meta">{{ $model->summary }}</p>
- <p class="entity-meta">Inference: <strong>{{ $model->api_ready ? 'Route configured' : 'Provider access or additional service required' }}</strong> · NVIDIA live test: <strong>{{ $model->last_test_status === 'success' ? 'Passed' : ($model->last_test_status === 'failed' ? 'Failed' : 'Not yet run') }}</strong></p>
+ <p class="entity-meta">Inference: <strong>{{ $model->api_ready ? 'Route configured' : 'Provider access or additional service required' }}</strong> · NVIDIA live test: <strong>{{ $model->last_test_status === 'success' ? 'Passed' : ($model->last_test_status ? ucfirst(str_replace('_', ' ', $model->last_test_status)) : 'Not yet run') }}</strong></p>
+ @php($runtime = app(\App\Services\HostedModelRuntime::class)->inspect($model->slug))
+ @if(!$runtime['configured'])
+ <p class="entity-meta">Runtime setup required: {{ implode(', ', $runtime['missing_settings']) }}. The API route exists; inference cannot run until these services are configured.</p>
+ @endif
  <p class="entity-meta"><a href="{{ $model->catalog_url }}" target="_blank" rel="noopener noreferrer">NVIDIA model card</a> · Free Endpoint (catalog)</p>
  @if(isset($specialistModels[$model->slug]))
  <div class="muted-note" style="margin:12px 0">

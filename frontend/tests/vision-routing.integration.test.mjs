@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {parseInlineImage} from "../src/lib/vision-input.ts";
 import {routePrompt} from "../src/lib/prompt-router.ts";
-import {nvidiaChat} from "../src/lib/nvidia-chat.ts";
+import {nvidiaChat, selectVisionModel} from "../src/lib/nvidia-chat.ts";
 
 // Small test fixture, not a stored user attachment.
 const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j0ZkAAAAASUVORK5CYII=";
@@ -123,4 +123,14 @@ test("chat retains visual context until explicit clear or conversation switch", 
   assert.match(file, /setConversationId\(null\)/);
   assert.match(file, /image: \{mime: inlineImage\.mime, data: inlineImage\.data\}/);
   assert.doesNotMatch(file, /event === "done" && data\.status === "complete" && inlineImage\)\s*setInlineImage\(null\)/);
+});
+
+test("vision selection does not depend on the failing Super endpoint", () => {
+  const models = [
+    {id:-2,slug:"openmindai-super",name:"Super",provider:vision},
+    {id:-1001,slug:"nvidia-llama-3.2-11b-vision-instruct",name:"Vision",provider:"meta/llama-3.2-11b-vision-instruct"},
+  ];
+  assert.equal(selectVisionModel(models)?.provider,"meta/llama-3.2-11b-vision-instruct");
+  assert.equal(selectVisionModel(models.slice(1))?.slug,"nvidia-llama-3.2-11b-vision-instruct");
+  assert.equal(selectVisionModel([]),undefined);
 });

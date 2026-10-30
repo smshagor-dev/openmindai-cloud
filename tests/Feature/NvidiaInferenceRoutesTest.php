@@ -78,6 +78,18 @@ class NvidiaInferenceRoutesTest extends TestCase
         Http::assertSentCount(1);
     }
 
+    public function test_malformed_embedding_output_is_rejected_without_consuming_credit(): void
+    {
+        config(['models.nvidia_key' => 'test-secret-123456789']);
+        Http::fake(['integrate.api.nvidia.com/v1/embeddings' => Http::response([
+            'data' => [['embedding' => ['unexpected text']]],
+        ])]);
+        $this->withToken($this->developer())->postJson('/api/v1/openmindai/models/nvidia-nemotron-3.5-embed-8b/invoke', [
+            'input' => ['input' => 'Hello world'],
+        ])->assertStatus(502);
+        $this->assertDatabaseCount('api_credit_usage', 0);
+    }
+
     public function test_rerank_uses_retrieval_api_host_not_chat_host(): void
     {
         config(['models.nvidia_key' => 'test-secret-123456789']);

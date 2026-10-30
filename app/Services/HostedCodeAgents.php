@@ -9,6 +9,7 @@ class HostedCodeAgents
     public function enabled()
     {
         return DB::table('hosted_code_agents')->where('enabled', true)->where('api_ready', true)->where('api_protocol', 'chat')
+            ->where(fn ($query) => $query->whereNull('last_test_http_status')->orWhere('last_test_http_status', '!=', 410))
             ->orderByRaw("CASE slug WHEN 'openmindai-super' THEN 1 WHEN 'openmindai-ultra' THEN 2 WHEN 'openmindai-lite' THEN 3 ELSE 4 END")
             ->orderBy('name')->get();
     }
@@ -28,7 +29,8 @@ class HostedCodeAgents
     public function find(string $slug)
     {
         return DB::table('hosted_code_agents')->where('slug', $slug)
-            ->where('enabled', true)->where('api_ready', true)->first();
+            ->where('enabled', true)->where('api_ready', true)
+            ->where(fn ($query) => $query->whereNull('last_test_http_status')->orWhere('last_test_http_status', '!=', 410))->first();
     }
 
     public function publicModels(): array
@@ -40,10 +42,13 @@ class HostedCodeAgents
             'owned_by' => 'openmindai',
             'name' => $model->name,
             'type' => $model->category,
+            'supports_vision' => MobileVisionPayload::supports($model),
             'active' => (bool) $model->enabled,
-            'available' => (bool) ($model->enabled && $model->api_ready),
-            'inference_status' => ! $model->enabled ? 'disabled' : ($model->api_ready ? 'configured' : 'setup_required'),
+            'available' => (bool) ($model->enabled && $model->api_ready && (int) $model->last_test_http_status !== 410 && app(HostedModelRuntime::class)->configured($model->slug)),
+            'inference_status' => ! $model->enabled ? 'disabled' : ((int) $model->last_test_http_status === 410 ? 'retired' : ($model->api_ready && app(HostedModelRuntime::class)->configured($model->slug) ? 'configured' : 'setup_required')),
+            'replacement_model' => $model->slug === 'nvidia-ising-calibration-1-35b-a3b' ? 'nvidia-ising-calibration-1.5-31b' : null,
             'provider_verified' => $model->last_test_status === 'success',
+            'runtime' => app(HostedModelRuntime::class)->inspect($model->slug),
             'integration_requirements' => config('nvidia_specialists.models.'.$model->slug),
             'operation' => $model->slug === 'nvidia-nemotron-voicechat'
                 ? 'realtime.audio'
@@ -76,9 +81,11 @@ class HostedCodeAgents
                 'listed' => true,
                 'provider_access' => $model->last_test_status === 'success' ? 'verified' : 'unverified',
                 'active' => (bool) $model->enabled,
-                'available' => (bool) ($model->enabled && $model->api_ready),
-                'inference_status' => ! $model->enabled ? 'disabled' : ($model->api_ready ? 'configured' : 'setup_required'),
+                'available' => (bool) ($model->enabled && $model->api_ready && (int) $model->last_test_http_status !== 410 && app(HostedModelRuntime::class)->configured($model->slug)),
+                'inference_status' => ! $model->enabled ? 'disabled' : ((int) $model->last_test_http_status === 410 ? 'retired' : ($model->api_ready && app(HostedModelRuntime::class)->configured($model->slug) ? 'configured' : 'setup_required')),
+                'replacement_model' => $model->slug === 'nvidia-ising-calibration-1-35b-a3b' ? 'nvidia-ising-calibration-1.5-31b' : null,
                 'provider_verified' => $model->last_test_status === 'success',
+                'runtime' => app(HostedModelRuntime::class)->inspect($model->slug),
                 'integration_requirements' => config('nvidia_specialists.models.'.$model->slug),
                 'last_test_status' => $model->last_test_status,
                 'last_tested_at' => $model->last_tested_at,
@@ -95,7 +102,7 @@ class HostedCodeAgents
                 : (isset(config('maxine.models', [])[$model->slug])
                 ? 'media.process'
                 : ($model->slug === 'nvidia-cosmos3-nano' ? 'generate' : ($model->api_protocol === 'chat' ? 'chat.completions' : 'invoke'))))))),
-                'path' => ($model->enabled && $model->api_ready)
+                'path' => ($model->enabled && $model->api_ready && (int) $model->last_test_http_status !== 410 && app(HostedModelRuntime::class)->configured($model->slug))
                     ? ($model->slug === 'nvidia-nemotron-voicechat'
                         ? '/voicechat/sessions'
                         : ($model->slug === 'nvidia-magpie-tts-zeroshot'
@@ -111,5 +118,37 @@ class HostedCodeAgents
                         : ($model->slug === 'nvidia-cosmos3-nano' ? '/cosmos/generations' : ($model->api_protocol === 'chat' ? '/chat/completions' : '/models/'.$model->slug.'/invoke'))))))))
                     : null,
             ])->all();
+    }
+
+    /** Developer API projection: coding agents only, without provider identities. */
+    public function publicDeveloperCatalog(): array
+    {
+        return $this->codeAgents()->map(fn ($model) => [
+            'id' => $model->slug,
+            'object' => 'model',
+            'name' => 'OpenMindAI',
+            'category' => 'Coding agent',
+            'description' => 'OpenMindAI coding assistance for development, debugging, and tool-based workflows.',
+            'listed' => true,
+            'active' => (bool) $model->enabled,
+            'available' => (bool) ($model->enabled && $model->api_ready),
+            'operation' => 'chat.completions',
+            'path' => ($model->enabled && $model->api_ready) ? '/chat/completions' : null,
+        ])->values()->all();
+    }
+
+    public function publicDeveloperModels(): array
+    {
+        return $this->codeAgents()->map(fn ($model) => [
+            'id' => $model->slug,
+            'object' => 'model',
+            'name' => 'OpenMindAI',
+            'created' => $model->created_at ? strtotime($model->created_at) : 0,
+            'owned_by' => 'openmindai',
+            'type' => 'code',
+            'active' => (bool) $model->enabled,
+            'available' => (bool) ($model->enabled && $model->api_ready),
+            'operation' => 'chat.completions',
+        ])->values()->all();
     }
 }

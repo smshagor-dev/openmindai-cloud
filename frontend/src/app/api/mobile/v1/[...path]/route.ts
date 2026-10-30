@@ -8,7 +8,12 @@ export const maxDuration = 180;
 
 // Native Flutter clients use Laravel Sanctum bearer tokens, never web cookies.
 // Keep this route separate from the browser /api/backend cookie/CSRF gateway.
-const getRoutes = new Set(["status", "public-config", "me", "mobile/models"]);
+const getRoutes = new Set([
+  "status", "public-config", "me", "mobile/models",
+  "media/image-capabilities",
+]);
+const mediaStatusRoute = /^media\/[1-9][0-9]{0,12}$/;
+const mediaOutputRoute = /^media\/[1-9][0-9]{0,12}\/output$/;
 const postRoutes = new Set([
   "login",
   "login/verify-ip",
@@ -19,6 +24,7 @@ const postRoutes = new Set([
   "reset-password",
   "logout",
   "mobile/chat/completions",
+  "media/cloud-image",
 ]);
 const publicRoutes = new Set([
   "status", "public-config", "login", "login/verify-ip", "register",
@@ -171,7 +177,10 @@ async function mobile(
 ) {
   const endpoint = (await context.params).path.join("/");
   const isGet = request.method === "GET";
-  if (!(isGet ? getRoutes : postRoutes).has(endpoint)) {
+  const mediaStatus = isGet && mediaStatusRoute.test(endpoint);
+  const imageOutput = isGet && mediaOutputRoute.test(endpoint);
+  if (!(isGet ? getRoutes : postRoutes).has(endpoint) &&
+      !mediaStatus && !imageOutput) {
     return json({ message: "Not found." }, 404);
   }
   if (request.nextUrl.search) {
@@ -205,7 +214,10 @@ async function mobile(
     // sanitized result that never exposes hostnames, cookies or credentials.
     const target = endpoint === "status" ? "public-config" : endpoint;
     const upstreamUrl = backendUrl(target);
-    const identity = identityRoutes.has(endpoint)
+    const identity = (identityRoutes.has(endpoint) ||
+        endpoint === "media/cloud-image" ||
+        endpoint === "media/image-capabilities" ||
+        mediaStatus || imageOutput)
       ? signedMobileIdentity(request, upstreamUrl, body ?? "")
       : {};
     if (!identity) {
@@ -220,7 +232,8 @@ async function mobile(
       body,
       headers: {
         Accept: target === "mobile/chat/completions"
-          ? "text/event-stream" : "application/json",
+          ? "text/event-stream" : imageOutput
+          ? "image/png,image/jpeg" : "application/json",
         ...(isGet ? {} : { "Content-Type": "application/json" }),
         ...(!isPublic ? { Authorization: authorization } : {}),
         ...identity,
@@ -245,6 +258,38 @@ async function mobile(
           "Content-Type": "text/event-stream; charset=utf-8",
           "Cache-Control": "private, no-store, no-transform",
           "X-Accel-Buffering": "no",
+          "X-Content-Type-Options": "nosniff",
+        },
+      });
+    }
+
+    if (imageOutput && upstream.ok) {
+      const mime = (upstream.headers.get("content-type") ?? "").split(";")[0].trim();
+      const length = Number(upstream.headers.get("content-length") ?? "0");
+      if (!["image/png", "image/jpeg"].includes(mime) ||
+          !upstream.body || (length > 0 && length > 25 * 1024 * 1024)) {
+        return json({ message: "The Cloud image output is not a supported file." }, 502);
+      }
+      // Keep the media private. Relay bytes only for an authenticated
+      // request; do not expose a public storage URL or Set-Cookie.
+      // Stream with a hard byte cap even when upstream omits Content-Length.
+      let forwardedBytes = 0;
+      const safeStream = upstream.body.pipeThrough(
+        new TransformStream<Uint8Array, Uint8Array>({
+          transform(chunk, controller) {
+            forwardedBytes += chunk.byteLength;
+            if (forwardedBytes > 25 * 1024 * 1024) {
+              throw new Error("Cloud image exceeded the media size limit");
+            }
+            controller.enqueue(chunk);
+          },
+        }),
+      );
+      return new Response(safeStream, {
+        status: 200,
+        headers: {
+          "Content-Type": mime,
+          "Cache-Control": "private, no-store",
           "X-Content-Type-Options": "nosniff",
         },
       });

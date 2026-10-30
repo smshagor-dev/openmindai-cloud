@@ -89,7 +89,8 @@ class DeveloperPortalTest extends TestCase
             ->assertJsonPath('used', 1)
             ->assertJsonPath('limit', 4)
             ->assertJsonPath('remaining', 3)
-            ->assertJsonPath('by_model.0.model', 'nvidia/nemotron-demo')
+            ->assertJsonPath('by_model.0.model', 'OpenMindAI')
+            ->assertJsonPath('by_model.0.kind', 'Coding agent')
             ->assertJsonPath('by_model.0.used', 1)
             ->assertJsonPath('daily.0.used', 1);
 
@@ -97,6 +98,8 @@ class DeveloperPortalTest extends TestCase
             ->getJson('/api/v1/developer/catalog')
             ->assertOk()
             ->assertJsonStructure(['data'])
-            ->assertJsonCount(42, 'data');
+            ->assertJsonCount(3, 'data')
+            ->assertJsonFragment(['name' => 'OpenMindAI'])
+            ->assertJsonMissing(['id' => 'nvidia-background-noise-removal']);
     }
 }

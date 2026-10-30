@@ -40,7 +40,7 @@ class CloudApiAuthResponseTest extends TestCase
         $this->withToken($apiKey)
             ->get('/api/v1/openmindai/models', ['Accept' => 'text/html'])
             ->assertOk()
-            ->assertJsonCount(42, 'data')
+            ->assertJsonCount(3, 'data')
             ->assertJsonPath('object', 'list');
     }
 

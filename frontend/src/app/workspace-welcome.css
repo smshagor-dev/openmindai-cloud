@@ -1,0 +1,99 @@
+/* Shared startup identity for Chat, Research and 3D Studio. */
+.workspace-welcome {
+  text-align: center;
+  margin: 0 0 28px;
+  overflow-wrap: anywhere;
+}
+.workspace-welcome-identity {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  margin-bottom: 18px;
+  font-size: 14px;
+}
+.workspace-welcome-identity img {
+  display: block;
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+}
+.workspace-welcome-identity strong {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+}
+.workspace .welcome .workspace-welcome h1,
+.rs-chat-home .workspace-welcome h1 {
+  font-family: inherit;
+  font-size: clamp(27px, 3vw, 34px);
+  font-weight: 550;
+  line-height: 1.3;
+  letter-spacing: -0.9px;
+  margin: 0;
+}
+.workspace .welcome .workspace-welcome {
+  margin-bottom: 0;
+}
+a.sidebar-action,
+a.sidebar-action:hover,
+a.sidebar-action:focus-visible {
+  text-decoration: none;
+}
+.rs-chat .rs-chat-home {
+  box-sizing: border-box;
+  width: min(100%, 816px);
+  max-width: 816px;
+  padding: clamp(48px, 20dvh, 200px) 24px 32px;
+  margin: 0 auto;
+}
+.rs-chat .rs-chat-home .rs-chat-composer {
+  border-radius: 28px;
+}
+@media (max-width: 760px) {
+  .workspace-welcome-identity {
+    margin-bottom: 13px;
+  }
+  .workspace-welcome-identity img {
+    width: 31px;
+    height: 31px;
+  }
+  .rs-chat .rs-chat-home {
+    padding: clamp(40px, 12dvh, 88px) 16px 24px;
+  }
+}
+@media (max-height: 500px) {
+  .rs-chat .rs-chat-home {
+    padding-top: 24px;
+  }
+}
+
+/* Studio pages in the chat workspace frame (components/studio-frame.tsx). */
+.studio-frame-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.workspace a.sidebar-brand,
+.workspace a.profile-button {
+  color: inherit;
+  text-decoration: none;
+}
+.workspace .sidebar-action.selected {
+  background: var(--ui-hover);
+}
+.workspace .studio-frame-section {
+  margin-left: 4px;
+  padding-left: 11px;
+  border-left: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 15px;
+  font-weight: 450;
+  letter-spacing: 0;
+}
+@media (max-width: 760px) {
+  .workspace .studio-frame-section {
+    display: none;
+  }
+}

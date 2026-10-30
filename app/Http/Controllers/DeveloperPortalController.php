@@ -12,7 +12,7 @@ class DeveloperPortalController
     public function catalog(Request $request, HostedCodeAgents $agents)
     {
         // Login sessions may inspect model availability but cannot invoke models.
-        return response()->json(['object' => 'list', 'data' => $agents->publicCatalog()])
+        return response()->json(['object' => 'list', 'data' => $agents->publicDeveloperCatalog()])
             ->header('Cache-Control', 'private, no-store');
     }
 
@@ -26,22 +26,18 @@ class DeveloperPortalController
             ->sum('credits');
         $limit = $user->monthly_credit_limit === null ? null : (int) $user->monthly_credit_limit;
 
-        $models = DB::table('api_credit_usage as usage')
+        // Keep account-wide credit limits, while displaying coding usage only.
+        $codingUsed = (int) DB::table('api_credit_usage as usage')
             ->join('api_model_connections as models', 'usage.connection_id', '=', 'models.id')
             ->where('usage.user_id', $user->id)
             ->where('usage.created_at', '>=', $monthStart)
-            ->select('models.provider', 'models.model_key', 'models.kind')
-            ->selectRaw('SUM(usage.credits) as used')
-            ->groupBy('models.id', 'models.provider', 'models.model_key', 'models.kind')
-            ->orderByDesc('used')
-            ->limit(50)
-            ->get()
-            ->map(fn ($row) => [
-                'provider' => $row->provider,
-                'model' => $row->model_key,
-                'kind' => $row->kind,
-                'used' => (int) $row->used,
-            ]);
+            ->where('models.kind', 'code')
+            ->sum('usage.credits');
+        $models = $codingUsed > 0 ? [[
+            'model' => 'OpenMindAI',
+            'kind' => 'Coding agent',
+            'used' => $codingUsed,
+        ]] : [];
 
         $daily = DB::table('api_credit_usage')
             ->where('user_id', $user->id)

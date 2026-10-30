@@ -58,10 +58,9 @@ export default function FilePreview({
         <img className="media-preview" src={url} alt={file.name} />
       )}{" "}
       {url && file.type.startsWith("audio/") && <audio controls src={url} />}
-      {/\.(pdf|docx?|md|markdown|txt|csv)$/i.test(file.name) && <DocumentPreview file={file} />}
+      {/\.(pdf|docx?|md|markdown|txt|csv)$/i.test(file.name) && <DocumentPreview file={file} onAttach={onAttach} />}
       {error && <p role="alert">{error}</p>}
-      {/\.(md|markdown|txt|csv)$/i.test(file.name) && onAttach && <button className="primary-button" onClick={() => onAttach(file)}>Attach to message</button>}
-      {!/\.(doc|md|markdown|txt|csv)$/i.test(file.name) && <form
+      {!/\.(pdf|docx?|md|markdown|txt|csv)$/i.test(file.name) && <form
         className="form-stack"
         onSubmit={async (e) => {
           e.preventDefault();
