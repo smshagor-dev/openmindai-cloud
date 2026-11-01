@@ -119,7 +119,7 @@ for (const width of [1440, 390])
       await expect(tools).toBeVisible();
       await tools.getByRole("button", { name, exact: true }).click();
       if (width < 760)
-        await page.getByRole("button", { name: "Close sidebar", exact: true }).click();
+        await page.getByRole("button", { name: "Close sidebar", exact: true }).click({ position: { x: width - 5, y: 5 } });
     };
     await navigate("Manuscript");
     const editor = page.getByRole("textbox", { name: "Academic manuscript" });

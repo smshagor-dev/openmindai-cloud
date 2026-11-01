@@ -1,4 +1,22 @@
 import { test, expect, type Page } from "@playwright/test";
+async function openTools(page: Page) {
+  const tools = page.locator(".composer-tools");
+  if (!(await tools.evaluate(el => (el as HTMLDetailsElement).open))) await tools.locator("summary").click();
+}
+async function sidebarAction(page: Page, name: string) {
+  if ((page.viewportSize()?.width || 1440) <= 760) await page.getByRole("button", { name: "Open sidebar", exact: true }).click();
+  await page.locator(".sidebar").getByRole("button", { name, exact: true }).click();
+  const close = page.getByRole("button", { name: "Close sidebar", exact: true });
+  if (await close.isVisible()) await close.click({ position: { x: (page.viewportSize()?.width || 390) - 5, y: 5 } });
+}
+async function editGeometry(page: Page) {
+  const details = page.locator("details.studio-edit");
+  if (!(await details.evaluate(el => (el as HTMLDetailsElement).open))) await details.locator("summary").click();
+}
+async function selectArchitecture(page: Page) {
+  await openTools(page);
+  await page.getByRole("button", { name: /^3D architecture/ }).click();
+}
 async function mockWorkbench(
   page: Page,
   onSubmit: (body: { mode: string; upload_ids: number[] }) => void,
@@ -159,14 +177,11 @@ for (const compatibility of [false, true]) {
         const errors: string[] = [];
         page.on("pageerror", (e) => errors.push(e.message));
         await page.goto("/3d-studio");
-        await expect(
-          page.getByRole("button", { name: "Auto Detect", exact: true }),
-        ).toHaveAttribute("aria-pressed", "true");
-        if (mode === "architecture")
-          await page
-            .getByRole("button", { name: "3D Architecture", exact: true })
-            .click();
-        await page.locator("#scene-prompt").fill("A robot with a camera");
+        await openTools(page);
+        await expect(page.getByRole("button", { name: /^Auto detect/ })).toHaveAttribute("aria-pressed", "true");
+        await page.locator(".composer-tools summary").click();
+        if (mode === "architecture") await selectArchitecture(page);
+        await page.getByRole("textbox", { name: "Describe your scene", exact: true }).fill("A robot with a camera");
         await page.getByRole("button", { name: "Generate scene" }).click();
         await expect(
           page.getByRole("heading", { name: "Delivery robot" }),
@@ -193,6 +208,7 @@ for (const compatibility of [false, true]) {
         for await (const chunk of stream!) chunks.push(Buffer.from(chunk));
         expect(Buffer.concat(chunks).subarray(0, 4).toString()).toBe("glTF");
         await page.getByRole("button", { name: "Reset view" }).click();
+        await editGeometry(page);
         await page
           .getByRole("spinbutton", { name: "position X", exact: true })
           .fill("4");
@@ -223,12 +239,9 @@ for (const compatibility of [false, true]) {
           ),
           JSON.stringify(overflowing),
         ).toBe(true);
-        await page
-          .getByRole("button", { name: "New scene", exact: true })
-          .click();
-        await page
-          .getByRole("button", { name: "Delivery robot", exact: true })
-          .click();
+        await sidebarAction(page, "New scene");
+        await sidebarAction(page, "Delivery robot");
+        await editGeometry(page);
         await expect(
           page.locator(".studio-viewport").locator("canvas, svg"),
         ).toBeVisible();
@@ -239,9 +252,7 @@ for (const compatibility of [false, true]) {
         await expect(
           page.getByRole("spinbutton", { name: "position X", exact: true }),
         ).toHaveValue("4");
-        await page
-          .getByRole("button", { name: "Delete Delivery robot", exact: true })
-          .click();
+        await sidebarAction(page, "Delete Delivery robot");
         await expect(
           page.getByRole("heading", { name: "Delivery robot" }),
         ).toHaveCount(0);
@@ -269,10 +280,9 @@ test("3D Studio exposes authentication and provider failures", async ({
   );
   await mockWorkbench(page, () => {}, true);
   await page.goto("/3d-studio");
-  await expect(page.getByRole("main").getByRole("alert")).toContainText(
-    "Please sign in.",
-  );
-  await page.locator("#scene-prompt").fill("A robot with wheels");
+  await expect(page.locator(".sidebar").getByRole("link", { name: /Log in/ })).toBeVisible();
+  await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
+  await page.getByRole("textbox", { name: "Describe your scene", exact: true }).fill("A robot with wheels");
   await page.getByRole("button", { name: "Generate scene" }).click();
   await expect(page.getByRole("main").getByRole("alert")).toContainText(
     "Provider unavailable.",
@@ -369,15 +379,16 @@ test("uploads Markdown privately and exports GLB using compatible preview withou
     exists = true;
   });
   await page.goto("/3d-studio");
-  await page.locator(".studio-references input[type=file]").setInputFiles({
+  await expect(page.getByRole("button", { name: "Add reference files", exact: true })).toBeEnabled();
+  await page.locator(".composer input[type=file]").setInputFiles({
     name: "robot.md",
     mimeType: "text/markdown",
     buffer: Buffer.from("# Blue body"),
   });
   await expect(
-    page.getByText("robot.md", { exact: true }).last(),
+    page.locator(".attachment-chips").getByText("robot.md", { exact: true }),
   ).toBeVisible();
-  await page.locator("#scene-prompt").fill("Use the blue body reference");
+  await page.getByRole("textbox", { name: "Describe your scene", exact: true }).fill("Use the blue body reference");
   await page.getByRole("button", { name: "Generate scene" }).click();
   await expect(page.locator(".studio-viewport svg")).toBeVisible();
   await expect(page.getByText(/Compatible preview mode/)).toBeVisible();
@@ -389,46 +400,33 @@ test("uploads Markdown privately and exports GLB using compatible preview withou
   for await (const chunk of stream!) chunks.push(Buffer.from(chunk));
   expect(Buffer.concat(chunks).subarray(0, 4).toString()).toBe("glTF");
   await page.reload();
-  await page
-    .getByRole("button", { name: "Reference cube", exact: true })
-    .click();
+  await sidebarAction(page, "Reference cube");
   await expect(page.locator(".studio-viewport svg")).toBeVisible();
-  await page
-    .getByText("Saved references (1 selected)", { exact: true })
-    .click();
+  await openTools(page);
   await expect(page.getByRole("checkbox", { name: "robot.md" })).toBeChecked();
 });
 
-test("Studio palette stays consistent and its theme preference survives reload", async ({
-  page,
-}) => {
+test("Studio palette follows the saved account theme across reload", async ({ page }) => {
+  let theme = "dark";
   await page.emulateMedia({ colorScheme: "light" });
+  await page.route("**/api/backend/me", route => route.fulfill({ json: { id: 1, name: "Theme fixture" } }));
+  await page.route("**/api/backend/preferences", route => route.fulfill({ json: { theme, accent_color: "default", text_size: "default", reduced_motion: false } }));
   await mockWorkbench(page, () => {});
-  await page.route("**/api/backend/3d-scenes**", (route) =>
-    route.fulfill({ json: { data: [] } }),
-  );
+  await page.route("**/api/backend/3d-scenes**", route => route.fulfill({ json: { data: [] } }));
   await page.goto("/3d-studio");
-  const shell = page.locator(".studio-shell");
-  await expect(shell).not.toHaveClass(/studio-light/);
-  await expect(page.locator(".studio-workbench")).toHaveCSS(
-    "background-color",
-    "rgb(21, 30, 44)",
-  );
-  await page.screenshot({
-    path: test.info().outputPath("studio-dark.png"),
-    fullPage: true,
-  });
-  await page.getByRole("button", { name: "Use light theme" }).click();
-  await expect(shell).toHaveClass(/studio-light/);
-  await expect(shell).toHaveCSS("background-color", "rgb(248, 250, 252)");
-  await page.screenshot({
-    path: test.info().outputPath("studio-light.png"),
-    fullPage: true,
-  });
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await expect(page.locator(".workspace")).toHaveCSS("background-color", "rgb(33, 33, 33)");
+  await page.screenshot({ path: test.info().outputPath("studio-dark.png"), fullPage: true });
+  theme = "light";
   await page.reload();
-  await expect(shell).toHaveClass(/studio-light/);
-  await page.getByRole("button", { name: "Use dark theme" }).click();
-  await expect(shell).not.toHaveClass(/studio-light/);
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  await expect(page.locator(".workspace")).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  await page.screenshot({ path: test.info().outputPath("studio-light.png"), fullPage: true });
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  theme = "dark";
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
 });
 
 test("Studio preserves early input by waiting for client initialization", async ({
@@ -448,16 +446,16 @@ test("Studio preserves early input by waiting for client initialization", async 
   });
   try {
     await page.goto("/3d-studio", { waitUntil: "commit" });
-    await expect(page.locator("#scene-prompt")).toBeDisabled();
+    await expect(page.getByRole("textbox", { name: "Describe your scene", exact: true })).toBeDisabled();
     await expect(
-      page.getByRole("button", { name: "Auto Detect", exact: true }),
+      page.getByRole("button", { name: "Generate scene", exact: true }),
     ).toBeDisabled();
   } finally {
     release();
   }
-  await expect(page.locator("#scene-prompt")).toBeEnabled();
-  await page.locator("#scene-prompt").fill("Keep this early prompt");
-  await expect(page.locator("#scene-prompt")).toHaveValue(
+  await expect(page.getByRole("textbox", { name: "Describe your scene", exact: true })).toBeEnabled();
+  await page.getByRole("textbox", { name: "Describe your scene", exact: true }).fill("Keep this early prompt");
+  await expect(page.getByRole("textbox", { name: "Describe your scene", exact: true })).toHaveValue(
     "Keep this early prompt",
   );
   await expect(
@@ -557,26 +555,21 @@ for (const cpanelMode of ["object", "architecture"] as const) {
       });
     });
     await page.goto("/3d-studio");
-    if (cpanelMode === "architecture")
-      await page
-        .getByRole("button", { name: "3D Architecture", exact: true })
-        .click();
-    await page.locator("#scene-prompt").fill("Build a robot");
+    if (cpanelMode === "architecture") await selectArchitecture(page);
+    await page.getByRole("textbox", { name: "Describe your scene", exact: true }).fill("Build a robot");
     await page.getByRole("button", { name: "Generate scene" }).click();
     await expect(
       page.getByRole("heading", { name: scene.title, exact: true }),
     ).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Generate scene" }),
-    ).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Apply changes to scene" })).toBeDisabled();
     expect(keys).toHaveLength(1);
     expect(polls).toEqual([]);
-    await page
-      .getByRole("spinbutton", { name: "position X", exact: true })
-      .fill("3");
+    await editGeometry(page);
+    await page.getByRole("spinbutton", { name: "position X", exact: true }).fill("3");
     await page.getByRole("button", { name: "Save scene revision" }).click();
     await expect(page.getByLabel("Previous revisions")).toBeVisible();
     expect(scene.nodes[0].position[0]).toBe(3);
+    await sidebarAction(page, "Assets & workflows");
     await page
       .getByRole("tab", { name: "Workflow editor", exact: true })
       .click();
@@ -642,7 +635,7 @@ test("cPanel reconnect retries reuse the request key instead of charging a secon
     return route.fulfill({ json: { data: [] } });
   });
   await page.goto("/3d-studio");
-  await page.locator("#scene-prompt").fill("Build a robot");
+  await page.getByRole("textbox", { name: "Describe your scene", exact: true }).fill("Build a robot");
   await page.getByRole("button", { name: "Generate scene" }).click();
   await expect(
     page.getByRole("alert").filter({ hasText: /.+/ }).first(),

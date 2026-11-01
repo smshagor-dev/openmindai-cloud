@@ -260,6 +260,7 @@ class ResearchLiteratureRecoveryTest extends TestCase
         $this->assertSame($retained[0], $task->fresh()->checkpoint['sections'][0]);
         $this->assertSame([$source->id], $task->fresh()->checkpoint['sections'][1]['paragraphs'][0]['source_ids']);
         Http::assertSent(fn ($request) => str_contains(json_encode($request['messages']), 'allowed_source_ids') && ! isset($request['max_tokens']));
+        Http::assertSent(fn ($request) => str_contains(json_encode($request['messages']), 'previous_output_excerpt') && str_contains(json_encode($request['messages']), '999999') && str_contains(json_encode($request['messages']), 'source_catalog'));
     }
 
     public function test_gateway_accepts_the_larger_output_budget(): void
