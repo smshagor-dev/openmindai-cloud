@@ -21,7 +21,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 // Vercel Fluid Compute (Hobby): allow hosted chat, research and media to finish.
 // This is an upper bound, not a guarantee when Laravel or NVIDIA time out.
-export const maxDuration = 800;
+export const maxDuration = 300;
 const cookieName = "openmindai_token";
 const publicPaths = new Set([
   "guest/chat",
