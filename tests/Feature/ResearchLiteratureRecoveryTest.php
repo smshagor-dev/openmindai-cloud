@@ -10,6 +10,7 @@ use App\Models\Research\Run;
 use App\Models\Research\Source;
 use App\Models\Research\Task;
 use App\Models\User;
+use App\Services\Research\Agents\Editor;
 use App\Services\Research\Context;
 use App\Services\Research\Inference;
 use App\Services\Research\Orchestrator;
@@ -207,7 +208,7 @@ class ResearchLiteratureRecoveryTest extends TestCase
         $this->assertSame($text, Evidence::where('project_id', $source->project_id)->sole()->quote);
         Http::assertSentCount(1);
         Http::assertSent(fn ($request) => $request['chat_template_kwargs'] === ['enable_thinking' => false]
-            && $request['max_tokens'] === 16384);
+            && ! isset($request['max_tokens']));
     }
 
     public function test_chunk_analysis_repairs_invalid_json_and_retries_a_brief_provider_failure(): void
@@ -240,6 +241,27 @@ class ResearchLiteratureRecoveryTest extends TestCase
         Http::assertSentCount(3);
     }
 
+    public function test_editor_repairs_foreign_source_ids_without_losing_completed_sections(): void
+    {
+        $source = $this->source('Synthetic editor evidence.');
+        config(['research.model' => 'openmindai-ultra', 'research.fallback_models' => [], 'models.nvidia_key' => 'synthetic-provider-only']);
+        DB::table('hosted_code_agents')->where('slug', 'openmindai-ultra')->update(['enabled' => true, 'api_ready' => true, 'api_protocol' => 'chat', 'last_test_status' => 'success']);
+        $run = $this->start($source);
+        $task = Task::where('run_id', $run->id)->sole();
+        $retained = [['heading' => 'Retained title', 'paragraphs' => [['text' => 'Accepted draft.', 'source_ids' => []]]]];
+        $task->update(['agent' => 'editor', 'status' => 'running', 'claim' => 'editor-fixture', 'checkpoint' => ['index' => 1, 'sections' => $retained, 'base_version' => 1]]);
+        $calls = 0;
+        Http::fake(function () use (&$calls, $source) {
+            return Http::response(['choices' => [['message' => ['content' => json_encode(['heading' => 'Introduction', 'paragraphs' => [['text' => 'Synthetic evidence.', 'source_ids' => [++$calls === 1 ? 999999 : $source->id]]]])], 'finish_reason' => 'stop']]]);
+        });
+        $result = app(Editor::class)->execute(new Context($task->fresh(), 'editor-fixture'));
+        $this->assertTrue($result['_continue']);
+        $this->assertSame(2, $calls);
+        $this->assertSame($retained[0], $task->fresh()->checkpoint['sections'][0]);
+        $this->assertSame([$source->id], $task->fresh()->checkpoint['sections'][1]['paragraphs'][0]['source_ids']);
+        Http::assertSent(fn ($request) => str_contains(json_encode($request['messages']), 'allowed_source_ids') && ! isset($request['max_tokens']));
+    }
+
     public function test_gateway_accepts_the_larger_output_budget(): void
     {
         $user = User::create(['name' => 'Budget', 'email' => uniqid().'@example.com', 'password' => 'StrongPassword123']);
@@ -249,8 +271,10 @@ class ResearchLiteratureRecoveryTest extends TestCase
         Http::fake(['integrate.api.nvidia.com/*' => Http::response(['choices' => [['message' => ['role' => 'assistant', 'content' => 'ok'], 'finish_reason' => 'stop']]], 200)]);
         Sanctum::actingAs($user, ['user']);
         $this->postJson('/api/v1/mobile/chat/completions', ['model' => 'openmindai-ultra', 'stream' => false, 'max_tokens' => 16384, 'messages' => [['role' => 'user', 'content' => 'Hi']]])->assertOk();
-        $this->postJson('/api/v1/mobile/chat/completions', ['model' => 'openmindai-ultra', 'stream' => false, 'max_tokens' => 16385, 'messages' => [['role' => 'user', 'content' => 'Hi']]])->assertUnprocessable();
-        Http::assertSent(fn ($request) => $request['max_tokens'] === 16384);
+        $this->postJson('/api/v1/mobile/chat/completions', ['model' => 'openmindai-ultra', 'stream' => false, 'max_tokens' => 65536, 'messages' => [['role' => 'user', 'content' => 'Hi']]])->assertOk();
+        Http::assertSent(fn ($request) => $request['max_tokens'] === 65536);
+        $this->postJson('/api/v1/mobile/chat/completions', ['model' => 'openmindai-ultra', 'messages' => [['role' => 'user', 'content' => 'Hi']]])->assertOk();
+        Http::assertSent(fn ($request) => ! isset($request['max_tokens']));
     }
 
     public function test_other_research_agents_also_keep_json_output_available(): void
@@ -267,7 +291,7 @@ class ResearchLiteratureRecoveryTest extends TestCase
         $result = app(Inference::class)->json(new Context($task, 'synthetic-claim'), 'Return ready JSON.', [], ['ready' => 'required|boolean']);
         $this->assertSame(['ready' => true], $result);
         $this->assertSame(2016384, $run->fresh()->reserved_tokens);
-        Http::assertSent(fn ($request) => $request['chat_template_kwargs'] === ['enable_thinking' => false] && $request['max_tokens'] === 16384);
+        Http::assertSent(fn ($request) => $request['chat_template_kwargs'] === ['enable_thinking' => false] && ! isset($request['max_tokens']));
     }
 
     public function test_provider_rate_wait_does_not_consume_failure_attempts_or_lose_checkpoint(): void

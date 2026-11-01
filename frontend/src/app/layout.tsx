@@ -1,3 +1,4 @@
+import PageLoading from "@/components/page-loading";
 import type { Metadata } from "next";
 import "@fontsource-variable/dm-sans";
 import "@fontsource-variable/manrope";
@@ -21,7 +22,7 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body><PageLoading initial />{children}</body>
     </html>
   );
 }

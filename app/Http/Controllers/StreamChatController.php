@@ -129,7 +129,7 @@ class StreamChatController
                     $finishReason = null;
                     $finished = false;
                     $before = strlen($text);
-                    $upstream = Http::withToken((string) config('models.inference_key'))->accept('text/event-stream')->connectTimeout(10)->timeout(120)->withOptions(['stream' => true, 'read_timeout' => 20, 'allow_redirects' => false])->post(rtrim(config('models.inference_url'), '/').'/chat/completions', ['model' => $model->runtime_model, 'messages' => $messages, 'stream' => true]);
+                    $upstream = Http::withToken((string) config('models.inference_key'))->accept('text/event-stream')->connectTimeout(10)->timeout(600)->withOptions(['stream' => true, 'read_timeout' => 600, 'allow_redirects' => false])->post(rtrim(config('models.inference_url'), '/').'/chat/completions', ['model' => $model->runtime_model, 'messages' => $messages, 'stream' => true]);
                     if (! $upstream->successful()) {
                         throw new \RuntimeException('Inference failed.');
                     }

@@ -75,7 +75,7 @@ test("provider length boundary continues and saves a single complete answer", as
         }
         if (url.endsWith("/checkpoint")) return Response.json({ stored: true });
         if (url.endsWith("/status")) return Response.json({ cancelled: false });
-        assert.equal(body.max_tokens, 16384);
+        assert.equal(body.max_tokens, undefined);
         generated++;
         if (generated === 2) assert.equal(body.messages.at(-1).role, "user");
         return new Response(

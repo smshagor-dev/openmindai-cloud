@@ -19,7 +19,7 @@ test("Vercel detects the frontend as a Next.js application with pinned installat
 test("Next.js API handles Vercel deployment origins and long requests", () => {
   const route = source("src/app/api/backend/[...path]/route.ts");
   assert.match(route, /export const runtime = "nodejs"/);
-  assert.match(route, /export const maxDuration = 300/);
+  assert.match(route, /export const maxDuration = 800/);
   assert.match(route, /process\.env\.VERCEL === "1"/);
   assert.match(route, /request\.nextUrl\.origin/);
   assert.match(route, /request\.headers\.get\("origin"\) !== expectedOrigin/);

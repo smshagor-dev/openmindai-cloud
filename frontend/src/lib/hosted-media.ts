@@ -224,7 +224,7 @@ export async function hostedMediaRequest(
         messages: [
           { role: "system", content: "Draft complete, polished document content. Return plain text only; no commentary about file conversion. Keep paragraphs and headings clear." },
           { role: "user", content: job.prompt },
-        ], stream: false, max_tokens: 4096,
+        ], stream: false,
       }), "application/json");
       const reply = await readJson(response, 1000000);
       const text = reply?.choices?.[0]?.message?.content;

@@ -479,7 +479,7 @@ export async function nvidiaChat(
             model:activeModel, apiKey:config.apiKey, fetcher, messages:requestedGeneration
               ? [...generationMessages,{role:"system",content:`The user requested a generated ${requestedGeneration.kind}, format ${requestedGeneration.format || "docx"}. Use the conversation and attached evidence, perform requested research before creating the file, and use create_artifact. Never claim the file exists without a successful tool result.`}]
               : generationMessages, webSearchSelected,
-            signal:AbortSignal.any([upstreamAbort.signal, AbortSignal.timeout(240000)]), specialists:automaticSpecialists(eligibleModels, activeModel),
+            signal:AbortSignal.any([upstreamAbort.signal, AbortSignal.timeout(600000)]), specialists:automaticSpecialists(eligibleModels, activeModel),
             progress: label => emit("research", {label, sources:lease.sources}),
             delta: text => {content += text; emit("delta", {content:text});},
             web: async action => {
@@ -573,7 +573,7 @@ export async function nvidiaChat(
             decide: async (context, recordRetry) => {
               // Both attempts share one deadline and cancellation signal.
               const planningSignal = AbortSignal.any([
-                upstreamAbort.signal, AbortSignal.timeout(110000),
+                upstreamAbort.signal, AbortSignal.timeout(600000),
               ]);
               const requestDecision = () => fetcher(endpoint, {
                 method: "POST",
@@ -701,7 +701,6 @@ export async function nvidiaChat(
               stream: true,
               temperature: 0.6,
               // Explicit output budget avoids the provider's short default on code requests.
-              max_tokens: inlineImage ? 8192 : 16384,
               ...(inlineImage ? {
                 chat_template_kwargs: {enable_thinking: false},
               } : {}),
@@ -711,7 +710,7 @@ export async function nvidiaChat(
             }),
             signal: AbortSignal.any([
               upstreamAbort.signal,
-              AbortSignal.timeout(240000),
+              AbortSignal.timeout(600000),
             ]),
           });
           let response = await requestStream(activeModel);

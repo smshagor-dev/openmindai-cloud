@@ -57,7 +57,7 @@ class ChatController
 
     public function send(Request $r)
     {
-        $d = $r->validate(['model_id' => 'required|integer', 'assistant_id' => ['nullable', 'integer', Rule::exists('assistants', 'id')->where('user_id', $r->user()->id)], 'conversation_id' => 'nullable|integer', 'message' => 'required|string|max:16000', 'max_tokens' => 'sometimes|integer|min:1|max:2048', 'temporary' => 'sometimes|boolean', 'attachment_ids' => 'sometimes|array|max:5', 'attachment_ids.*' => 'integer', 'project_id' => 'nullable|integer']);
+        $d = $r->validate(['model_id' => 'required|integer', 'assistant_id' => ['nullable', 'integer', Rule::exists('assistants', 'id')->where('user_id', $r->user()->id)], 'conversation_id' => 'nullable|integer', 'message' => 'required|string|max:16000', 'max_tokens' => 'sometimes|integer|min:1', 'temporary' => 'sometimes|boolean', 'attachment_ids' => 'sometimes|array|max:5', 'attachment_ids.*' => 'integer', 'project_id' => 'nullable|integer']);
         abort_if(! empty($d['temporary']) && ! empty($d['conversation_id']), 422, 'Temporary chats cannot continue saved conversations.');
         $model = AiModel::where('enabled', true)->where('status', 'ready')->findOrFail($d['model_id']);
         abort_unless($model->runtime_model, 503, 'Model is not connected to inference.');
@@ -71,7 +71,7 @@ class ChatController
             }
             $history = app(ChatContext::class)->build($r->user(), $c ?? new Conversation(['project_id' => $d['project_id'] ?? null, 'assistant_id' => $d['assistant_id'] ?? null]), $d['message'], $d['attachment_ids'] ?? [], ! empty($d['temporary']));
             try {
-                $response = Http::withToken((string) config('models.inference_key'))->acceptJson()->connectTimeout(10)->timeout(120)->withOptions(['allow_redirects' => false])->post(rtrim(config('models.inference_url'), '/').'/chat/completions', ['model' => $model->runtime_model, 'messages' => $history, 'max_tokens' => $d['max_tokens'] ?? 1024, 'stream' => false]);
+                $response = Http::withToken((string) config('models.inference_key'))->acceptJson()->connectTimeout(10)->timeout(600)->withOptions(['allow_redirects' => false])->post(rtrim(config('models.inference_url'), '/').'/chat/completions', ['model' => $model->runtime_model, 'messages' => $history, ...(isset($d['max_tokens']) ? ['max_tokens' => $d['max_tokens']] : []), 'stream' => false]);
             } catch (ConnectionException $e) {
                 abort(503, 'Inference server unavailable.');
             }

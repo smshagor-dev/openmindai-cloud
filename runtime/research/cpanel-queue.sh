@@ -16,6 +16,6 @@ cd "$app_dir"
 # flock releases on process exit, including a timed-out/crashed PHP child.
 # The outer deadline also works when the host's PHP has no PCNTL extension.
 exec flock -n -E 0 "storage/framework/research-queue-$lane.lock" \
-    timeout --signal=TERM --kill-after=10s 500s \
+    timeout --signal=TERM --kill-after=10s 5700s \
     "$php_bin" artisan queue:work database --queue=research --stop-when-empty \
-    --max-time=45 --timeout=440 --tries=1 --sleep=1
+    --max-time=45 --timeout=5500 --tries=1 --sleep=1
