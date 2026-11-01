@@ -32,7 +32,7 @@ for (const width of [1440, 390])
     );
     if (width < 760)
       await page
-        .getByRole("button", { name: "Open project navigation" })
+        .getByRole("button", { name: "Open sidebar", exact: true })
         .click();
     await page
       .getByRole("button", { name: "New research", exact: true })
@@ -113,12 +113,13 @@ for (const width of [1440, 390])
     const navigate = async (name: string) => {
       if (width < 760)
         await page
-          .getByRole("button", { name: "Open project navigation" })
+          .getByRole("button", { name: "Open sidebar", exact: true })
           .click();
-      const tools = page.locator(".rs-tools-menu");
-      if (!(await tools.evaluate((el) => (el as HTMLDetailsElement).open)))
-        await tools.getByText("Research tools", { exact: true }).click();
+      const tools = page.locator(".rs-sidebar-tools");
+      await expect(tools).toBeVisible();
       await tools.getByRole("button", { name, exact: true }).click();
+      if (width < 760)
+        await page.getByRole("button", { name: "Close sidebar", exact: true }).click();
     };
     await navigate("Manuscript");
     const editor = page.getByRole("textbox", { name: "Academic manuscript" });
