@@ -47,6 +47,9 @@ class Orchestrator
     public function expand(Context $ctx, array $out): void
     {
         if ($ctx->task->agent === 'nvidia') {
+            if (! empty($ctx->task->input['web_search'])) {
+                return;
+            }
             $run = $ctx->run();
             $verification = $this->task($run, 'nvidia-verification', 'verification', [], [$ctx->task->id]);
             $literature = $this->task($run, 'nvidia-literature', 'literature', [], [$ctx->task->id]);
