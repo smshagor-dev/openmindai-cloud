@@ -15,7 +15,7 @@ class Manuscript extends BaseAgent
 
     public function execute(Context $ctx): array
     {
-        $draft = Finding::where('project_id', $ctx->task->project_id)->where('kind', 'editor')->latest('id')->firstOrFail()->data;
+        $draft = Finding::where('project_id', $ctx->task->project_id)->whereIn('kind', ['editor', 'nvidia'])->latest('id')->firstOrFail()->data;
         $nodes = [];
         foreach ($draft['sections'] as $i => $section) {
             $nodes[] = ['type' => 'heading', 'attrs' => ['level' => 1, 'id' => 'section-'.($i + 1)], 'content' => [['type' => 'text', 'text' => $section['heading']]]];

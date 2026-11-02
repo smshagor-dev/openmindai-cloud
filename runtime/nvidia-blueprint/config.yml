@@ -1,0 +1,50 @@
+# NVIDIA AI-Q release/2.2, using OpenMindAI's authenticated NVIDIA gateway.
+# No provider credentials or generated-code execution are exposed to this process.
+general:
+  telemetry:
+    logging:
+      console:
+        _type: console
+        level: WARNING
+llms:
+  research_llm:
+    _type: openai
+    model_name: ${OPENMIND_BLUEPRINT_MODEL}
+    base_url: ${OPENMIND_BLUEPRINT_BASE}/v1
+    api_key: ${OPENMIND_BLUEPRINT_TOKEN}
+    temperature: 0.2
+    max_retries: 4
+    request_timeout: 600
+functions:
+  data_sources:
+    _type: data_source_registry
+    sources:
+      - id: openmind_sources
+        name: OpenMindAI web and scholarly sources
+        tools: [web_search, paper_search, read_source]
+  web_search:
+    _type: openmind_source_bridge
+    operation: search
+  paper_search:
+    _type: openmind_source_bridge
+    operation: papers
+  read_source:
+    _type: openmind_source_bridge
+    operation: read
+  deep_research_agent:
+    _type: deep_research_agent
+    orchestrator_llm: research_llm
+    researcher_llm: research_llm
+    planner_llm: research_llm
+    writer_llm: research_llm
+    source_router_llm: research_llm
+    enable_source_router: false
+    enable_citation_verification: true
+    verbose: false
+    max_research_concurrency: 1
+    max_concurrent_source_tool_calls: 1
+    max_source_tool_batch_size: 1
+    resource_limits:
+      max_execution_seconds: 3600
+workflow:
+  _type: deep_research_workflow

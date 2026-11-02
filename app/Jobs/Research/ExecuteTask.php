@@ -87,9 +87,10 @@ class ExecuteTask implements ShouldQueue
             if ($e instanceof HttpExceptionInterface && $e->getStatusCode() === 429 && $e->getMessage() !== 'Research token reservation limit reached.') {
                 try {
                     $ctx->fenced(function ($t) use ($e) {
+                        $waitCode = $e->getMessage() === 'blueprint_runtime_busy' ? 'blueprint_runtime_busy' : 'provider_rate_limited';
                         $delay = max(1, min(300, (int) ($e->getHeaders()['Retry-After'] ?? 60)));
-                        $t->update(['status' => 'pending', 'claim' => null, 'lease_until' => null, 'available_at' => now()->addSeconds($delay), 'error_code' => 'provider_rate_limited']);
-                        Events::add($t->project_id, 'task.waiting', ['agent' => $t->agent, 'status' => 'waiting', 'error_code' => 'provider_rate_limited', 'retry_after' => $delay], $t->id);
+                        $t->update(['status' => 'pending', 'claim' => null, 'lease_until' => null, 'available_at' => now()->addSeconds($delay), 'error_code' => $waitCode]);
+                        Events::add($t->project_id, 'task.waiting', ['agent' => $t->agent, 'status' => 'waiting', 'error_code' => $waitCode, 'retry_after' => $delay], $t->id);
                     });
                 } catch (StaleExecution) {
                 }

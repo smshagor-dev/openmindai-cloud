@@ -830,6 +830,7 @@ export default function ResearchStudio() {
                   >
                     Start research
                   </button>
+                  <button disabled={!editable || busy || ["running","paused"].includes(data.run?.status)} onClick={()=>void component("nvidia")}>NVIDIA Deep Research</button>
                   {["pause", "resume", "cancel"].map((action) => (
                     <button
                       key={action}

@@ -227,13 +227,15 @@ class OpenMindAiGatewayController
         // Accept the full desktop tool registry (19 tools today) while
         // keeping total request size and individual tool-call counts bounded.
         abort_if(strlen($request->getContent()) > 1048576, 413, 'Chat request exceeds the 1 MiB gateway limit.');
+        $blueprint = $request->attributes->get('blueprint_context') === true;
+        $messageLimit = $blueprint ? 300000 : 16000;
         $data = $request->validate([
             'model' => 'required|string|max:60',
-            'messages' => 'required|array|min:1|max:40',
+            'messages' => $blueprint ? 'required|array|min:1|max:512' : 'required|array|min:1|max:40',
             'messages.*.role' => 'required|in:system,user,assistant,tool',
             'messages.*.content' => $mobile
-                ? ['sometimes', 'nullable', function ($attribute, $value, $fail) {
-                    if (! is_array($value) && (! is_string($value) || mb_strlen($value) > 16000)) {
+                ? ['sometimes', 'nullable', function ($attribute, $value, $fail) use ($messageLimit) {
+                    if (! is_array($value) && (! is_string($value) || mb_strlen($value) > $messageLimit)) {
                         $fail('Message content must be text or image content parts.');
                     }
                 }]
@@ -243,11 +245,11 @@ class OpenMindAiGatewayController
             'messages.*.tool_calls.*.id' => 'required|string|max:120',
             'messages.*.tool_calls.*.type' => 'required|in:function',
             'messages.*.tool_calls.*.function.name' => 'required|string|max:120',
-            'messages.*.tool_calls.*.function.arguments' => 'required|string|max:32000',
+            'messages.*.tool_calls.*.function.arguments' => $blueprint ? 'required|string|max:262144' : 'required|string|max:32000',
             'tools' => 'sometimes|array|max:64',
             'tools.*.type' => 'required|in:function',
             'tools.*.function.name' => 'required|string|max:120',
-            'tools.*.function.description' => 'sometimes|string|max:1000',
+            'tools.*.function.description' => $blueprint ? 'sometimes|string|max:10000' : 'sometimes|string|max:1000',
             'tools.*.function.parameters' => 'required|array',
             'stream' => 'sometimes|boolean',
             // Explicit caller budgets are optional; otherwise use the provider/model default.
