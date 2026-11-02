@@ -18,7 +18,6 @@ use App\Models\Research\Source;
 use App\Models\Research\Task;
 use App\Models\User;
 use App\Services\Research\Access;
-use App\Services\Research\Blueprint;
 use App\Services\Research\Deliveries;
 use App\Services\Research\Documents;
 use App\Services\Research\Events;
@@ -116,10 +115,7 @@ class ResearchStudioController
     public function component(Request $r, int $id)
     {
         $p = $this->access($r, $id, ['owner', 'editor']);
-        $d = $r->validate(['agent' => 'required|in:nvidia,question,selection,quality,citations,verification,literature,gaps,editor,manuscript,integrity', 'input' => 'sometimes|array']);
-        if ($d['agent'] === 'nvidia') {
-            abort_unless(app(Blueprint::class)->health()['status'] === 'ready', 503, 'NVIDIA Deep Researcher runtime is not ready.');
-        }
+        $d = $r->validate(['agent' => 'required|in:question,selection,quality,citations,verification,literature,gaps,editor,manuscript,integrity', 'input' => 'sometimes|array']);
         if (isset($d['input']['source_id'])) {
             Source::where('project_id', $id)->findOrFail($d['input']['source_id']);
         }

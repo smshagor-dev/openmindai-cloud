@@ -2,7 +2,6 @@
 
 return [
     // Hosted slugs from hosted_code_agents; the old provider-ID default never matched a verified model.
-    'blueprint_python' => env('RESEARCH_BLUEPRINT_PYTHON', ''), 'blueprint_root' => env('RESEARCH_BLUEPRINT_ROOT', ''),
     'model' => env('RESEARCH_MODEL', 'openmindai-ultra'),
     'fallback_models' => array_filter(explode(',', env('RESEARCH_FALLBACK_MODELS', 'openmindai-ultra,openmindai-super'))),
     'embedding_model' => env('RESEARCH_EMBEDDING_MODEL', ''),

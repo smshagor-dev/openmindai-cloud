@@ -25,7 +25,6 @@ class Readiness
         $state = $fresh ? $check() : Cache::remember('research:readiness:'.$fingerprint, 30, $check);
 
         return [
-            'blueprint' => app(Blueprint::class)->health(),
             'reasoning' => ['status' => $reasoningReady ? 'ready' : 'setup_required', ...($model ?? ['verified' => false, 'uses_fallback' => false])],
             'worker' => $state,
             'infrastructure_ready' => $reasoningReady && $state['status'] === 'ready',

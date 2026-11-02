@@ -6,10 +6,8 @@ use App\Models\Conversation;
 use App\Models\Message;
 use App\Services\ApiCreditUsage;
 use App\Services\AutomaticMemory;
-use App\Services\ChatBlueprint;
 use App\Services\ChatContext;
 use App\Services\HostedChatActivity;
-use App\Services\Research\Blueprint;
 use App\Services\WebEvidence;
 use App\Services\WebResearch;
 use App\Services\WebSearch;
@@ -82,7 +80,7 @@ class FrontendChatController
             $assistant?->update(['inference_token' => hash('sha256', $ticket), 'inference_checkpoint' => ['messages' => $messages, 'deep_research' => $deep, 'search_time_range' => $d['search_time_range'] ?? null, 'conversation_tools' => ! empty($d['conversation_tools'])]]);
             Cache::put('frontend-chat:'.hash('sha256', $ticket), ['user_id' => $r->user()->id, 'message_id' => $assistant?->id, 'user_message_id' => $question?->id, 'conversation_id' => $temporary ? null : $c->id, 'lock_owner' => $lock->owner(), 'done' => false, 'deep_research' => $deep, 'conversation_tools' => ! empty($d['conversation_tools'])], 600);
 
-            return ['ticket' => $ticket, 'messages' => $messages, 'conversation_id' => $temporary ? null : $c->id, 'user_message_id' => $question?->id, 'message_id' => $assistant?->id, 'sources' => $sources, 'blueprint_available' => ! $temporary && app(Blueprint::class)->configured(), 'automatic_memory' => ! $temporary && $r->user()->automatic_memory && $r->user()->memory_enabled];
+            return ['ticket' => $ticket, 'messages' => $messages, 'conversation_id' => $temporary ? null : $c->id, 'user_message_id' => $question?->id, 'message_id' => $assistant?->id, 'sources' => $sources, 'automatic_memory' => ! $temporary && $r->user()->automatic_memory && $r->user()->memory_enabled];
         } catch (Throwable $e) {
             $assistant?->update(['status' => 'failed']);
             app(HostedChatActivity::class)->finish($r->user()->id, $lock->owner());
@@ -177,12 +175,6 @@ class FrontendChatController
             $lease = Cache::get($key);
             abort_unless($lease && $lease['user_id'] === $r->user()->id, 410);
             $cancelled = $lease['message_id'] && (! Message::whereKey($lease['message_id'])->where('inference_token', hash('sha256', $r->input('ticket')))->where('status', 'generating')->exists() || Cache::get('stop-message:'.$lease['message_id']));
-            if ($cancelled && Cache::get('stop-message:'.$lease['message_id'])) {
-                $state = Message::find($lease['message_id'])?->inference_checkpoint ?? [];
-                if (! empty($state['blueprint_project_id'])) {
-                    app(ChatBlueprint::class)->handle($lease['message_id'], $r->user()->id, 'cancel');
-                }
-            }
             if (! $lease['done'] && ! $cancelled) {
                 Cache::put($key, $lease, 600);
                 app(HostedChatActivity::class)->heartbeat($r->user()->id, $lease['lock_owner']);
@@ -212,16 +204,6 @@ class FrontendChatController
         } catch (Throwable $e) {
             return ['url' => $d['url'], 'read_status' => 'unavailable'];
         }
-    }
-
-    public function blueprint(Request $r)
-    {
-        [, $lease] = $this->lease($r);
-        abort_unless(! $lease['done'] && $lease['message_id'], 409, 'Saved chat is required for background web research.');
-        abort_if(! Message::whereKey($lease['message_id'])->where('status', 'generating')->exists() || Cache::get('stop-message:'.$lease['message_id']), 409, 'Research stopped.');
-        $data = $r->validate(['action' => 'required|in:start,status,cancel', 'question' => 'required_if:action,start|string|max:24000']);
-
-        return app(ChatBlueprint::class)->handle($lease['message_id'], $r->user()->id, $data['action'], $data['question'] ?? '');
     }
 
     public function remember(Request $r)

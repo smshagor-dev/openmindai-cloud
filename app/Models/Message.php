@@ -14,7 +14,7 @@ class Message extends Model
 
     public function getResumableAttribute(): bool
     {
-        return ! empty($this->getRawOriginal('inference_checkpoint')) && (empty($this->inference_checkpoint['conversation_tools']) || ! empty($this->inference_checkpoint['deep_research']) || ! empty($this->inference_checkpoint['progress']['nativeBlueprint'])) && empty($this->inference_checkpoint['progress']['toolRunStarted']) && $this->status !== 'complete';
+        return ! empty($this->getRawOriginal('inference_checkpoint')) && (empty($this->inference_checkpoint['conversation_tools']) || ! empty($this->inference_checkpoint['deep_research'])) && empty($this->inference_checkpoint['progress']['toolRunStarted']) && $this->status !== 'complete';
     }
 
     public function conversation()
