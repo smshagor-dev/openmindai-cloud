@@ -431,7 +431,7 @@ class OpenMindAiGatewayController
                     }
                 } finally {
                     if ($blueprint) {
-                        Log::info('research.blueprint.stream', ['done' => $done, 'tool_count' => count($toolIndexes), 'content_characters' => $contentCharacters, 'finish_reason' => in_array($finishReason, ['stop', 'length', 'tool_calls', 'content_filter'], true) ? $finishReason : null]);
+                        Log::warning('research.blueprint.stream', ['done' => $done, 'tool_count' => count($toolIndexes), 'content_characters' => $contentCharacters, 'finish_reason' => in_array($finishReason, ['stop', 'length', 'tool_calls', 'content_filter'], true) ? $finishReason : null]);
                     }
                     $body->close();
                     $lock->release();
