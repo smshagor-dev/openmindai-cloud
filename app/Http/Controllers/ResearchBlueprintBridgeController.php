@@ -56,6 +56,20 @@ class ResearchBlueprintBridgeController
         abort_unless($model, 503, 'Research model is unavailable.');
         $data['model'] = $model->slug;
         unset($data['max_tokens'],$data['max_completion_tokens']);
+        // DeepAgents sends text blocks for system/tool turns. Normalize those
+        // before entering the mobile gateway's separate image validation path.
+        foreach (is_array($data['messages'] ?? null) ? $data['messages'] : [] as $index => $message) {
+            if (! is_array($message['content'] ?? null)) {
+                continue;
+            }
+            abort_unless(array_is_list($message['content']), 422, 'Research content must be a list of text blocks.');
+            $parts = [];
+            foreach ($message['content'] as $part) {
+                abort_unless(is_array($part) && ($part['type'] ?? null) === 'text' && is_string($part['text'] ?? null) && array_diff(array_keys($part), ['type', 'text', 'cache_control']) === [], 422, 'Research accepts text blocks only.');
+                $parts[] = $part['text'];
+            }
+            $data['messages'][$index]['content'] = implode("\n", $parts);
+        }
         $user = User::findOrFail($claims['actor_id']);
         $token = new PersonalAccessToken;
         $token->forceFill(['abilities' => ['user']]);
@@ -72,7 +86,15 @@ class ResearchBlueprintBridgeController
             Log::warning('research.blueprint.request_rejected', ['status' => 422, 'fields' => array_slice(array_keys($error->validator->failed()), 0, 32)]);
             throw $error;
         } catch (HttpExceptionInterface $error) {
-            Log::warning('research.blueprint.request_rejected', ['status' => $error->getStatusCode(), 'exception_class' => get_class($error)]);
+            $reason = match ($error->getMessage()) {
+                'Invalid image message.' => 'invalid_image_message',
+                'User and system messages require content.' => 'empty_user_or_system',
+                'Assistant messages require content or tool calls.' => 'empty_assistant',
+                'Tool responses require a tool call ID and content.' => 'empty_tool_response',
+                'Select a vision-capable model to read images.' => 'unexpected_image',
+                default => 'http_rejection',
+            };
+            Log::warning('research.blueprint.request_rejected', ['status' => $error->getStatusCode(), 'error_code' => $reason, 'exception_class' => get_class($error)]);
             throw $error;
         }
         if ($response instanceof JsonResponse) {

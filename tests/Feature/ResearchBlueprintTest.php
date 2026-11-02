@@ -82,6 +82,22 @@ class ResearchBlueprintTest extends TestCase
         $this->withToken($token)->postJson('/api/v1/internal/blueprint/v1/chat/completions', ['model' => 'unscoped-model', 'messages' => [['role' => 'user', 'content' => 'Test']]])->assertForbidden();
     }
 
+    public function test_native_text_content_blocks_are_preserved_without_enabling_image_requests(): void
+    {
+        [$p,$run,$task,$u,$model,$token] = $this->fixture();
+        config(['models.nvidia_key' => 'synthetic-key-for-tests', 'models.nvidia_requests_per_minute' => 0]);
+        Http::fake(['integrate.api.nvidia.com/*' => Http::response(['choices' => [['message' => ['content' => 'Fixture response'], 'finish_reason' => 'stop']]], 200)]);
+        $this->withToken($token)->postJson('/api/v1/internal/blueprint/v1/chat/completions', [
+            'model' => $model->provider_model,
+            'messages' => [['role' => 'system', 'content' => [['type' => 'text', 'text' => 'Native system instructions', 'cache_control' => ['type' => 'ephemeral']], ['type' => 'text', 'text' => 'Preserve this second block.']]], ['role' => 'user', 'content' => [['type' => 'text', 'text' => 'Retrieve primary sources.']]]],
+        ])->assertOk();
+        Http::assertSent(fn ($r) => str_contains($r['messages'][0]['content'], "Native system instructions\nPreserve this second block.") && $r['messages'][1]['content'] === 'Retrieve primary sources.');
+        $this->withToken($token)->postJson('/api/v1/internal/blueprint/v1/chat/completions', [
+            'model' => $model->provider_model, 'messages' => [['role' => 'user', 'content' => [['type' => 'image_url', 'image_url' => ['url' => 'https://example.com/private-image']]]]],
+        ])->assertStatus(422);
+        Http::assertSentCount(1);
+    }
+
     public function test_ultra_tool_requests_keep_the_required_native_reasoning_parser_flags(): void
     {
         [$p,$run,$task,$u,$model,$token] = $this->fixture();
