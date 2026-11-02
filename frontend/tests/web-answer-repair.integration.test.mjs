@@ -26,3 +26,10 @@ test('already-supported answers make no additional provider request',async()=>{
   const result=await repairWebNumbers({...options,text:corrected,fetcher:async()=>{throw new Error('Unnecessary repair');}});
   assert.equal(result,corrected);
 });
+test('an optional repair timeout preserves warnings while explicit cancellation still stops work',async()=>{
+  const timed=new AbortController();
+  const timedResult=await repairWebNumbers({...options,signal:timed.signal,fetcher:async()=>{timed.abort(new DOMException('Timed out','TimeoutError'));throw timed.signal.reason;}});
+  assert.equal(timedResult,original);
+  const cancelled=new AbortController();
+  await assert.rejects(()=>repairWebNumbers({...options,signal:cancelled.signal,fetcher:async()=>{cancelled.abort();throw cancelled.signal.reason;}}),{name:'AbortError'});
+});
