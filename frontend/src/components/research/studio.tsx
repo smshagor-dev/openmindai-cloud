@@ -4,15 +4,45 @@ import StudioFrame from "../studio-frame";
 import ConversationSkeleton from "../conversation-skeleton";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  Activity,
   BookOpen,
   CheckCircle2,
   ChevronRight,
+  Download,
+  FileSearch,
+  FileText,
   FlaskConical,
+  Globe,
+  History,
   LayoutDashboard,
+  Library,
+  type LucideIcon,
   PanelRight,
+  Quote,
+  Settings,
+  ShieldCheck,
   SquarePen,
+  Target,
+  Users,
   X,
 } from "lucide-react";
+
+const viewIcons: Record<string, LucideIcon> = {
+  Overview: LayoutDashboard,
+  "Live agents": Activity,
+  "Web activity": Globe,
+  Literature: Library,
+  "PDF reader": FileSearch,
+  "Research gaps": Target,
+  Experiments: FlaskConical,
+  Manuscript: FileText,
+  Citations: Quote,
+  "Quality review": ShieldCheck,
+  Collaboration: Users,
+  Export: Download,
+  History: History,
+  Settings: Settings,
+};
 import {
   api,
   Row,
@@ -641,20 +671,24 @@ export default function ResearchStudio() {
               <span className="section-label">Research tools</span>
               {views
                 .filter((v) => v !== "Chat")
-                .map((v) => (
-                  <div
-                    key={v}
-                    className={`history-item ${view === v ? "active" : ""}`}
-                  >
-                    <button
-                      className="history-title"
-                      aria-current={view === v ? "page" : undefined}
-                      onClick={() => setView(v)}
+                .map((v) => {
+                  const Icon = viewIcons[v] || BookOpen;
+                  return (
+                    <div
+                      key={v}
+                      className={`history-item ${view === v ? "active" : ""}`}
                     >
-                      {v}
-                    </button>
-                  </div>
-                ))}
+                      <button
+                        className="history-title"
+                        aria-current={view === v ? "page" : undefined}
+                        onClick={() => setView(v)}
+                      >
+                        <Icon size={16} aria-hidden="true" />
+                        <span>{v}</span>
+                      </button>
+                    </div>
+                  );
+                })}
             </div>
           )}
           <div className="history-list">
@@ -1921,7 +1955,8 @@ export default function ResearchStudio() {
                               <a
                                 href={`/api/backend/research/projects/${id}/exports/${e.id}/download`}
                               >
-                                Download validated file ({e.bytes} bytes)
+                                <Download size={14} aria-hidden="true" />
+                                Download file ({e.bytes >= 1024 ? `${Math.round(e.bytes / 1024)} KB` : `${e.bytes} bytes`})
                               </a>
                             )}
                             {e.error_code && <p>{e.error_code}</p>}

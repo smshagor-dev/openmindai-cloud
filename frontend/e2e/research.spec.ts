@@ -217,7 +217,7 @@ for (const width of [1440, 390])
       await navigate("Export");
       await page.getByRole("button", { name: "Generate export" }).click();
       const download = page
-        .getByRole("link", { name: /Download validated file/ })
+        .getByRole("link", { name: /Download file \(/ })
         .first();
       await expect(download).toBeVisible({ timeout: 30000 });
       const href = await download.getAttribute("href");

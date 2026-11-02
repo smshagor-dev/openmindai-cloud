@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { Download } from "lucide-react";
 import { api, type Row } from "@/lib/research";
 const formats = ["docx", "pdf", "tex", "bib", "md"];
 export function ResearchNotifications() {
@@ -152,6 +153,7 @@ export default function ResearchDownloads({
                   key={format}
                   href={`/api/backend/research/projects/${data.project.id}/exports/${file.id}/download`}
                 >
+                  <Download size={14} aria-hidden="true" />
                   Download {name}
                 </a>
               ) : (
@@ -186,6 +188,7 @@ export default function ResearchDownloads({
                   key={file.id}
                   href={`/api/backend/research/projects/${data.project.id}/exports/${file.id}/download`}
                 >
+                  <Download size={14} aria-hidden="true" />
                   Download {name}
                 </a>
               ) : (

@@ -975,3 +975,92 @@
 }
 .rs-export-files a:hover { background: var(--ui-hover, #2f2f2f); }
 .rs-export-pending { color: var(--muted); border-style: dashed; }
+
+/* ---------------------------------------------------------------------------
+   Professional pass: calmer cards, one control style, sentence-case labels,
+   icon navigation and a quiet editor toolbar. Scoped to Research Studio.
+   --------------------------------------------------------------------------- */
+.rs .rs-canvas-content { padding: 20px; }
+.rs .rs-canvas-header { min-height: 52px; padding: 10px 16px 10px 20px; }
+.rs .rs-canvas-header h2 { font-size: 14px; font-weight: 600; letter-spacing: -0.1px; }
+
+.rs .rs-card {
+  padding: 20px 22px;
+  margin: 0 0 14px;
+  border-radius: 14px;
+  box-shadow: 0 1px 2px #00000010;
+}
+.rs .rs-card h2 { font-size: 15px; font-weight: 600; letter-spacing: -0.1px; margin: 0 0 6px; }
+.rs .rs-card h3 { font-size: 13.5px; font-weight: 600; margin: 16px 0 6px; }
+.rs .rs-card p { font-size: 13px; line-height: 1.6; color: var(--muted); margin: 0 0 10px; }
+.rs .rs-card p :is(strong, b) { color: var(--text); font-weight: 600; }
+/* A card nested in a card is a section, not another box. */
+.rs .rs-card .rs-card { padding: 0; margin: 16px 0 0; border: 0; background: transparent; box-shadow: none; }
+
+/* One control style inside cards and canvases. */
+.rs :is(.rs-card, .rs-canvas-content) :is(button, .rs-file):not(.rs-action-primary):not(.rs-primary) {
+  min-height: 34px;
+  padding: 7px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 500;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.rs :is(.rs-card, .rs-canvas-content) :is(button, .rs-file):not(.rs-action-primary):not(.rs-primary):hover:not(:disabled) {
+  background: var(--panel2);
+  border-color: color-mix(in srgb, var(--line) 55%, var(--text) 30%);
+}
+.rs .rs-primary { border-color: var(--text); border-radius: 10px; font-weight: 600; }
+.rs .rs-card > button { margin: 4px 6px 4px 0; }
+
+/* Downloads: icon + label, same size as other controls. */
+.rs .rs-download-links { gap: 8px; }
+.rs .rs-download-links a, .rs .rs-export-files a {
+  display: inline-flex; align-items: center; gap: 7px; min-height: 34px; padding: 7px 13px;
+  border-radius: 10px; font-size: 13px; font-weight: 500;
+}
+.rs .rs-download-links a:hover { background: var(--panel2); }
+.rs .rs-download-links span { font-size: 12.5px; }
+
+/* Form fields: sentence-case labels, consistent inputs. */
+.rs label { font-size: 12.5px; font-weight: 500; margin: 12px 0; }
+.rs label::first-letter { text-transform: uppercase; }
+.rs :is(input:not([type="checkbox"]), textarea, select) {
+  margin-top: 6px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  color: var(--text);
+  transition: border-color 0.15s ease;
+}
+.rs :is(input:not([type="checkbox"]), textarea, select):focus { border-color: color-mix(in srgb, var(--line) 30%, var(--text) 60%); }
+
+/* Stat tiles. */
+.rs .rs-stats .rs-card h2, .rs .rs-stats .rs-card p:first-child { font-size: 12px; font-weight: 500; color: var(--muted); }
+.rs .rs-stats { gap: 12px; }
+
+/* Sidebar research tools: compact rows with icons. */
+.rs-sidebar-tools .history-title { display: flex; align-items: center; gap: 10px; padding: 6px 12px; font-size: 13.5px; }
+.rs-sidebar-tools .history-title svg { flex: 0 0 auto; color: var(--muted); }
+.rs-sidebar-tools .history-item.active .history-title svg { color: var(--text); }
+.rs-sidebar-tools .history-title span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+
+/* Editor toolbar: quiet buttons, borders only on hover. */
+.rs .rs-toolbar { gap: 2px; padding: 6px; }
+.rs .rs-toolbar button:not(.rs-primary) {
+  min-height: 30px; padding: 4px 10px; border: 1px solid transparent; border-radius: 8px;
+  background: transparent; font-size: 12.5px; font-weight: 500;
+}
+.rs .rs-toolbar button:not(.rs-primary):hover:not(:disabled) { background: var(--panel2); }
+/* Toolbar and banner refinements (higher specificity than the card control rule). */
+.rs .rs-canvas-content .rs-toolbar button:not(.rs-primary):not(.rs-action-primary) {
+  min-height: 30px; padding: 4px 10px; border-color: transparent; border-radius: 8px; background: transparent; font-size: 12.5px;
+}
+.rs .rs-canvas-content .rs-toolbar button:not(.rs-primary):not(.rs-action-primary):hover:not(:disabled) { background: var(--panel2); border-color: transparent; }
+.rs .rs-proposal-ready > div { flex: 1 1 260px; min-width: 0; }
+.rs .rs-proposal-ready p { margin: 2px 0 0; }
+.rs details.rs-card { padding: 12px 18px; }
+.rs details.rs-card > summary { cursor: pointer; font-size: 13px; font-weight: 500; }
+.rs details.rs-card[open] > summary { margin-bottom: 10px; }
