@@ -59,17 +59,29 @@ class WebSearch
         if (config('web_research.google_key') && config('web_research.google_cx')) {
             $providers[] = ['google', 'https://www.googleapis.com/customsearch/v1', ['q' => $params['q'], 'key' => config('web_research.google_key'), 'cx' => config('web_research.google_cx'), 'num' => 10, ...($country ? ['gl' => $country, 'hl' => $language] : [])]];
         }
+        // Official Yandex Search API (XML); anonymous yandex.ru searches are captcha-gated.
+        if (config('web_research.yandex_key') && config('web_research.yandex_folder')) {
+            $domain = $country === 'tr' ? 'com.tr' : (in_array($country, ['ru', 'by', 'kz', 'uz'], true) ? 'ru' : 'com');
+            $providers[] = ['yandex', 'https://yandex.'.$domain.'/search/xml', ['folderid' => config('web_research.yandex_folder'), 'apikey' => config('web_research.yandex_key'), 'query' => $params['q'], 'l10n' => $language ?: 'en', 'sortby' => 'rm', 'filter' => 'moderate', 'groupby' => 'attr=d.mode=deep.groups-on-page=10.docs-in-group=1']];
+        }
         if (config('models.public_search_fallback')) {
             $providers[] = ['bing_rss', 'https://www.bing.com/search', ['q' => $params['q'], 'format' => 'rss', ...($country ? ['cc' => strtoupper($country), 'setlang' => $language] : [])]];
             $providers[] = ['duckduckgo', 'https://html.duckduckgo.com/html/', ['q' => $params['q'], ...($country ? ['kl' => $country.'-'.$language] : [])]];
         }
+        // Every available engine is queried and results are merged, so a site
+        // missing from one engine's index can still be found through another.
         $events = [];
-        $fallback = null;
-        $finish = fn (array $results, string $provider, int $attempt, array $events) => array_map(fn ($source) => [...$source, 'provider' => $provider, 'retrieved_at' => now()->toIso8601String(), 'provider_events' => [...$events, ['provider' => $provider, 'status' => 'completed', 'attempt' => $attempt]], 'time_filter_applied' => $provider === 'searxng' && isset($params['time_range'])], $results);
+        $merged = [];
+        $deadline = microtime(true) + 20;
         foreach ($providers as [$provider, $url, $queryParams]) {
-            $cooldown = 'web-search:cooldown:'.hash('sha256', $provider.$url.(string) config('web_research.brave_key').(string) config('web_research.google_key'));
+            $cooldown = 'web-search:cooldown:'.hash('sha256', $provider.$url.(string) config('web_research.brave_key').(string) config('web_research.google_key').(string) config('web_research.yandex_key'));
             if (Cache::has($cooldown)) {
                 $events[] = ['provider' => $provider, 'status' => 'cooldown'];
+
+                continue;
+            }
+            if (microtime(true) > $deadline) {
+                $events[] = ['provider' => $provider, 'status' => 'skipped_time_budget'];
 
                 continue;
             }
@@ -103,19 +115,16 @@ class WebSearch
                     } finally {
                         $stream->close();
                     }
-                    $rows = $this->parseResults($provider, $body);
-                    $results = $this->normalize($rows, $options, $query);
-                    // Results that never mention a requested year (e.g. 2024 reviews for
-                    // a "2026" query) are kept only if no later provider does better.
-                    if ($results && $this->missesRequestedYear($results, $query)) {
-                        $fallback ??= [$results, $provider, $attempt, $events];
-                        $events[] = ['provider' => $provider, 'status' => 'year_mismatch', 'attempt' => $attempt];
-                        break;
+                    $results = $this->normalize($this->parseResults($provider, $body), $query);
+                    $events[] = ['provider' => $provider, 'status' => $results ? 'completed' : 'empty', 'attempt' => $attempt];
+                    foreach ($results as $result) {
+                        if (isset($merged[$result['url']])) {
+                            $merged[$result['url']]['providers'][] = $provider;
+                            $merged[$result['url']]['snippet'] = $merged[$result['url']]['snippet'] ?: $result['snippet'];
+                        } else {
+                            $merged[$result['url']] = [...$result, 'provider' => $provider, 'providers' => [$provider]];
+                        }
                     }
-                    if ($results) {
-                        return $finish($results, $provider, $attempt, $events);
-                    }
-                    $events[] = ['provider' => $provider, 'status' => 'empty', 'attempt' => $attempt];
                     break;
                 } catch (\Throwable $e) {
                     $events[] = ['provider' => $provider, 'status' => 'unavailable', 'attempt' => $attempt];
@@ -125,30 +134,19 @@ class WebSearch
                 }
             }
         }
-        if ($fallback) {
-            [$results, $provider, $attempt, $previous] = $fallback;
-
-            return $finish($results, $provider, $attempt, [...$previous, ...array_slice($events, count($previous))]);
+        if (! $merged) {
+            abort(503, 'Web search is unavailable. No live sources could be retrieved.');
         }
-        abort(503, 'Web search is unavailable. No live sources could be retrieved.');
-    }
-
-    private function missesRequestedYear(array $results, string $query): bool
-    {
+        // Rank: matched query terms, agreement between engines, and the requested
+        // year (a "2026" question must not be answered from 2024 pages first).
         preg_match_all('/\b(?:19|20)\d{2}\b/', $query, $years);
-        if (! $years[0]) {
-            return false;
-        }
-        foreach ($results as $result) {
-            $evidence = urldecode($result['url']).' '.$result['title'].' '.$result['snippet'];
-            foreach ($years[0] as $year) {
-                if (preg_match('/(?<!\d)'.$year.'(?!\d)/', $evidence)) {
-                    return false;
-                }
-            }
-        }
+        $rank = fn (array $result) => $result['score'] + 2 * (count($result['providers']) - 1)
+            + ($years[0] && array_filter($years[0], fn ($year) => preg_match('/(?<!\d)'.$year.'(?!\d)/', urldecode($result['url']).' '.$result['title'].' '.$result['snippet'])) ? 3 : 0);
+        $results = array_values($merged);
+        usort($results, fn ($a, $b) => $rank($b) <=> $rank($a));
 
-        return true;
+        return array_map(fn ($source) => [...array_diff_key($source, ['score' => true]), 'retrieved_at' => now()->toIso8601String(), 'provider_events' => $events, 'time_filter_applied' => in_array('searxng', $source['providers'], true) && isset($params['time_range'])],
+            array_slice($results, 0, min(10, max(1, (int) ($options['limit'] ?? 5)))));
     }
 
     private function parseResults(string $provider, string $body): array
@@ -170,14 +168,21 @@ class WebSearch
         $dom = new \DOMDocument;
         $previous = libxml_use_internal_errors(true);
         try {
-            $loaded = $provider === 'bing_rss'
+            $loaded = in_array($provider, ['bing_rss', 'yandex'], true)
                 ? $dom->loadXML($body, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING)
                 : $dom->loadHTML('<?xml encoding="UTF-8">'.$body, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING);
             if (! $loaded) {
                 return [];
             }
             $rows = [];
-            if ($provider === 'bing_rss') {
+            if ($provider === 'yandex') {
+                // <doc><url/><title/><passages><passage/></passages></doc>; an
+                // <error> response simply has no documents.
+                foreach ($dom->getElementsByTagName('doc') as $doc) {
+                    $passages = array_map(fn ($node) => $node->textContent, iterator_to_array($doc->getElementsByTagName('passage')));
+                    $rows[] = ['url' => $doc->getElementsByTagName('url')->item(0)?->textContent ?? '', 'title' => $doc->getElementsByTagName('title')->item(0)?->textContent ?? '', 'content' => implode(' … ', $passages) ?: ($doc->getElementsByTagName('headline')->item(0)?->textContent ?? '')];
+                }
+            } elseif ($provider === 'bing_rss') {
                 foreach ($dom->getElementsByTagName('item') as $item) {
                     $rows[] = ['url' => $item->getElementsByTagName('link')->item(0)?->textContent ?? '', 'title' => $item->getElementsByTagName('title')->item(0)?->textContent ?? '', 'content' => $item->getElementsByTagName('description')->item(0)?->textContent ?? ''];
                 }
@@ -204,7 +209,7 @@ class WebSearch
         }
     }
 
-    private function normalize(array $rows, array $options, string $query): array
+    private function normalize(array $rows, string $query): array
     {
         // Preserve technical identifiers such as array_map: a generic PHP home
         // page is not relevant evidence for a requested function.
@@ -246,11 +251,12 @@ class WebSearch
                 continue;
             }
             $results[$url] = ['title' => $title, 'url' => $url, 'snippet' => $snippet, 'score' => $score];
+            if (count($results) >= 10) {
+                break;
+            }
         }
-        // Most specific matches first; provider order breaks ties.
-        $results = array_values($results);
-        usort($results, fn ($a, $b) => $b['score'] <=> $a['score']);
 
-        return array_map(fn ($result) => array_diff_key($result, ['score' => true]), array_slice($results, 0, min(10, max(1, (int) ($options['limit'] ?? 5)))));
+        // Scores are kept for ranking across engines; search() removes them.
+        return array_values($results);
     }
 }
