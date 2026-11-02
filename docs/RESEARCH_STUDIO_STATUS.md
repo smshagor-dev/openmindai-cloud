@@ -617,3 +617,10 @@ Tests: merge/agreement ranking and Yandex XML parsing/parameters with fakes; Web
 Code blocks in answers have a compact header (language, Code | Preview toggle for HTML/SVG, Copy, Expand), no line wrapping with horizontal scrolling, 13px/12px monospace, and long code (over 24 lines) collapsed behind "Show all N lines". HTML/SVG previews render inline in the same sandboxed iframe and CSP as before (scripts only, no network, forms or parent access), with a Desktop/Mobile (375px) width switch on larger screens; Expand opens the dialog. Syntax colours now also follow the system dark theme, not only an explicit dark choice.
 
 Verified with a temporary preview page (removed): 1280px dark and 390px light code/preview/collapse, plus home page at 1024/1366/1920px with no horizontal overflow or page errors. Frontend typecheck passed; integration suite 259/262 (same three environmental failures). Not verified in a live logged-in chat; not deployed.
+
+
+### Answer tables on PC — 2026-11-03
+
+Tables inherited `overflow-wrap: anywhere` from answer text, so on PC wide tables were squeezed into the reading column and words split mid-word ("MacBoo|k", "Ryze|n"). Table cells now keep words whole with sensible minimum widths (text 7em, right-aligned numbers unwrapped, max 40em), use tabular digits and a subtle row hover; wide tables scroll inside their rounded frame with the first column pinned and divided, plus a right-edge shadow while more columns are hidden.
+
+Verified with a temporary preview page (removed) at 1024/1366/1920px and 390px, dark and light: no page overflow, 10-column table scrolls (750/866px) with the first column pinned when scrolled. Frontend typecheck passed; integration suite 259/262 (same three environmental failures). Not deployed.
