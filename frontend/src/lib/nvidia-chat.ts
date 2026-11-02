@@ -328,7 +328,7 @@ export async function nvidiaChat(
   }
   const deep = Boolean(lease.deep_research ?? backendInput.deep_research);
   const declinedSearch = typeof input.message === 'string' && /\b(?:do not|don't|without|no)\s+(?:web\s+)?(?:search|browsing|browse)|(?:search|browse).{0,12}(?:koro na|korba na)|সার্চ.{0,12}করো না/iu.test(input.message);
-  const nativeBlueprint = Boolean(lease.checkpoint?.nativeBlueprint || (lease.blueprint_available && webSearchSelected && !declinedSearch));
+  const nativeBlueprint = Boolean(lease.checkpoint?.nativeBlueprint || (lease.blueprint_available && webSearchSelected && !declinedSearch && !requestedGeneration));
   // Resume uses the model stored with the checkpoint, not a fresh classification.
   let activeModel = lease.checkpoint?.modelId || routedModel;
   const encoder = new TextEncoder();
