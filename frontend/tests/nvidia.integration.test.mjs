@@ -433,7 +433,7 @@ test("long code responses have an explicit budget and continue after a token bou
   const fetcher = async (url, options) => {
     if (url === "https://integrate.api.nvidia.com/v1/chat/completions" && JSON.parse(options.body).stream) {
       const input = JSON.parse(options.body);
-      assert.equal(input.max_tokens, 16384);
+      assert.equal(input.max_tokens, undefined);
       streams++;
       if (streams === 2) assert.match(input.messages.at(-1).content, /Continue exactly/);
       const text = streams === 1 ? "```html\n<html><body>" : "Bottle design</body></html>\n```";

@@ -30,7 +30,7 @@ class ChatProviderController
             'tools.*.function.description' => 'sometimes|string|max:10000',
             'tools.*.function.parameters' => 'required|array',
             'tool_choice' => 'sometimes|in:auto,none,required', 'stream' => 'sometimes|boolean',
-            'max_tokens' => 'sometimes|integer|min:1|max:32768',
+            'max_tokens' => 'sometimes|integer|min:1',
             'temperature' => 'sometimes|numeric|min:0|max:2',
             'chat_template_kwargs' => 'sometimes|array:enable_thinking',
             'chat_template_kwargs.enable_thinking' => 'sometimes|boolean',
@@ -41,7 +41,7 @@ class ChatProviderController
         $stream = (bool) ($data['stream'] ?? false);
         NvidiaRequestRate::reserve();
         $upstream = Http::withToken($key)->accept($stream ? 'text/event-stream' : 'application/json')
-            ->connectTimeout(10)->timeout(240)->withOptions(['allow_redirects' => false, 'stream' => $stream])
+            ->connectTimeout(10)->timeout(600)->withOptions(['allow_redirects' => false, 'stream' => $stream, 'read_timeout' => 600])
             ->post('https://integrate.api.nvidia.com/v1/chat/completions', $data);
         abort_unless($upstream->successful(), $upstream->status() === 429 ? 429 : 502, 'The chat provider is temporarily unavailable.');
         if (! $stream) {

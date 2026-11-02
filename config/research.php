@@ -10,6 +10,6 @@ return [
     'worker_snapshot' => env('RESEARCH_WORKER_SNAPSHOT_ID', ''),
     'worker_runtime_digest' => env('RESEARCH_WORKER_RUNTIME_DIGEST', ''),
     'contact' => env('RESEARCH_CONTACT_EMAIL', ''), 'openalex_key' => env('OPENALEX_API_KEY', ''),
-    'concurrency' => 3, 'attempts' => 3, 'max_tasks' => 64, 'lease_seconds' => 480,
+    'concurrency' => 3, 'attempts' => 3, 'max_tasks' => 64, 'lease_seconds' => 5600,
     'token_budget' => (int) env('RESEARCH_TOKEN_BUDGET', 0), 'source_limit' => 60, 'storage_bytes' => 104857600,
 ];

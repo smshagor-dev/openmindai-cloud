@@ -269,7 +269,7 @@ for (const [width, height] of sizes) {
       await page.setViewportSize({ width, height });
       await fixtures(page);
       await page.goto(route);
-      await expect(page.locator("h1")).toBeVisible();
+      await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
       if (route === "/explore")
         await expect(
           page.getByRole("heading", { name: long, exact: true }),
@@ -277,7 +277,7 @@ for (const [width, height] of sizes) {
       if (route === "/research-studio" || route === "/3d-studio") {
         await expect(page.locator(".workspace-welcome")).toBeVisible();
         const composer = page.locator(
-          route === "/3d-studio" ? ".studio-composer" : ".rs-chat-composer",
+          route === "/3d-studio" ? ".studio-composer-area .composer" : ".rs-chat-composer",
         );
         await expect(composer).toBeVisible();
         expect(
@@ -293,7 +293,9 @@ for (const [width, height] of sizes) {
           });
       }
       if (route === "/3d-studio") {
-        await page.getByRole("button", { name: long, exact: true }).click();
+        await openSidebar(page);
+        await page.locator(".sidebar").getByRole("button", { name: long, exact: true }).click();
+        if (width <= 760) await page.getByRole("button", { name: "Close sidebar", exact: true }).click({ position: { x: width - 8, y: 80 } });
         await expect(
           page.getByRole("heading", { name: long, exact: true }),
         ).toBeVisible();
@@ -311,9 +313,9 @@ for (const [width, height] of sizes) {
 
       if (route === "/research-studio" && width <= 760) {
         await page
-          .getByRole("button", { name: "Open project navigation" })
+          .getByRole("button", { name: "Open sidebar", exact: true })
           .click();
-        await fits(page, ".rs-nav");
+        await fits(page, ".sidebar");
       }
     });
   }
@@ -382,15 +384,15 @@ for (const viewport of [
           .click();
         await page.goto("/research-studio");
         if (viewport.width <= 760) {
-          await expect(page.locator(".rs-nav")).toBeHidden();
+          await expect(page.locator(".sidebar")).toBeHidden();
           await page
-            .getByRole("button", { name: "Open project navigation" })
+            .getByRole("button", { name: "Open sidebar", exact: true })
             .click();
-          await fits(page, ".rs-nav");
+          await fits(page, ".sidebar");
           await page
-            .getByRole("button", { name: "Close navigation", exact: true })
+            .getByRole("button", { name: "Close sidebar", exact: true })
             .click({ position: { x: viewport.width - 8, y: 80 } });
-          await expect(page.locator(".rs-nav")).toBeHidden();
+          await expect(page.locator(".sidebar")).toBeHidden();
         }
         await fits(page);
       } finally {

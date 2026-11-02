@@ -14,6 +14,7 @@ use App\Services\Research\StaleExecution;
 use App\Services\Research\Transactions;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
@@ -24,7 +25,7 @@ class ExecuteTask implements ShouldQueue
 
     public int $tries = 1;
 
-    public int $timeout = 440;
+    public int $timeout = 5500;
 
     public function __construct(public int $taskId) {}
 
@@ -68,7 +69,15 @@ class ExecuteTask implements ShouldQueue
             });
         } catch (StaleExecution) {
         } catch (\Throwable $e) {
+            $chain = [];
+            for ($cause = $e; $cause !== null && count($chain) < 5; $cause = $cause->getPrevious()) {
+                $chain[] = ['class' => get_class($cause), 'file' => basename($cause->getFile()), 'line' => $cause->getLine()];
+            }
+            // Never log provider payloads, source text, authorization headers or raw exception messages.
+            Log::warning('research.task.failed', ['task_id' => $task->id, 'agent' => $task->agent, 'exception_chain' => $chain]);
             $code = match (true) {
+                $e instanceof HttpExceptionInterface && $e->getMessage() === 'Unscoped source IDs.' => 'unscoped_source_ids',
+                $e instanceof HttpExceptionInterface && $e->getMessage() === 'Research context requires additional chunking.' => 'research_context_requires_chunking',
                 $e instanceof ValidationException => 'structured_output_validation_failed',
                 $e instanceof HttpExceptionInterface && $e->getStatusCode() === 422 && $e->getMessage() === 'Evidence quote or source could not be verified.' => 'evidence_quote_not_in_source',
                 $e instanceof HttpExceptionInterface && $e->getStatusCode() === 409 => 'agent_implementation_changed',

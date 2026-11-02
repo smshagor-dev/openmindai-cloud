@@ -186,6 +186,7 @@ export default function ChatWorkspace() {
   identityRef.current = user?.id ?? null;
   const uploadRequest = useRef<AbortController | null>(null);
   const [initializing, setInitializing] = useState(true);
+  const [routeReady, setRouteReady] = useState(false);
   const [models, setModels] = useState<Model[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
   const [modelReload, setModelReload] = useState(0);
@@ -631,6 +632,7 @@ export default function ChatWorkspace() {
     if (!restoredRoute.current) {
       restoredRoute.current = true;
       routeHandler.current();
+      setRouteReady(true);
     }
     const restore = () => routeHandler.current();
     window.addEventListener("popstate", restore);
@@ -678,7 +680,7 @@ export default function ChatWorkspace() {
     event?.preventDefault();
     const text = (override?.text ?? draft).trim() ||
       (!override && inlineImage ? "Describe this image." : "");
-    if (!text || busy || loadingChat || initializing) return;
+    if (!text || busy || loadingChat || initializing || !routeReady) return;
     followOutput.current = true;
     if (!user) {
       const controller = new AbortController();
@@ -1999,7 +2001,7 @@ ${source.read_status === "read" ? "Page read" : "Snippet only"}`,
               value={draft}
               maxLength={16000}
               rows={1}
-              disabled={busy || loadingChat}
+              disabled={busy || loadingChat || initializing || !routeReady}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
                 if (
@@ -2156,6 +2158,7 @@ ${source.read_status === "read" ? "Page read" : "Snippet only"}`,
                       busy ||
                       loadingChat ||
                       initializing ||
+                      !routeReady ||
                       (!!user && (modelsLoading || !modelId))
                     }
                   >

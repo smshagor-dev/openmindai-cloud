@@ -32,7 +32,7 @@ class GuestChatController
             $ip = $forwarded;
         }
         $bucket = 'guest-chat:'.hash('sha256', $ip);
-        $lock = Cache::lock($bucket.':lock', 150);
+        $lock = Cache::lock($bucket.':lock', 660);
         abort_unless($lock->get(), 429, 'A guest request is already running.');
         try {
             abort_if(RateLimiter::tooManyAttempts($bucket, $limit), 429, 'Your guest chat limit has been reached. Log in to continue.');
@@ -43,7 +43,7 @@ class GuestChatController
             // Charge attempted inference too, so repeated provider failures cannot exhaust resources.
             RateLimiter::hit($bucket, 86400);
             NvidiaRequestRate::reserve();
-            $response = Http::withToken($key)->acceptJson()->connectTimeout(10)->timeout(120)
+            $response = Http::withToken($key)->acceptJson()->connectTimeout(10)->timeout(600)
                 ->withOptions(['allow_redirects' => false])
                 ->post('https://integrate.api.nvidia.com/v1/chat/completions', [
                     'model' => $model->provider_model,
@@ -52,7 +52,7 @@ class GuestChatController
                         ...($data['history'] ?? []),
                         ['role' => 'user', 'content' => $data['message']],
                     ],
-                    'max_tokens' => 2048, 'stream' => false,
+                    'stream' => false,
                     'chat_template_kwargs' => ['enable_thinking' => false],
                 ]);
             abort_unless($response->successful(), 502, 'The chat service is temporarily unavailable.');

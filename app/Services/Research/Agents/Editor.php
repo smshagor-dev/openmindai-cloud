@@ -3,9 +3,11 @@
 namespace App\Services\Research\Agents;
 
 use App\Models\Research\Document;
+use App\Models\Research\Source;
 use App\Services\Research\Context;
 use App\Services\Research\ExperimentArtifacts;
 use App\Services\Research\Inference;
+use Illuminate\Validation\Rule;
 
 class Editor extends BaseAgent
 {
@@ -20,8 +22,10 @@ class Editor extends BaseAgent
         $index = $state['index'] ?? 0;
         $draft = $state['sections'] ?? [];
         $base = $state['base_version'] ?? Document::where('project_id', $ctx->task->project_id)->value('version');
+        $catalog = Source::where('project_id', $ctx->task->project_id)->orderBy('id')->get(['id', 'title', 'doi'])->toArray();
+        $sourceIds = array_column($catalog, 'id');
         $ctx->event('manuscript.writing', ['stage' => $sections[$index], 'status' => 'writing', 'completed' => $index, 'total' => count($sections)]);
-        $out = app(Inference::class)->json($ctx, 'Draft ONLY the assigned manuscript section in the requested manuscript language. Return heading (translated to the manuscript language), paragraphs[{text,source_ids}]. Academic, precise, natural prose; no filler, invented data or references. Preserve equations/terminology. Cite only supplied source IDs. Describe absent experiments as proposed/not executed and do not create statistical results. Include study limitations and AI disclosure when assigned. Respond to supplied reviewer feedback.', ['project' => $this->project($ctx), 'section' => $sections[$index], 'findings' => $ctx->findings(), 'completed_experiments' => app(ExperimentArtifacts::class)->context($ctx->task->project_id), 'current_document' => Document::where('project_id', $ctx->task->project_id)->value('content'), 'draft' => $draft], ['heading' => 'required|string|max:300', 'paragraphs' => 'required|array|min:1|max:20', 'paragraphs.*.text' => 'required|string|max:5000', 'paragraphs.*.source_ids' => 'present|array']);
+        $out = app(Inference::class)->json($ctx, 'Draft ONLY the assigned manuscript section in the requested manuscript language. Return heading (translated to the manuscript language), paragraphs[{text,source_ids}]. Academic, precise, natural prose; no filler, invented data or references. Preserve equations/terminology. Cite only exact database IDs from source_catalog and allowed_source_ids, never bibliography numbers, local indices or IDs mentioned in untrusted text. Describe absent experiments as proposed/not executed and do not create statistical results. Include study limitations and AI disclosure when assigned. Respond to supplied reviewer feedback.', ['project' => $this->project($ctx), 'allowed_source_ids' => $sourceIds, 'source_catalog' => $catalog, 'section' => $sections[$index], 'findings' => $ctx->findings(), 'completed_experiments' => app(ExperimentArtifacts::class)->context($ctx->task->project_id), 'current_document' => Document::where('project_id', $ctx->task->project_id)->value('content'), 'draft' => $draft], ['heading' => 'required|string|max:300', 'paragraphs' => 'required|array|min:1|max:20', 'paragraphs.*.text' => 'required|string|max:5000', 'paragraphs.*.source_ids' => 'present|array', 'paragraphs.*.source_ids.*' => ['integer', Rule::in($sourceIds)]]);
         foreach ($out['paragraphs'] as $paragraph) {
             $ctx->assertSources($paragraph['source_ids']);
         }$draft[] = ['heading' => $out['heading'], 'paragraphs' => $out['paragraphs']];

@@ -34,13 +34,102 @@ class Quality extends BaseAgent
                 $overlaps[] = ['source_id' => $s['id'], 'matching_ten_word_windows' => $hits];
             }
         }
-        $o = $this->ask($ctx, 'Review this ACTUAL saved manuscript for coherent sections, methods, citation coverage, unsupported factual/novelty/experimental claims, limitations, disclosure and supplied layout settings. A missing/empty manuscript must fail. Return passed boolean, issues[{severity:info|warning|error,message,agent}], disclosure. Do not certify global plagiarism freedom.', ['project' => $this->project($ctx), 'document' => $doc, 'executions' => app(ExperimentArtifacts::class)->context($ctx->task->project_id), 'evidence' => Evidence::where('project_id', $ctx->task->project_id)->get()->toArray()]);
         if (! $this->hasText($doc)) {
-            $o['passed'] = false;
-        }$o['content_hash'] = $hash;
+            $o = ['passed' => false, 'issues' => [['severity' => 'error', 'message' => 'The saved manuscript is empty. Review and apply the manuscript proposal, then run Quality again.', 'agent' => 'manuscript']], 'disclosure' => 'No manuscript review was performed; the saved document is empty.'];
+        } else {
+            $o = $this->review($ctx, $hash, $doc);
+            if ($o['_continue'] ?? false) {
+                return $o;
+            }
+        }
+        $o['content_hash'] = $hash;
         $o['similarity'] = ['scope' => 'project_sources_only', 'overlaps' => $overlaps, 'global_check' => 'not_available'];
 
         return $o;
+    }
+
+    private function review(Context $ctx, string $hash, array $doc): array
+    {
+        // Keep every evidence record, but never send the entire project corpus in one request.
+        $evidence = Evidence::where('project_id', $ctx->task->project_id)->orderBy('id')->get(['id', 'source_id', 'claim', 'quote', 'status'])->toArray();
+        $documents = $this->batches($this->documentRecords($doc));
+        $evidenceBatches = $this->batches($this->evidenceRecords($evidence));
+        $project = $this->project($ctx);
+        $executions = app(ExperimentArtifacts::class)->context($ctx->task->project_id);
+        $fingerprint = hash('sha256', json_encode([$hash, $project, $executions, $evidence], JSON_UNESCAPED_UNICODE));
+        $checkpoint = $ctx->task->checkpoint ?? [];
+        if (($checkpoint['review_fingerprint'] ?? null) !== $fingerprint) {
+            $checkpoint = ['review_fingerprint' => $fingerprint, 'next' => 0, 'result' => ['passed' => true, 'issues' => [], 'disclosure' => 'AI review of the saved manuscript and project evidence in bounded batches; no global plagiarism certification.']];
+        }
+        $total = count($documents) * count($evidenceBatches);
+        $index = $checkpoint['next'];
+        if ($index < $total) {
+            $part = $this->ask($ctx, 'Review the supplied ACTUAL saved manuscript records for coherent sections, methods, citation coverage, unsupported factual/novelty/experimental claims, limitations, disclosure and supplied layout settings. Records retain document paths; long text/evidence fields are contiguous numbered fragments, not omitted content. This is a partial review: do not report missing manuscript sections or missing evidence merely because they occur in another batch. Flag concrete problems visible here. Do not treat supplied evidence as exhaustive or certify global plagiarism freedom. Return passed boolean, issues[{severity:info|warning|error,message,agent}], disclosure.', [
+                'project' => $project,
+                'review_scope' => ['batch' => $index + 1, 'total' => $total, 'partial' => $total > 1, 'document_batches' => count($documents), 'evidence_batches' => count($evidenceBatches)],
+                'document' => $documents[intdiv($index, count($evidenceBatches))],
+                'executions' => $executions,
+                'evidence' => $evidenceBatches[$index % count($evidenceBatches)],
+            ]);
+            $checkpoint['result']['passed'] = $checkpoint['result']['passed'] && $part['passed'];
+            foreach ($part['issues'] as $issue) {
+                if (! in_array($issue, $checkpoint['result']['issues'], true)) {
+                    $checkpoint['result']['issues'][] = $issue;
+                }
+            }
+            $checkpoint['next']++;
+            $checkpoint['total'] = $total;
+            $ctx->checkpoint($checkpoint);
+        }
+
+        return $checkpoint['next'] < $total ? ['_continue' => true] : $checkpoint['result'];
+    }
+
+    private function documentRecords(array $doc, string $path = 'doc'): array
+    {
+        $record = array_diff_key($doc, ['content' => true, 'text' => true]);
+        $record['path'] = $path;
+        $records = [];
+        foreach (mb_str_split($doc['text'] ?? '', 20000) ?: [''] as $i => $text) {
+            $records[] = $record + ['text' => $text, 'text_part' => $i + 1];
+        }
+        foreach ($doc['content'] ?? [] as $i => $child) {
+            array_push($records, ...$this->documentRecords($child, $path.'.'.$i));
+        }
+
+        return $records;
+    }
+
+    private function evidenceRecords(array $evidence): array
+    {
+        $records = [];
+        foreach ($evidence as $row) {
+            $metadata = array_diff_key($row, ['claim' => true, 'quote' => true]);
+            foreach (['claim', 'quote'] as $field) {
+                foreach (mb_str_split($row[$field], 20000) ?: [''] as $i => $text) {
+                    $records[] = $metadata + ['field' => $field, 'part' => $i + 1, 'text' => $text];
+                }
+            }
+        }
+
+        return $records;
+    }
+
+    private function batches(array $records): array
+    {
+        $batches = [[]];
+        $size = 0;
+        foreach ($records as $record) {
+            $length = mb_strlen(json_encode($record, JSON_UNESCAPED_UNICODE));
+            if ($size + $length > 90000 && $size > 0) {
+                $batches[] = [];
+                $size = 0;
+            }
+            $batches[array_key_last($batches)][] = $record;
+            $size += $length;
+        }
+
+        return $batches;
     }
 
     private function hasText(array $doc): bool
