@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import traceback
 
 PIN = "a6d9efdec69a3052e1ee7f15a45d25711ac05d2a"
 SOURCES: dict[str, dict] = {}
@@ -105,7 +106,8 @@ def main() -> int:
         return 0
     except Exception as error:
         # Never print request headers, credentials, source bodies or raw exceptions.
-        print("OPENMIND_RESULT " + json.dumps({"error_code": "blueprint_runtime_failed", "exception_class": type(error).__name__}))
+        frames = [{"file": Path(f.filename).name, "line": f.lineno} for f in traceback.extract_tb(error.__traceback__)[-8:]]
+        print("OPENMIND_RESULT " + json.dumps({"error_code": "blueprint_runtime_failed", "exception_class": type(error).__name__, "exception_frames": frames}))
         return 1
 
 
