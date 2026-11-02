@@ -134,3 +134,40 @@ test("vision selection does not depend on the failing Super endpoint", () => {
   assert.equal(selectVisionModel(models.slice(1))?.slug,"nvidia-llama-3.2-11b-vision-instruct");
   assert.equal(selectVisionModel([]),undefined);
 });
+
+
+test("image web search reads pixels before starting the real-runtime bridge, without storing image bytes", async () => {
+  const calls=[];
+  const fetcher=async(url,init)=>{
+    const body=JSON.parse(init.body); calls.push({url,body});
+    if(url.endsWith('/begin')) return Response.json({ticket:'a'.repeat(64),messages:[{role:'system',content:'Context'},{role:'user',content:'Search official specifications of this board'}],conversation_id:1,message_id:3,user_message_id:2,sources:[],blueprint_available:true});
+    if(url.endsWith('/checkpoint')||url.endsWith('/finish'))return Response.json({stored:true});
+    if(url.endsWith('/blueprint'))return Response.json({status:'completed',project_id:10,report:'The Raspberry Pi 5 is documented by its manufacturer [1](https://www.raspberrypi.com/products/raspberry-pi-5/).',sources:[{url:'https://www.raspberrypi.com/products/raspberry-pi-5/',title:'Raspberry Pi 5',read_status:'read',passages:[{id:'p1',text:'Raspberry Pi 5 official product documentation.'}]}]});
+    if(url.endsWith('/status'))return Response.json({cancelled:false});
+    return Response.json({choices:[{message:{content:'Visible board label: Raspberry Pi 5. Exact RAM size is not visible.'},finish_reason:'stop'}]});
+  };
+  const response=await nvidiaChat(JSON.stringify({message:'Search official specifications of this board',model_id:-4,image,web_search:true}),'session','https://backend',new AbortController().signal,{fetcher,config:cfg});
+  const output=await response.text();
+  assert.match(output,/Raspberry Pi 5/); assert.match(output,/"saved":true/);
+  const visionIndex=calls.findIndex(c=>c.url.includes('nvidia.com'));
+  const searchIndex=calls.findIndex(c=>c.url.endsWith('/blueprint'));
+  assert.ok(visionIndex>=0 && searchIndex>visionIndex);
+  assert.match(calls[searchIndex].body.question,/Visible board label: Raspberry Pi 5/);
+  assert.equal(calls[visionIndex].body.messages.at(-1).content[1].type,'image_url');
+  assert.ok(calls.filter(c=>!c.url.includes('nvidia.com')).every(c=>!JSON.stringify(c.body).includes(png)));
+  assert.ok(calls.filter(c=>c.url.endsWith('/checkpoint')).some(c=>c.body.state.imageRequired===false && c.body.state.nativeBlueprint));
+  assert.equal(calls.find(c=>c.url.endsWith('/finish')).body.status,'complete');
+});
+
+test("failed image reading does not search using guessed image identity", async()=>{
+  let searches=0,final;
+  const fetcher=async(url,init)=>{
+    if(url.endsWith('/begin'))return Response.json({ticket:'a'.repeat(64),messages:[{role:'user',content:'Search this image'}],conversation_id:1,message_id:3,sources:[],blueprint_available:true});
+    if(url.endsWith('/checkpoint'))return Response.json({stored:true});
+    if(url.endsWith('/finish')){final=JSON.parse(init.body);return Response.json({stored:true});}
+    if(url.endsWith('/blueprint')){searches++;return Response.json({});}
+    return Response.json({error:'unavailable'},{status:503});
+  };
+  await(await nvidiaChat(JSON.stringify({message:'Search this image',model_id:-4,image,web_search:true}),'session','https://backend',new AbortController().signal,{fetcher,config:cfg})).text();
+  assert.equal(searches,0); assert.equal(final.status,'failed');
+});

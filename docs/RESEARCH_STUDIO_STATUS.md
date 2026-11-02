@@ -538,3 +538,10 @@ Actual NVIDIA run 13/project 9 completed all eight tasks with 60 persisted sourc
 Consent-driven push and private VAPID configuration are deployed. The actual live opt-in control reports notifications blocked by this cloud browser; physical-device push receipt is not verified. Users must grant notification permission in their own browser. Manuscript approval remains pending human review; completed workflow does not imply scientific acceptance.
 
 Backend runtime is deployed at 45cd650a877990f0ac56dd0a8753dd475ca432f6; later merged changes are browser fixture configuration and status documentation only. No functional backend release code is missing. The private rollback snapshot and hosting/environment preservation checks remain valid.
+
+
+### Chat Web Search + image research integration checkpoint
+
+Added a chat-lease-owned native NVIDIA background search adapter using the existing pinned runtime and scoped research queue. Each saved chat response reuses one project/task across retries and resumes. Web-search tasks skip manuscript/quality/export follow-up stages; Research Studio keeps its full workflow. Temporary chats cannot create persisted native projects. Images are read by an enabled vision model before searching; only the untrusted text observation is checkpointed, with no image bytes in the Laravel chat payload. Search reports and exact source URLs return to the chat; slow runs retain a resumable checkpoint. User stop fences the linked research run.
+
+Frontend typecheck and 259 existing integration tests passed; two added image-search ordering/privacy/failure tests passed. Backend gateway/Blueprint/chat tests passed: 28 tests / 288 assertions. Additional direct user-stop coverage, release CI and actual uploaded-image live acceptance are pending. This checkpoint is not a live acceptance claim.

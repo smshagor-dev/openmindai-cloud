@@ -13,6 +13,8 @@ use League\CommonMark\Parser\MarkdownParser;
 
 class Nvidia extends BaseAgent
 {
+    protected array $inputs = ['web_search' => 'sometimes|boolean'];
+
     protected array $tools = ['nvidia.deep_researcher.2_2', 'scoped_search', 'verified_gateway', 'manuscript.proposal'];
 
     protected array $rules = ['report' => 'required|string', 'upstream_commit' => 'required|string', 'engine' => 'required|string', 'sections' => 'required|array|min:1', 'base_version' => 'required|integer', 'source_ids' => 'present|array', 'disclosure' => 'required|string'];

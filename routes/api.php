@@ -229,6 +229,7 @@ Route::prefix('v1')->middleware('verified-mobile-ip')->group(function () {
         Route::post('chat/frontend/checkpoint', [FrontendChatController::class, 'checkpoint'])->withoutMiddleware('throttle:api');
         Route::post('chat/frontend/status', [FrontendChatController::class, 'status'])->withoutMiddleware('throttle:api');
         Route::post('chat/frontend/tool', [FrontendChatController::class, 'tool'])->withoutMiddleware('throttle:api');
+        Route::post('chat/frontend/blueprint', [FrontendChatController::class, 'blueprint'])->withoutMiddleware('throttle:api');
         Route::post('chat/frontend/memory', [FrontendChatController::class, 'remember'])->withoutMiddleware('throttle:api');
         Route::post('chat/frontend/finish', [FrontendChatController::class, 'finish'])->withoutMiddleware('throttle:api');
         Route::post('chat/stream', StreamChatController::class)->middleware('throttle:chat');
