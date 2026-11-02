@@ -372,10 +372,13 @@ class OpenMindAiGatewayController
 
             $held = false;
 
-            return response()->stream(function () use ($upstream, $credits, $user, $connection, $usageKey, $lock, $agent) {
+            return response()->stream(function () use ($upstream, $credits, $user, $connection, $usageKey, $lock, $agent, $blueprint) {
                 $body = $upstream->toPsrResponse()->getBody();
                 $buffer = '';
                 $done = false;
+                $toolIndexes = [];
+                $contentCharacters = 0;
+                $finishReason = null;
                 try {
                     while (! $body->eof()) {
                         if (connection_aborted()) {
@@ -407,6 +410,14 @@ class OpenMindAiGatewayController
                                     continue;
                                 }
                                 $decoded['model'] = $agent->slug;
+                                if ($blueprint) {
+                                    $choice = $decoded['choices'][0] ?? [];
+                                    $contentCharacters += mb_strlen((string) ($choice['delta']['content'] ?? ''));
+                                    $finishReason = $choice['finish_reason'] ?? $finishReason;
+                                    foreach ($choice['delta']['tool_calls'] ?? [] as $call) {
+                                        $toolIndexes[(int) ($call['index'] ?? 0)] = true;
+                                    }
+                                }
                                 echo 'data: '.json_encode($decoded, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE)."\n\n";
                             }
                             if (ob_get_level() > 0) {
@@ -419,6 +430,9 @@ class OpenMindAiGatewayController
                         $credits->completed($user->id, $connection, $usageKey);
                     }
                 } finally {
+                    if ($blueprint) {
+                        Log::info('research.blueprint.stream', ['done' => $done, 'tool_count' => count($toolIndexes), 'content_characters' => $contentCharacters, 'finish_reason' => in_array($finishReason, ['stop', 'length', 'tool_calls', 'content_filter'], true) ? $finishReason : null]);
+                    }
                     $body->close();
                     $lock->release();
                 }
