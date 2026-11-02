@@ -1,6 +1,26 @@
 import { test, expect } from "@playwright/test";
 import { renderDocx } from "../src/lib/document-files";
 
+test("Chat waits for initialization and route restoration before accepting a prompt", async ({ page }) => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  await page.route("**/api/backend/me", async route => {
+    await gate;
+    await route.fulfill({ status: 401, json: { message: "Guest fixture" } });
+  });
+  await page.route("**/api/backend/capabilities", route => route.fulfill({ json: {} }));
+  await page.goto("/");
+  const input = page.getByRole("textbox", { name: "Message", exact: true });
+  try {
+    await expect(input).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Send message", exact: true })).toBeDisabled();
+  } finally { release(); }
+  await expect(input).toBeEnabled();
+  await input.fill("Keep this first prompt");
+  await expect(page.getByRole("button", { name: "Send message", exact: true })).toBeEnabled();
+  await expect(input).toHaveValue("Keep this first prompt");
+});
+
 for (const width of [1440, 768, 375, 320]) {
   for (const kind of ["image", "document_create"] as const) {
     test(`chat creation, reload and Library preview: ${kind} at ${width}px`, async ({page}) => {
