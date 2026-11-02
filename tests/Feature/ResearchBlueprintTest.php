@@ -82,6 +82,23 @@ class ResearchBlueprintTest extends TestCase
         $this->withToken($token)->postJson('/api/v1/internal/blueprint/v1/chat/completions', ['model' => 'unscoped-model', 'messages' => [['role' => 'user', 'content' => 'Test']]])->assertForbidden();
     }
 
+    public function test_ultra_tool_requests_keep_the_required_native_reasoning_parser_flags(): void
+    {
+        [$p,$run,$task,$u,$model,$token] = $this->fixture();
+        DB::table('hosted_code_agents')->where('id', $model->id)->update(['provider_model' => 'nvidia/nemotron-3-ultra-550b-a55b']);
+        $token = Crypt::encryptString(json_encode(['task_id' => $task->id, 'claim' => $task->claim, 'actor_id' => $u->id, 'model' => 'nvidia/nemotron-3-ultra-550b-a55b', 'expires' => now()->addMinutes(30)->timestamp]));
+        config(['models.nvidia_key' => 'synthetic-key-for-tests', 'models.nvidia_requests_per_minute' => 0]);
+        $call = ['id' => 'call-fixture', 'type' => 'function', 'function' => ['name' => 'web_search', 'arguments' => '{"query":"primary source"}']];
+        Http::fake(['integrate.api.nvidia.com/*' => Http::response(['choices' => [['message' => ['content' => '', 'tool_calls' => [$call]], 'finish_reason' => 'tool_calls']]], 200)]);
+        $this->withToken($token)->postJson('/api/v1/internal/blueprint/v1/chat/completions', [
+            'model' => 'nvidia/nemotron-3-ultra-550b-a55b', 'stream' => false,
+            'messages' => [['role' => 'user', 'content' => 'Retrieve a primary source.']],
+            'tools' => [['type' => 'function', 'function' => ['name' => 'web_search', 'description' => 'Search sources', 'parameters' => ['type' => 'object', 'properties' => ['query' => ['type' => 'string']]]]]],
+            'chat_template_kwargs' => ['enable_thinking' => false],
+        ])->assertOk()->assertJsonPath('choices.0.message.tool_calls.0.function.name', 'web_search');
+        Http::assertSent(fn ($r) => $r['chat_template_kwargs'] === ['enable_thinking' => true, 'force_nonempty_content' => true] && ! isset($r['max_tokens']));
+    }
+
     public function test_nvidia_report_produces_scoped_manuscript_sections_without_reexecuting_a_completed_checkpoint(): void
     {
         [$p,$run,$task] = $this->fixture();
