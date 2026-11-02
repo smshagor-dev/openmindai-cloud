@@ -65,6 +65,34 @@ class WebResearchTest extends TestCase
         $this->assertSame('https://www.php.net/manual/en/function.array-map.php', $sources[0]['url']);
     }
 
+    public function test_brand_home_pages_do_not_satisfy_a_specific_product_year_query(): void
+    {
+        config(['models.search_url' => null, 'models.public_search_fallback' => true]);
+        Http::fake([
+            'www.bing.com/*' => Http::response('<rss><channel><item><title>Xiaomi Singapore | Xiaomi Official Website</title><link>https://www.mi.com/sg/</link><description>Discover the latest Xiaomi Phones, Redmi Phones and more.</description></item><item><title>Redmi - Wikipedia</title><link>https://en.wikipedia.org/wiki/Redmi</link></item><item><title>Xiaomi Book Pro 14 (2024) review</title><link>https://example.org/xiaomi-book-pro-14-2024</link></item></channel></rss>'),
+            'html.duckduckgo.com/*' => Http::response('<a class="result__a" href="https://www.notebookcheck.net/Xiaomi-RedmiBook-Pro-14-2026.1310010.0.html">Xiaomi RedmiBook Pro 14 2026 - Notebookcheck</a><a class="result__a" href="https://www.mi.com/global/">Xiaomi Global</a><a class="result__a" href="https://example.org/redmi-book-pro-16-2026-launch-specifications">Redmi Book Pro 16 2026 launch and specifications</a>'),
+        ]);
+        $sources = app(WebSearch::class)->search('Xiaomi Redmi Book Pro 2026 launch announcement specifications');
+
+        $this->assertSame('duckduckgo', $sources[0]['provider']);
+        $this->assertSame(['https://example.org/redmi-book-pro-16-2026-launch-specifications', 'https://www.notebookcheck.net/Xiaomi-RedmiBook-Pro-14-2026.1310010.0.html'], array_column($sources, 'url'));
+        $this->assertArrayNotHasKey('score', $sources[0]);
+    }
+
+    public function test_year_mismatched_results_remain_a_fallback_when_no_provider_has_the_year(): void
+    {
+        config(['models.search_url' => null, 'models.public_search_fallback' => true]);
+        Http::fake([
+            'www.bing.com/*' => Http::response('<rss><channel><item><title>Redmi Book Pro 14 2024 review</title><link>https://example.org/redmi-book-pro-14-2024</link></item></channel></rss>'),
+            'html.duckduckgo.com/*' => Http::response(''),
+        ]);
+        $sources = app(WebSearch::class)->search('Redmi Book Pro 2027 specifications');
+
+        $this->assertSame('https://example.org/redmi-book-pro-14-2024', $sources[0]['url']);
+        $this->assertSame('bing_rss', $sources[0]['provider']);
+        $this->assertContains('year_mismatch', array_column($sources[0]['provider_events'], 'status'));
+    }
+
     public function test_unrelated_search_noise_falls_through_to_relevant_official_sources(): void
     {
         config(['models.search_url' => null, 'models.public_search_fallback' => true]);

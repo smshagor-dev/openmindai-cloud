@@ -61,6 +61,8 @@ class WebSearch
             $providers[] = ['duckduckgo', 'https://html.duckduckgo.com/html/', ['q' => $params['q']]];
         }
         $events = [];
+        $fallback = null;
+        $finish = fn (array $results, string $provider, int $attempt, array $events) => array_map(fn ($source) => [...$source, 'provider' => $provider, 'retrieved_at' => now()->toIso8601String(), 'provider_events' => [...$events, ['provider' => $provider, 'status' => 'completed', 'attempt' => $attempt]], 'time_filter_applied' => $provider === 'searxng' && isset($params['time_range'])], $results);
         foreach ($providers as [$provider, $url, $queryParams]) {
             $cooldown = 'web-search:cooldown:'.hash('sha256', $provider.$url.(string) config('web_research.brave_key').(string) config('web_research.google_key'));
             if (Cache::has($cooldown)) {
@@ -100,8 +102,15 @@ class WebSearch
                     }
                     $rows = $this->parseResults($provider, $body);
                     $results = $this->normalize($rows, $options, $query);
+                    // Results that never mention a requested year (e.g. 2024 reviews for
+                    // a "2026" query) are kept only if no later provider does better.
+                    if ($results && $this->missesRequestedYear($results, $query)) {
+                        $fallback ??= [$results, $provider, $attempt, $events];
+                        $events[] = ['provider' => $provider, 'status' => 'year_mismatch', 'attempt' => $attempt];
+                        break;
+                    }
                     if ($results) {
-                        return array_map(fn ($source) => [...$source, 'provider' => $provider, 'retrieved_at' => now()->toIso8601String(), 'provider_events' => [...$events, ['provider' => $provider, 'status' => 'completed', 'attempt' => $attempt]], 'time_filter_applied' => $provider === 'searxng' && isset($params['time_range'])], $results);
+                        return $finish($results, $provider, $attempt, $events);
                     }
                     $events[] = ['provider' => $provider, 'status' => 'empty', 'attempt' => $attempt];
                     break;
@@ -113,7 +122,30 @@ class WebSearch
                 }
             }
         }
+        if ($fallback) {
+            [$results, $provider, $attempt, $previous] = $fallback;
+
+            return $finish($results, $provider, $attempt, [...$previous, ...array_slice($events, count($previous))]);
+        }
         abort(503, 'Web search is unavailable. No live sources could be retrieved.');
+    }
+
+    private function missesRequestedYear(array $results, string $query): bool
+    {
+        preg_match_all('/\b(?:19|20)\d{2}\b/', $query, $years);
+        if (! $years[0]) {
+            return false;
+        }
+        foreach ($results as $result) {
+            $evidence = urldecode($result['url']).' '.$result['title'].' '.$result['snippet'];
+            foreach ($years[0] as $year) {
+                if (preg_match('/(?<!\d)'.$year.'(?!\d)/', $evidence)) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
     }
 
     private function parseResults(string $provider, string $body): array
@@ -175,7 +207,8 @@ class WebSearch
         // page is not relevant evidence for a requested function.
         preg_match_all('/(?<![\pL\pN_])[\pL][\pL\pN]*_[\pL\pN_]+/u', $query, $matches);
         $identifiers = array_map(fn ($term) => str_replace('_', '-', mb_strtolower($term)), $matches[0]);
-        preg_match_all('/[\pL][\pL\pM\pN_]{2,}/u', $query, $words);
+        // Numbers such as model years are topics too: "Pro 2026" is not "Pro 2024".
+        preg_match_all('/[\pL\pN][\pL\pM\pN_]{2,}/u', $query, $words);
         $stop = explode(' ', 'the and for from with that this what when where which how are was were does using use into versus official documentation document search web research read sources source report compare comparing explain write concise detailed include exact url urls page pages evidence limitations information please about findings only then its can not could would should have has their they them you your request');
         $topics = array_values(array_unique(array_diff(array_map('mb_strtolower', $words[0]), $stop)));
         preg_match('/\bsite:([a-z0-9.-]+)/i', $query, $site);
@@ -203,15 +236,18 @@ class WebSearch
             }
             // Reject provider fallback noise rather than treating unrelated pages
             // as research evidence merely because the HTTP request succeeded.
-            if (count($topics) >= 2 && ! array_filter($topics, fn ($term) => str_contains($evidence, str_replace('_', '-', $term)))) {
+            // One shared word is not enough: Bing RSS answers specific product
+            // queries with brand home pages that only match the brand name.
+            $score = count(array_filter($topics, fn ($term) => str_contains($evidence, str_replace('_', '-', $term))));
+            if (count($topics) >= 2 && $score < max(2, (int) ceil(count($topics) / 3))) {
                 continue;
             }
-            $results[$url] = ['title' => $title, 'url' => $url, 'snippet' => $snippet];
-            if (count($results) >= min(10, max(1, (int) ($options['limit'] ?? 5)))) {
-                break;
-            }
+            $results[$url] = ['title' => $title, 'url' => $url, 'snippet' => $snippet, 'score' => $score];
         }
+        // Most specific matches first; provider order breaks ties.
+        $results = array_values($results);
+        usort($results, fn ($a, $b) => $b['score'] <=> $a['score']);
 
-        return array_values($results);
+        return array_map(fn ($result) => array_diff_key($result, ['score' => true]), array_slice($results, 0, min(10, max(1, (int) ($options['limit'] ?? 5)))));
     }
 }
