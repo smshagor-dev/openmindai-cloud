@@ -12,7 +12,7 @@ class Export extends Model
 
     protected function casts(): array
     {
-        return ['project_id' => 'integer', 'actor_id' => 'integer', 'bytes' => 'integer', 'snapshot' => 'array', 'draft' => 'boolean'];
+        return ['delivery_id' => 'integer', 'project_id' => 'integer', 'actor_id' => 'integer', 'bytes' => 'integer', 'snapshot' => 'array', 'draft' => 'boolean'];
     }
 
     protected $hidden = ['snapshot', 'path'];

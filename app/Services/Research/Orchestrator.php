@@ -3,6 +3,7 @@
 namespace App\Services\Research;
 
 use App\Jobs\Research\ExecuteTask;
+use App\Jobs\Research\GenerateDelivery;
 use App\Models\Research\Project;
 use App\Models\Research\Run;
 use App\Models\Research\Source;
@@ -118,6 +119,9 @@ class Orchestrator
                 $r->update(['status' => 'completed']);
                 $p->update(['status' => 'awaiting_approval']);
                 Events::add($p->id, 'run.completed', ['status' => 'awaiting_approval']);
+                if ($r->kind === 'workflow' || $tasks->contains(fn ($task) => $task->agent === 'quality')) {
+                    GenerateDelivery::dispatch($r->id)->onConnection('database')->onQueue('research')->afterCommit();
+                }
             } elseif (! $running && $tasks->contains(fn ($t) => $t->status === 'failed')) {
                 $r->update(['status' => 'failed']);
                 $p->update(['status' => 'attention']);

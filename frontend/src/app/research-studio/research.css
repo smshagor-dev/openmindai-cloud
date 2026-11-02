@@ -710,3 +710,5 @@ html:has(.rs) {
     scroll-margin-top: 220px;
   }
 }
+
+.rs-download-links{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0}.rs-download-links a{display:inline-block;border:1px solid var(--border,#555);border-radius:12px;padding:9px 12px;color:inherit}.rs-download-links span{color:var(--muted,#aaa);padding:9px}.rs-research-downloads{margin-block:18px;overflow-wrap:anywhere}.rs-download-notifications{margin-top:12px}.rs-download-notifications p{font-size:13px;line-height:1.5}

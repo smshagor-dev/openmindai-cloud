@@ -336,3 +336,5 @@
 @keyframes workspace-loading { from { transform: translateX(-105%); } to { transform: translateX(325%); } }
 @keyframes workspace-breathe { 50% { transform: scale(1.04); box-shadow: 0 15px 48px #31558322; } }
 @media (prefers-reduced-motion: reduce) { .page-loading-mark, .page-loading-track i { animation: none; } }
+
+.pwa-actions {position:fixed;bottom:14px;right:14px;z-index:90;display:flex;gap:8px;max-width:calc(100vw - 28px);flex-wrap:wrap}.pwa-actions button{padding:10px 16px;border-radius:22px;background:#353535;color:#fff;border:1px solid #666;font:inherit;cursor:pointer}

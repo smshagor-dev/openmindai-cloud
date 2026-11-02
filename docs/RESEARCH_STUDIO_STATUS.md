@@ -483,3 +483,10 @@ Quality now returns an actionable failed review for an empty saved document with
 Responsive browser traces exposed a real mobile drawer bug: the shared active-button scale shrank the full-screen backdrop on pointer down, moving edge clicks outside it at 430px and landscape widths. The backdrop is now excluded from the press-scale animation; acceptance keeps the original edge click so this regression remains covered.
 
 Chat initialization regression: the composer now stays disabled until authentication initialization and initial route restoration finish. This prevents early typing from being lost when route restoration clears the initial draft. A gated-auth browser test covers the first prompt; existing creation/Library browser acceptance remains required.
+
+
+### 2026-11-02 PWA, SEO and automatic research delivery checkpoint
+
+Implemented an installable manifest with app icons, a public-assets-only service worker, explicit install/update controls, an offline fallback that never caches private API data, route metadata/canonicals, sitemap, robots rules and noindex for private conversations and project URLs. Automatic research delivery creates frozen DOCX/PDF/LaTeX ZIP/BibTeX/Markdown exports, preserves the saved manuscript, labels unapplied proposals as drafts, deduplicates identical bundles and retries only failed formats. Download cards appear in the conversation and Export canvas. Web push subscriptions use consent-driven controls, encrypted subscription keys, provider-host validation and delivery receipts; VAPID setup never prints credentials.
+
+Verified so far: four delivery/security tests (33 assertions), existing Research tests and frontend typecheck. Full browser/export/push acceptance and production deployment remain pending. Existing private export worker health was checked live and is ready. NVIDIA Deep Researcher release/2.2 is being integrated against upstream commit a6d9efdec69a3052e1ee7f15a45d25711ac05d2a; the actual upstream runtime installs locally (Python 3.12) after selecting the available C++ compiler. NVIDIA integration is not yet complete or production-enabled.

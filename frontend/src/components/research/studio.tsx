@@ -22,6 +22,7 @@ import {
   safeUrl,
 } from "@/lib/research";
 import dynamic from "next/dynamic";
+import ResearchDownloads from "./downloads";
 import ResearchConversation, { ResearchComposer } from "./conversation";
 const AcademicEditor = dynamic(() => import("./editor"), {
   loading: () => <p role="status">Opening manuscript canvas…</p>,
@@ -1841,6 +1842,7 @@ export default function ResearchStudio() {
                     {view === "Export" && (
                       <section className="rs-card">
                         <h2>Journal formatting and export</h2>
+                        <ResearchDownloads data={data} editable={Boolean(editable)} onChange={()=>void refresh(id!)} />
                         <p>
                           Set journal/layout/citation preferences in Settings.
                           Final exports require current integrity gates; draft

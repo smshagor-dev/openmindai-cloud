@@ -1,5 +1,6 @@
 "use client";
 
+import ResearchDownloads from "./downloads";
 import { useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -456,31 +457,7 @@ export default function ResearchConversation({
               </button>
             </article>
           ))}
-          {(data.exports || [])
-            .slice(0, 3)
-            .reverse()
-            .map((file: Row) => (
-              <article className="rs-chat-result" key={`export-${file.id}`}>
-                <div className="rs-message-author">
-                  <FileText size={17} />
-                  {String(file.format).toUpperCase()} export
-                  <small>{label(file.status)}</small>
-                </div>
-                {file.status === "completed" ? (
-                  <a
-                    href={`/api/backend/research/projects/${data.project.id}/exports/${file.id}/download`}
-                  >
-                    Download validated {String(file.format).toUpperCase()}
-                  </a>
-                ) : (
-                  <p>
-                    {file.status === "failed"
-                      ? "Export failed. Inspect its status before retrying."
-                      : "The frozen document is waiting for processing."}
-                  </p>
-                )}
-              </article>
-            ))}
+          <ResearchDownloads data={data} editable={editable} />
           {data.conversation_has_more && (
             <p className="rs-chat-caption">
               Showing the latest 50 questions. Earlier task activity remains in
