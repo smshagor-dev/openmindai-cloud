@@ -144,7 +144,8 @@ test("image web search reads pixels before starting the real-runtime bridge, wit
     if(url.endsWith('/checkpoint')||url.endsWith('/finish'))return Response.json({stored:true});
     if(url.endsWith('/blueprint'))return Response.json({status:'completed',project_id:10,report:'The Raspberry Pi 5 is documented by its manufacturer [1](https://www.raspberrypi.com/products/raspberry-pi-5/).',sources:[{url:'https://www.raspberrypi.com/products/raspberry-pi-5/',title:'Raspberry Pi 5',read_status:'read',passages:[{id:'p1',text:'Raspberry Pi 5 official product documentation.'}]}]});
     if(url.endsWith('/status'))return Response.json({cancelled:false});
-    return Response.json({choices:[{message:{content:'Visible board label: Raspberry Pi 5. Exact RAM size is not visible.'},finish_reason:'stop'}]});
+    if(body.stream)return new Response('data: '+JSON.stringify({choices:[{delta:{content:'Image: Raspberry Pi 5; visual code `VISION-527`. Official documentation is available [1](https://www.raspberrypi.com/products/raspberry-pi-5/).'},finish_reason:'stop'}]})+'\n\ndata: [DONE]\n\n',{headers:{'Content-Type':'text/event-stream'}});
+    return Response.json({choices:[{message:{content:'Visible board label: Raspberry Pi 5. Visual code VISION-527. Exact RAM size is not visible.'},finish_reason:'stop'}]});
   };
   const response=await nvidiaChat(JSON.stringify({message:'Search official specifications of this board',model_id:-4,image,web_search:true}),'session','https://backend',new AbortController().signal,{fetcher,config:cfg});
   const output=await response.text();
@@ -155,6 +156,12 @@ test("image web search reads pixels before starting the real-runtime bridge, wit
   assert.ok(visionIndex>=0 && searchIndex>visionIndex);
   assert.match(calls[searchIndex].body.question,/Visible board label: Raspberry Pi 5/);
   assert.equal(calls[visionIndex].body.messages.at(-1).content[1].type,'image_url');
+  const writer=calls.find(c=>c.body.stream);
+  assert.ok(writer && calls.indexOf(writer)>searchIndex);
+  assert.match(JSON.stringify(writer.body.messages),/VISION-527/);
+  assert.match(JSON.stringify(writer.body.messages),/numbering differs/);
+  assert.match(output,/VISION-527/);
+  assert.doesNotMatch(output,/event: delta\ndata:.*documented by its manufacturer/);
   assert.ok(calls.filter(c=>!c.url.includes('nvidia.com')).every(c=>!JSON.stringify(c.body).includes(png)));
   assert.ok(calls.filter(c=>c.url.endsWith('/checkpoint')).some(c=>c.body.state.imageRequired===false && c.body.state.nativeBlueprint));
   assert.equal(calls.find(c=>c.url.endsWith('/finish')).body.status,'complete');
@@ -171,4 +178,29 @@ test("failed image reading does not search using guessed image identity", async(
   };
   await(await nvidiaChat(JSON.stringify({message:'Search this image',model_id:-4,image,web_search:true}),'session','https://backend',new AbortController().signal,{fetcher,config:cfg})).text();
   assert.equal(searches,0); assert.equal(final.status,'failed');
+});
+
+test("interrupted final writing retains native completion and image observations without restarting research", async()=>{
+  let checkpoint={stage:'writing',nativeBlueprint:true,nativeReportReady:true,imageObservation:'Visual code VISION-527',imageRequired:false,messages:[{role:'user',content:'Read the code and verify the board'},{role:'system',content:'Image observation: VISION-527; retrieved official passages.'}],content:'',modelId:fast};
+  let nativeCalls=0,streams=0,lastFinish;
+  const fetcher=async(url,init)=>{
+    const body=JSON.parse(init.body);
+    if(url.endsWith('/resume'))return Response.json({ticket:'a'.repeat(64),messages:checkpoint.messages,checkpoint,conversation_id:1,message_id:3,user_message_id:2,sources:[]});
+    if(url.endsWith('/checkpoint')){checkpoint=body.state;return Response.json({stored:true});}
+    if(url.endsWith('/finish')){lastFinish=body;return Response.json({stored:true});}
+    if(url.endsWith('/status'))return Response.json({cancelled:false});
+    if(url.endsWith('/blueprint')){nativeCalls++;throw new Error('Research must not restart');}
+    streams++;
+    assert.match(JSON.stringify(body.messages),/VISION-527/);
+    return new Response('data: '+JSON.stringify({choices:[{delta:{content:streams===1?'Visual code `VISION-527`. ':'Verified answer.'},finish_reason:'stop'}]})+'\n\n'+(streams===1?'':'data: [DONE]\n\n'),{headers:{'Content-Type':'text/event-stream'}});
+  };
+  const request=()=>nvidiaChat(JSON.stringify({resume_message_id:3,model_id:-4}),'session','https://backend',new AbortController().signal,{fetcher,config:cfg});
+  await(await request()).text();
+  assert.equal(lastFinish.status,'failed');
+  assert.equal(checkpoint.nativeReportReady,true);
+  assert.equal(checkpoint.nativeBlueprint,true);
+  assert.equal(checkpoint.imageObservation,'Visual code VISION-527');
+  await(await request()).text();
+  assert.equal(lastFinish.status,'complete');
+  assert.equal(nativeCalls,0);
 });
