@@ -15,6 +15,35 @@ class Deliveries
 {
     public const FORMATS = ['docx', 'pdf', 'tex', 'bib', 'md'];
 
+    /** Visible text of an editor (ProseMirror JSON) document. */
+    public static function plainText(?array $node): string
+    {
+        $text = ($node['type'] ?? '') === 'text' ? ($node['text'] ?? '') : '';
+        foreach ($node['content'] ?? [] as $child) {
+            $text .= self::plainText($child);
+        }
+
+        return $text;
+    }
+
+    /**
+     * Saved manuscript, or the current unaccepted generated proposal when
+     * nothing has been saved yet. A proposal is always exported as a draft.
+     *
+     * @return array{0: array|null, 1: string}
+     */
+    public static function exportContent(int $projectId, Document $saved): array
+    {
+        if (trim(self::plainText($saved->content)) !== '') {
+            return [$saved->content, 'saved'];
+        }
+        $proposal = Finding::where('project_id', $projectId)->where('kind', 'manuscript')->latest('id')->first()?->data;
+
+        return $proposal && ($proposal['base_version'] ?? null) === $saved->version
+            ? [$proposal['content'] ?? null, 'proposal']
+            : [$saved->content, 'saved'];
+    }
+
     public function generate(int $runId): ?Delivery
     {
         return Transactions::run(function () use ($runId) {
@@ -31,16 +60,7 @@ class Deliveries
                 $document = $proposal['content'];
                 $source = 'proposal';
             }
-            $text = '';
-            $walk = function ($n) use (&$walk, &$text) {
-                if (($n['type'] ?? '') === 'text') {
-                    $text .= $n['text'] ?? '';
-                }foreach ($n['content'] ?? [] as $c) {
-                    $walk($c);
-                }
-            };
-            $walk($document);
-            if (trim($text) === '') {
+            if (trim(self::plainText($document)) === '') {
                 return null;
             }
             $g = app(IntegrityGates::class)->inspect($project->id);

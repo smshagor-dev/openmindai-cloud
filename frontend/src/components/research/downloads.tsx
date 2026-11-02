@@ -173,23 +173,29 @@ export default function ResearchDownloads({
           Generate all research files
         </button>
       )}
-      {(data.exports || [])
-        .filter((file: Row) => !file.delivery_id)
-        .slice(0, 5)
-        .map((file: Row) => (
-          <p key={file.id}>
-            {file.status === "completed" ? (
-              <a
-                href={`/api/backend/research/projects/${data.project.id}/exports/${file.id}/download`}
-              >
-                Download validated {String(file.format).toUpperCase()}
-                {file.draft ? " draft" : ""}
-              </a>
-            ) : (
-              `${String(file.format).toUpperCase()}: ${file.status}`
-            )}
-          </p>
-        ))}
+      {(data.exports || []).some((file: Row) => !file.delivery_id) && (
+        <div className="rs-export-files">
+          <h3>Your exports</h3>
+          {(data.exports || [])
+            .filter((file: Row) => !file.delivery_id)
+            .slice(0, 5)
+            .map((file: Row) => {
+              const name = String(file.format).toUpperCase() + (file.draft ? " · draft" : "");
+              return file.status === "completed" ? (
+                <a
+                  key={file.id}
+                  href={`/api/backend/research/projects/${data.project.id}/exports/${file.id}/download`}
+                >
+                  Download {name}
+                </a>
+              ) : (
+                <span key={file.id} className="rs-export-pending">
+                  {name}: {file.status}
+                </span>
+              );
+            })}
+        </div>
+      )}
       {error && <p role="alert">{error}</p>}
       <ResearchNotifications />
     </section>

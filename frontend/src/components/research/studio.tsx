@@ -215,6 +215,7 @@ export default function ResearchStudio() {
   const [settings, setSettings] = useState<Row>({});
   const dirty = useRef(false);
   const chatDrafts = useRef<Record<string, string>>({});
+  const urlRestored = useRef(false);
   const setView = useCallback((next: string) => {
     if (dirty.current) {
       setError("Save or back up your manuscript before leaving the canvas.");
@@ -269,6 +270,10 @@ export default function ResearchStudio() {
     void list().catch((e) => {
       if (!/sign in|unauthenticated/i.test(e.message)) setError(e.message);
     });
+    // Read the link once: a repeated effect run (React StrictMode) would
+    // otherwise read back the URL the sync effect below already rewrote.
+    if (urlRestored.current) return;
+    urlRestored.current = true;
     const u = new URL(window.location.href);
     const project = Number(u.searchParams.get("project"));
     if (project > 0) setId(project);
@@ -1482,6 +1487,23 @@ export default function ResearchStudio() {
                     )}
                     {view === "Manuscript" && (
                       <>
+                        {/* The run's draft is only a proposal until reviewed; make it visible. */}
+                        {!proposal &&
+                          latest("manuscript")?.base_version === data.document.version && (
+                            <section className="rs-card rs-proposal-ready" role="status">
+                              <div>
+                                <strong>Generated manuscript draft ready</strong>
+                                <p>The research run wrote a draft. Review it before it replaces your manuscript.</p>
+                              </div>
+                              <button
+                                className="rs-action-primary"
+                                disabled={!editable}
+                                onClick={() => setProposal(latest("manuscript"))}
+                              >
+                                Review draft
+                              </button>
+                            </section>
+                          )}
                         <details className="rs-card rs-manuscript-tools">
                           <summary>Draft tools & figures</summary>
                           <div className="rs-actions">

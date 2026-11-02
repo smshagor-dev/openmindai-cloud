@@ -38,6 +38,31 @@ class ResearchDeliveryTest extends TestCase
         return [$p, $run, $user];
     }
 
+    public function test_manual_export_before_acceptance_uses_the_generated_proposal_as_a_draft(): void
+    {
+        [$p] = $this->fixture();
+        $out = $this->postJson("/api/v1/research/projects/$p->id/exports", ['format' => 'md', 'draft' => true])->assertCreated()->json();
+        $export = Export::findOrFail($out['id']);
+
+        $this->assertTrue($export->draft);
+        $this->assertSame('proposal', $export->snapshot['content_source']);
+        $this->assertStringContainsString('Generated proposal', json_encode($export->snapshot));
+        Queue::assertPushed(ExportDocument::class, 1);
+    }
+
+    public function test_manual_export_refuses_an_empty_manuscript_and_prefers_saved_text(): void
+    {
+        [$p] = $this->fixture();
+        Finding::where('project_id', $p->id)->delete();
+        $this->postJson("/api/v1/research/projects/$p->id/exports", ['format' => 'md', 'draft' => true])
+            ->assertStatus(422)->assertJsonFragment(['message' => 'The manuscript is empty. Run the research or write the manuscript before exporting.']);
+
+        Document::where('project_id', $p->id)->update(['content' => ['type' => 'doc', 'content' => [['type' => 'paragraph', 'content' => [['type' => 'text', 'text' => 'Saved human text']]]]]]);
+        $out = $this->postJson("/api/v1/research/projects/$p->id/exports", ['format' => 'md', 'draft' => true])->assertCreated()->json();
+        $this->assertSame('saved', Export::findOrFail($out['id'])->snapshot['content_source']);
+        $this->assertStringContainsString('Saved human text', json_encode(Export::findOrFail($out['id'])->snapshot));
+    }
+
     public function test_completion_delivery_queues_five_immutable_proposal_exports_once_without_overwriting_saved_document(): void
     {
         [$p,$run] = $this->fixture();

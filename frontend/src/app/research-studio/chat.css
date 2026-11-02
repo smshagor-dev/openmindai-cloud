@@ -934,3 +934,44 @@
   .rs-chat .rs-project-meta { display: none; }
   .rs-chat .rs-progress-row { margin-left: auto; }
 }
+
+/* Generated draft waiting for review, shown at the top of the Manuscript view. */
+.rs-chat .rs-proposal-ready {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 16px;
+  flex-wrap: wrap;
+  border-color: color-mix(in srgb, #3b82f6 45%, var(--border, #444));
+  background: color-mix(in srgb, #3b82f6 10%, var(--panel, #2a2a2a));
+}
+.rs-chat .rs-proposal-ready strong { display: block; font-size: 14px; }
+.rs-chat .rs-proposal-ready p { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
+.rs-chat .rs-proposal-ready button { padding: 8px 16px; border-radius: 999px; border: 1px solid var(--text); background: var(--text); color: var(--bg); font-weight: 600; cursor: pointer; }
+.rs-chat .rs-proposal-ready button:disabled { opacity: 0.5; cursor: default; }
+
+/* Recent research rows: left-aligned two-line titles with fixed-size icons. */
+.rs-chat .rs-recent-projects > button { align-items: center; gap: 12px; text-align: left; color: var(--text); font-size: 13px; }
+.rs-chat .rs-recent-projects > button > svg { flex: 0 0 auto; }
+.rs-chat .rs-recent-projects > button > span {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  line-height: 1.4;
+}
+.rs-chat .rs-recent-projects > button:hover { background: var(--ui-hover, #2f2f2f); }
+/* Sidebar project names end with an ellipsis instead of being cut mid-letter. */
+.rs-chat .history-list .history-title { display: block; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+/* Manual exports: grouped, styled like the delivery download buttons. */
+.rs-export-files { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 6px; }
+.rs-export-files h3 { flex-basis: 100%; margin: 0 0 2px; font-size: 13px; font-weight: 600; }
+.rs-export-files a, .rs-export-pending {
+  display: inline-flex; align-items: center; padding: 8px 13px; border: 1px solid var(--border, #444);
+  border-radius: 10px; color: var(--text); font-size: 13px; text-decoration: none;
+}
+.rs-export-files a:hover { background: var(--ui-hover, #2f2f2f); }
+.rs-export-pending { color: var(--muted); border-style: dashed; }
