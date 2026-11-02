@@ -2199,3 +2199,61 @@ html[data-theme="dark"] .hljs-title, html[data-theme="dark"] .hljs-name, html[da
 
 .tool-progress { display:flex; align-items:center; gap:8px; font-size:12px; line-height:1.5; }
 .tool-progress svg { flex-shrink:0; }
+
+/* Code blocks (ChatGPT/Claude style): compact header, no wrapping, readable
+   monospace, collapsible long code and an inline sandboxed HTML/SVG preview. */
+.response-code { margin: 14px 0 18px; border-radius: 14px; background: var(--sidebar, #171717); border: 1px solid var(--border, #444); }
+.response-code .code-toolbar { padding: 6px 8px 6px 14px; gap: 8px; background: transparent; border-bottom: 1px solid var(--border, #444); }
+.response-code .code-language { font-family: "SFMono-Regular", Consolas, monospace; font-size: 12px; color: var(--muted); text-transform: lowercase; }
+.response-code .code-toolbar > div, .preview-actions { gap: 4px; align-items: center; }
+.code-icon-button, .code-view-toggle button {
+  display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 9px;
+  border: 0; border-radius: 8px; background: transparent; color: var(--muted);
+  font: inherit; font-size: 12px; cursor: pointer;
+}
+.code-icon-button:hover, .code-view-toggle button:hover { color: var(--text); background: var(--ui-hover, #2f2f2f); }
+.code-view-toggle { display: inline-flex; padding: 2px; border-radius: 10px; background: var(--ui-hover, #2f2f2f); }
+.code-view-toggle button { height: 24px; padding: 0 10px; }
+.code-view-toggle button[aria-pressed="true"] { background: var(--bg, #212121); color: var(--text); box-shadow: 0 1px 3px #0003; }
+.code-device-toggle button { padding: 0 7px; }
+.code-icon-button:focus-visible, .code-view-toggle button:focus-visible, .code-expand:focus-visible { outline: 2px solid var(--muted); outline-offset: 1px; }
+.workspace .markdown .response-code pre, .response-code .code-preview {
+  margin: 0; padding: 14px 16px; border: 0; border-radius: 0; background: transparent;
+  max-height: none; overflow-x: auto; white-space: pre; tab-size: 2;
+  font-size: 13px; line-height: 1.6;
+}
+.response-code .code-preview code { font-size: inherit; background: transparent; padding: 0; }
+.code-body { position: relative; }
+.code-body.collapsed .code-preview { max-height: 420px; overflow-y: hidden; }
+.code-body.collapsed::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 72px; pointer-events: none;
+  background: linear-gradient(transparent, var(--sidebar, #171717));
+  border-radius: 0 0 14px 14px;
+}
+.code-expand {
+  position: relative; z-index: 1; display: block; margin: 0 auto 10px; padding: 5px 14px;
+  border: 1px solid var(--border, #444); border-radius: 999px; background: var(--bg, #212121);
+  color: var(--text); font: inherit; font-size: 12px; cursor: pointer;
+}
+.code-body.collapsed .code-expand { position: absolute; left: 50%; bottom: 10px; margin: 0; transform: translateX(-50%); }
+.code-live-frame { padding: 12px; background: var(--ui-hover, #2f2f2f); border-radius: 0 0 14px 14px; overflow-x: auto; }
+.code-live-frame.mobile .code-live-preview { width: 375px; max-width: 100%; display: block; margin: 0 auto; }
+.code-live-preview { width: 100%; border: 0; border-radius: 10px; background: white; box-shadow: 0 2px 12px #0002; }
+.dialog .code-live-frame { border-radius: 12px; }
+@media (max-width: 600px) {
+  .response-code .code-toolbar { padding: 4px 4px 4px 12px; }
+  .code-icon-button span { display: none; }
+  .code-icon-button { padding: 0 7px; }
+  .workspace .markdown .response-code pre, .response-code .code-preview { font-size: 12px; padding: 12px 14px; }
+  .code-live-frame { padding: 8px; }
+}
+/* Syntax colours follow the system dark theme as well as an explicit choice. */
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme="light"]) .hljs-keyword, html:not([data-theme="light"]) .hljs-literal { color: #d7a0f5; }
+  html:not([data-theme="light"]) .hljs-string, html:not([data-theme="light"]) .hljs-attr { color: #96d5a7; }
+  html:not([data-theme="light"]) .hljs-number, html:not([data-theme="light"]) .hljs-built_in { color: #edc28b; }
+  html:not([data-theme="light"]) .hljs-title, html:not([data-theme="light"]) .hljs-name, html:not([data-theme="light"]) .hljs-tag { color: #93c5fd; }
+}
+.response-code .code-toolbar button, .preview-actions .code-icon-button, .preview-actions .code-view-toggle button { border: 0; }
+@media (max-width: 600px) { .response-code .code-device-toggle { display: none; } }
+.workspace .markdown .code-body.collapsed pre, .code-body.collapsed .code-preview { max-height: 420px; overflow-y: hidden; }
