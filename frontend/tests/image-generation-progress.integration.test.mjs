@@ -17,7 +17,8 @@ test("image creation renders a large server-supplied percentage in the card, wit
   assert.match(progress, /taskId\?: number \| null/);
   assert.match(progress, /accepted && typeof progress === "number"/);
   assert.match(progress, /Submitting your image request/);
-  assert.match(progress, /Task #/);
+  // Internal task IDs and step counters are not shown to users.
+  assert.doesNotMatch(progress, /Task #|Step \$\{/);
   assert.doesNotMatch(progress, /setInterval|Date\.now\(|Math\.random\(/);
 });
 

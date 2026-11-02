@@ -7,7 +7,6 @@ const imageStages: Record<string, string> = {
   finalizing: "Finalizing your image",
   complete: "Image ready",
 };
-const stageSteps: Record<string, number> = { queued: 1, preparing: 1, generating: 2, finalizing: 3, complete: 3 };
 
 export default function CreationProgress({
   kind,
@@ -46,7 +45,6 @@ export default function CreationProgress({
       : image && stage && imageStages[stage]
         ? imageStages[stage]
         : preparing ? `Preparing your ${name}` : `Creating your ${name}`;
-  const step = image && stage ? stageSteps[stage] : undefined;
 
   return (
     <section className={`creation-progress ${video ? "creation-video" : ""} ${image ? "creation-image" : ""}`}
@@ -85,9 +83,9 @@ export default function CreationProgress({
             {"Image generation workflow: " + label + ", " + percent + "%"}
           </span>
         )}
-        <span>{accepted
-          ? `${step ? `Step ${step} of 3 · ` : ""}Task #${taskId} · ${status || "checking"}`
-          : image ? "Waiting for the server to accept your request." : "You can stay here while it takes shape."}</span>
+        {!accepted && (
+          <span>{image ? "Waiting for the server to accept your request." : "You can stay here while it takes shape."}</span>
+        )}
       </div>
     </section>
   );
