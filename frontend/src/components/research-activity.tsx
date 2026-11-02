@@ -16,6 +16,7 @@ import {
   activeResearchOperations,
   evidenceCount,
 } from "@/lib/research-sources";
+import SiteIcon, { siteHost } from "./site-icon";
 import "./research-activity.css";
 const stages = [
   ["planning", "Plan"],
@@ -50,6 +51,12 @@ export default function ResearchActivity({
   const web = metadata.mode === "web_search";
   const checked =
     metadata.audit?.filter((a) => a.status !== "passage_match") || [];
+  // One icon per website; a site counts as read if any of its pages was read.
+  const sites = [...sources.reduce((all, source) => {
+    const host = siteHost(source.url);
+    if (host) all.set(host, { url: source.url, read: all.get(host)?.read || source.read_status === "read" });
+    return all;
+  }, new Map<string, { url: string; read: boolean }>())].sort((a, b) => Number(b[1].read) - Number(a[1].read));
   return (
     <section className="web-investigation" aria-label="Research activity">
       <button
@@ -108,6 +115,17 @@ export default function ResearchActivity({
         </span>
         <ChevronDown size={15} className={expanded ? "rotated" : ""} />
       </button>
+      {sites.length > 0 && (
+        <ul className="web-research-sites" aria-label="Websites checked">
+          {sites.slice(0, 10).map(([host, site]) => (
+            <li key={host} className={site.read ? "read" : ""} title={`${host}${site.read ? " · read" : " · search result"}`}>
+              <SiteIcon url={site.url} size={16} />
+              <span className="sr-only">{host}</span>
+            </li>
+          ))}
+          {sites.length > 10 && <li className="more">+{sites.length - 10}</li>}
+        </ul>
+      )}
       {running && (
         <div className="web-research-current" aria-live="polite">
           <span className="web-research-live-dot" />
@@ -116,7 +134,7 @@ export default function ResearchActivity({
             : latest?.label || "Preparing research"}
           {active.slice(-3).map((event) => (
             <p key={event.operation_id} dir="auto">
-              {event.query || event.url}
+              {event.url ? <><SiteIcon url={event.url} size={14} /> {siteHost(event.url) || event.url}</> : event.query}
             </p>
           ))}
         </div>
@@ -177,7 +195,7 @@ export default function ResearchActivity({
                   {e.phase === "searching" ? (
                     <Search size={13} />
                   ) : e.phase === "reading" ? (
-                    <Globe size={13} />
+                    e.url ? <SiteIcon url={e.url} size={13} /> : <Globe size={13} />
                   ) : (
                     <ShieldCheck size={13} />
                   )}

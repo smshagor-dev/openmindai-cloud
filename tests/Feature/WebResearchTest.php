@@ -79,6 +79,20 @@ class WebResearchTest extends TestCase
         $this->assertArrayNotHasKey('score', $sources[0]);
     }
 
+    public function test_region_targets_local_language_results_on_public_providers(): void
+    {
+        config(['models.search_url' => null, 'models.public_search_fallback' => true]);
+        Http::fake([
+            'www.bing.com/*' => Http::response('<rss><channel></channel></rss>'),
+            'html.duckduckgo.com/*' => Http::response('<a class="result__a" href="https://mi.moscow/product/redmi-book-pro-14-2026">Redmi Book Pro 14 2026 купить</a>'),
+        ]);
+        $sources = app(WebSearch::class)->search('Redmi Book Pro 2026 купить', ['region' => 'ru-ru']);
+
+        $this->assertSame('https://mi.moscow/product/redmi-book-pro-14-2026', $sources[0]['url']);
+        Http::assertSent(fn ($request) => str_contains($request->url(), 'bing.com') && $request['cc'] === 'RU' && $request['setlang'] === 'ru');
+        Http::assertSent(fn ($request) => str_contains($request->url(), 'duckduckgo.com') && $request['kl'] === 'ru-ru');
+    }
+
     public function test_year_mismatched_results_remain_a_fallback_when_no_provider_has_the_year(): void
     {
         config(['models.search_url' => null, 'models.public_search_fallback' => true]);

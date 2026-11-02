@@ -13,9 +13,7 @@ class WebResearch
         foreach ($sources as $index => &$source) {
             $source['citation'] = $index + 1;
             $source['read_status'] = 'snippet_only';
-            if ($index >= 3) {
-                continue;
-            }
+            // Read every returned result so answers can be cross-checked across sites.
             try {
                 $document = app(WebEvidence::class)->read($source['url'], $question);
                 $text = $document['page_text'];

@@ -193,9 +193,9 @@ export async function nvidiaChat(
   if (!selected && !isAuto && !input.resume_message_id && !options.config)
     return Response.json({message: "Unknown hosted model."}, {status: 404});
   const eligibleModels = automaticModels(catalog);
-  // Auto must not answer "latest/today/news" questions from model memory: such
-  // prompts get the same grounded web tools as a manual Web search selection.
-  const autoWebSearch = isAuto && !input.web_search && !input.deep_research && !inlineImage &&
+  // Informational answers are cross-checked against live sources instead of
+  // model memory, for Auto and selected models. Attached files are the evidence.
+  const autoWebSearch = !input.web_search && !input.deep_research && !inlineImage && !input.attachment_ids?.length &&
     !input.resume_message_id && typeof input.message === "string" && Boolean(researchIntent(input.message).webSearch);
   const webSearchSelected = Boolean(input.web_search) || autoWebSearch;
   const coordinator = webSearchSelected && !input.deep_research
@@ -237,6 +237,9 @@ export async function nvidiaChat(
     // Avoid the legacy quick-search path searching the entire instruction.
     backendInput.web_search = false;
     if (isAuto || !generation) routedModel = coordinator?.provider || config.model;
+  } else if (autoWebSearch) {
+    // Selected models keep their model and receive server-side search evidence.
+    backendInput.web_search = true;
   }
   const backend = async (
     path: string,

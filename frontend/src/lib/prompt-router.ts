@@ -97,7 +97,20 @@ export function researchIntent(text: string, opt: Options = {}): {webSearch?: bo
   if (/\b(?:search (?:the )?(?:web|internet)|look (?:it |this )?up|browse|latest|current price|today's|news today|verify (?:this|the claim))\b|সর্বশেষ|আজকের|ইন্টারনেটে.{0,20}খুঁজ|\b(?:web search|search koro|latest news|ajker khobor|ajker news)\b/iu.test(text)) return {webSearch: true};
   // Products, prices, availability and recent model years change after the model's training.
   if (productFreshness.test(text) || productChoice.test(text) || recentYear(text)) return {webSearch: true};
-  return {};
+  // Every other informational request is cross-checked against live sources
+  // before answering; only requests that need no outside facts skip search.
+  if (needsNoLookup(text)) return {};
+  return {webSearch: true};
+}
+
+const smallTalk = /^(?:hi+|hello|hey|yo|hola|salam|assalamu ?alaikum|thanks?|thank you|thx|ty|ok(?:ay)?|yes|yeah|no|nope|sure|great|nice|cool|bye|good (?:morning|afternoon|evening|night)|kemon (?:acho|asen)|ki khobor|ধন্যবাদ|হ্যালো|আসসালামু আলাইকুম|ঠিক আছে|привет|спасибо)[\s!.?,🙂😊👍❤️]*$/iu;
+const ownTextTask = /^(?:(?:please|can you|could you)\s+)?(?:summari[sz]e|rewrite|rephrase|paraphrase|translate|proofread|shorten|expand|fix (?:the |my )?(?:grammar|spelling))\b|(?:বাংলায়|ইংরেজিতে).{0,15}অনুবাদ|^(?:অনুবাদ|সারসংক্ষেপ)|\b(?:bangla|english) koro\b/iu;
+const creative = /\b(?:write|compose|make)\b.{0,25}\b(?:poem|story|song|lyrics|joke|caption|shayari|rap)\b|\b(?:kobita|golpo)\b|কবিতা|গল্প লিখ/iu;
+const arithmetic = /^[\d\s+\-*/().^%=×÷x,]+\??$|^(?:solve|calculate|compute|simplify|differentiate|integrate)\b/iu;
+function needsNoLookup(text: string): boolean {
+  const p = text.trim();
+  return p.length < 4 || smallTalk.test(p) || ownTextTask.test(p) || creative.test(p) || arithmetic.test(p) ||
+    Boolean(generationIntent(p)) || threeDModelIntent(p.toLowerCase());
 }
 
 export async function routePrompt(prompt: string, cfg: RouterConfig, opt: Options = {}): Promise<Route> {

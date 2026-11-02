@@ -485,8 +485,10 @@ test("missing model selection defaults to Auto, while explicit choices suppress 
       {message:"Debug my app", expected:"nvidia/nemotron-3-ultra-550b-a55b", tools:true},
       // "latest news" now forces grounded web tools (see web-tool-flow tests).
       {message:"Write a short poem about rain", expected:"nvidia/nemotron-3-ultra-550b-a55b", tools:true},
-      {message:"Outline UAV security risks", expected:"nvidia/nemotron-3-ultra-550b-a55b", tools:true},
-      {message:"Explain photo composition", model_id:-1, expected:config.model},
+      {message:"Rewrite this: UAV security risks are growing", expected:"nvidia/nemotron-3-ultra-550b-a55b", tools:true},
+      {message:"Rewrite this sentence about photo composition", model_id:-1, expected:config.model},
+      // A selected model keeps its model and receives server-side search evidence.
+      {message:"Explain photo composition", model_id:-1, expected:config.model, webSearch:true},
     ]) {
       const f = fixture({providerUrl:"https://backend/api/v1/chat/provider", providerAuthorization:"Bearer user-token"});
       const fetcher = async (url, init) => {
@@ -500,6 +502,7 @@ test("missing model selection defaults to Auto, while explicit choices suppress 
       assert.equal(generation.body.model, scenario.expected);
       const begin = f.calls.find(call => call.url.endsWith("/begin"));
       assert.equal(Boolean(begin.body.conversation_tools), Boolean(scenario.tools));
+      assert.equal(Boolean(begin.body.web_search), Boolean(scenario.webSearch), scenario.message);
       assert.equal(Boolean(generation.body.tools), Boolean(scenario.tools));
       assert.equal(f.calls.some(call => call.url.includes("nvidia.com")), false);
     }

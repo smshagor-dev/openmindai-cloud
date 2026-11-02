@@ -46,19 +46,22 @@ class WebSearch
         if (in_array($options['time_range'] ?? '', ['day', 'week', 'month', 'year'], true)) {
             $params['time_range'] = $options['time_range'];
         }
+        // Optional "country-language" region (e.g. ru-ru) so local-language sites
+        // are searched for country-specific questions.
+        [$country, $language] = preg_match('/^([a-z]{2})-([a-z]{2})$/', (string) ($options['region'] ?? ''), $region) ? [$region[1], $region[2]] : [null, null];
         $providers = [];
         if (config('models.search_url')) {
-            $providers[] = ['searxng', config('models.search_url'), $params];
+            $providers[] = ['searxng', config('models.search_url'), [...$params, ...($language ? ['language' => $language.'-'.strtoupper($country)] : [])]];
         }
         if (config('web_research.brave_key')) {
-            $providers[] = ['brave', 'https://api.search.brave.com/res/v1/web/search', ['q' => $params['q'], 'count' => 10]];
+            $providers[] = ['brave', 'https://api.search.brave.com/res/v1/web/search', ['q' => $params['q'], 'count' => 10, ...($country ? ['country' => $country, 'search_lang' => $language] : [])]];
         }
         if (config('web_research.google_key') && config('web_research.google_cx')) {
-            $providers[] = ['google', 'https://www.googleapis.com/customsearch/v1', ['q' => $params['q'], 'key' => config('web_research.google_key'), 'cx' => config('web_research.google_cx'), 'num' => 10]];
+            $providers[] = ['google', 'https://www.googleapis.com/customsearch/v1', ['q' => $params['q'], 'key' => config('web_research.google_key'), 'cx' => config('web_research.google_cx'), 'num' => 10, ...($country ? ['gl' => $country, 'hl' => $language] : [])]];
         }
         if (config('models.public_search_fallback')) {
-            $providers[] = ['bing_rss', 'https://www.bing.com/search', ['q' => $params['q'], 'format' => 'rss']];
-            $providers[] = ['duckduckgo', 'https://html.duckduckgo.com/html/', ['q' => $params['q']]];
+            $providers[] = ['bing_rss', 'https://www.bing.com/search', ['q' => $params['q'], 'format' => 'rss', ...($country ? ['cc' => strtoupper($country), 'setlang' => $language] : [])]];
+            $providers[] = ['duckduckgo', 'https://html.duckduckgo.com/html/', ['q' => $params['q'], ...($country ? ['kl' => $country.'-'.$language] : [])]];
         }
         $events = [];
         $fallback = null;

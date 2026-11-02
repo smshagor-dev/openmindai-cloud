@@ -192,9 +192,9 @@ class FrontendChatController
         [, $lease] = $this->lease($r);
         abort_unless(! $lease['done'] && (! empty($lease['deep_research']) || ! empty($lease['conversation_tools'])), 409);
         abort_if($lease['message_id'] && (! Message::whereKey($lease['message_id'])->where('status', 'generating')->exists() || Cache::get('stop-message:'.$lease['message_id'])), 409, 'Research stopped.');
-        $d = $r->validate(['action' => 'required|in:search,read', 'query' => 'required_if:action,search|string|max:500', 'url' => 'required_if:action,read|string|max:2000', 'time_range' => 'nullable|in:day,week,month,year', 'question' => 'sometimes|string|max:16000']);
+        $d = $r->validate(['action' => 'required|in:search,read', 'query' => 'required_if:action,search|string|max:500', 'url' => 'required_if:action,read|string|max:2000', 'time_range' => 'nullable|in:day,week,month,year', 'region' => ['nullable', 'regex:/^[a-z]{2}-[a-z]{2}$/'], 'question' => 'sometimes|string|max:16000']);
         if ($d['action'] === 'search') {
-            return ['sources' => app(WebSearch::class)->search($d['query'], ['limit' => 10, 'time_range' => $d['time_range'] ?? null])];
+            return ['sources' => app(WebSearch::class)->search($d['query'], ['limit' => 10, 'time_range' => $d['time_range'] ?? null, 'region' => $d['region'] ?? null])];
         }
         try {
             $url = WebSearch::canonicalUrl($d['url']);

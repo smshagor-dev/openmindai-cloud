@@ -198,10 +198,14 @@ class FrontendChatTest extends TestCase
     public function test_native_conversation_tools_use_an_owned_active_lease_without_research_mode(): void
     {
         $this->authenticate();
-        $this->mock(WebSearch::class)->shouldReceive('search')->once()->with('Evidence', ['limit' => 10, 'time_range' => null])->andReturn([]);
+        $search = $this->mock(WebSearch::class);
+        $search->shouldReceive('search')->once()->with('Evidence', ['limit' => 10, 'time_range' => null, 'region' => null])->andReturn([]);
+        $search->shouldReceive('search')->once()->with('Цены', ['limit' => 10, 'time_range' => null, 'region' => 'ru-ru'])->andReturn([]);
         $r = $this->postJson('/api/v1/chat/frontend/begin', ['message' => 'Find evidence', 'conversation_tools' => true], $this->headers())->assertOk();
         $payload = ['ticket' => $r->json('ticket'), 'action' => 'search', 'query' => 'Evidence'];
         $this->postJson('/api/v1/chat/frontend/tool', $payload, $this->headers())->assertOk();
+        $this->postJson('/api/v1/chat/frontend/tool', [...$payload, 'query' => 'Цены', 'region' => 'ru-ru'], $this->headers())->assertOk();
+        $this->postJson('/api/v1/chat/frontend/tool', [...$payload, 'region' => 'russia'], $this->headers())->assertStatus(422);
         $this->assertFalse(Message::findOrFail($r->json('message_id'))->resumable);
         $this->postJson('/api/v1/chat/frontend/finish', ['ticket' => $r->json('ticket'), 'content' => 'Partial', 'status' => 'failed'], $this->headers())->assertOk();
         $this->postJson('/api/v1/chat/frontend/tool', $payload, $this->headers())->assertStatus(409);
