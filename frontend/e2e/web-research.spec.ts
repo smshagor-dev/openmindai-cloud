@@ -552,3 +552,33 @@ for (const width of [1440, 375]) {
     ).toBe(true);
   });
 }
+
+test("PWA exposes install metadata and never caches private responses", async ({page,context}) => {
+  await page.route("**/api/backend/**", route => route.fulfill({status:route.request().url().endsWith("/me")?401:200,json:{message:"Private browser fixture",secret:"PRIVATE_CACHE_FIXTURE"}}));
+  const manifest = await page.request.get("/manifest.webmanifest");
+  expect(manifest.ok()).toBeTruthy();
+  const metadata = await manifest.json();
+  expect(metadata.display).toBe("standalone");expect(metadata.icons.map((i:{sizes:string})=>i.sizes)).toEqual(["192x192","512x512"]);
+  await page.goto("/");
+  await page.evaluate(async()=>{await navigator.serviceWorker.ready;});
+  await page.reload();
+  await expect(page.getByRole("heading",{name:"What can I help with?"})).toBeVisible();
+  await page.evaluate(async()=>{await fetch("/api/backend/private-cache-fixture");});
+  const privateKeys = await page.evaluate(async()=>{const urls:string[]=[];for(const name of await caches.keys()){const cache=await caches.open(name);for(const request of await cache.keys()) if(new URL(request.url).pathname.startsWith("/api/")||new URL(request.url).pathname.startsWith("/c/"))urls.push(request.url);}return urls;});
+  expect(privateKeys).toEqual([]);
+  await context.setOffline(true);
+  await page.goto("/c/private-offline-fixture");
+  await expect(page.getByRole("heading",{name:"You’re offline"})).toBeVisible();
+  await expect(page.getByText("PRIVATE_CACHE_FIXTURE")).toHaveCount(0);
+});
+
+test("SEO canonical, sitemap and private conversation indexing policy", async ({page}) => {
+  const home = await page.request.get("/");
+  const html = await home.text();
+  expect(html).toMatch(/rel="canonical" href="https:\/\/chat\.openmindai\.org\/?"/);
+  expect(html).toContain('application/ld+json');
+  const sitemap = await page.request.get("/sitemap.xml");expect(await sitemap.text()).toContain("https://chat.openmindai.org/research-studio");
+  const robots = await page.request.get("/robots.txt");expect(await robots.text()).toContain("Disallow: /api/");
+  const privatePage = await page.request.get("/c/private-seo-fixture");expect(await privatePage.text()).toMatch(/name="robots" content="noindex, nofollow"/);
+  const project = await page.request.get("/research-studio?project=123");expect(await project.text()).toMatch(/name="robots" content="noindex, nofollow"/);
+});

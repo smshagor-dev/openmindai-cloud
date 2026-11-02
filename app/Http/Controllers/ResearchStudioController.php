@@ -4,7 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Jobs\Research\ExecuteExperiment;
 use App\Jobs\Research\ExportDocument;
+use App\Jobs\Research\GenerateDelivery;
 use App\Jobs\Research\ParseSource;
+use App\Models\Research\Delivery;
 use App\Models\Research\Document;
 use App\Models\Research\Evidence;
 use App\Models\Research\Experiment;
@@ -16,10 +18,12 @@ use App\Models\Research\Source;
 use App\Models\Research\Task;
 use App\Models\User;
 use App\Services\Research\Access;
+use App\Services\Research\Blueprint;
+use App\Services\Research\Deliveries;
 use App\Services\Research\Documents;
 use App\Services\Research\Events;
-use App\Services\Research\ExperimentArtifacts;
 use App\Services\Research\ExperimentControl;
+use App\Services\Research\ExportSnapshots;
 use App\Services\Research\IntegrityGates;
 use App\Services\Research\Orchestrator;
 use App\Services\Research\Readiness;
@@ -83,7 +87,7 @@ class ResearchStudioController
                     'answer' => $answer['answer'] ?? $answer['suggestion'] ?? null, 'source_ids' => $answer['source_ids'] ?? [], 'uncertainty' => $answer['uncertainty'] ?? $answer['explanation'] ?? null];
             });
 
-            return ['project' => $p, 'research_plan' => Run::where('project_id', $id)->where('kind', 'workflow')->whereNotNull('plan')->latest('id')->value('plan'), 'conversation' => $conversation, 'conversation_has_more' => $hasMoreQuestions, 'run' => $run, 'tasks' => $tasks, 'dependencies' => DB::table('research_dependencies')->whereIn('task_id', $tasks->pluck('id'))->get(['task_id', 'depends_on']), 'sources' => Source::where('project_id', $id)->get(['id', 'title', 'doi', 'authors', 'year', 'venue', 'url', 'verification', 'verified_at', 'metadata', 'content_hash']), 'evidence' => Evidence::where('project_id', $id)->get(), 'findings' => Finding::where('project_id', $id)->latest('id')->limit(50)->get(), 'document' => Document::where('project_id', $id)->first(), 'comments' => DB::table('research_comments')->where('project_id', $id)->latest('id')->limit(200)->get(), 'members' => DB::table('research_members')->join('users', 'users.id', '=', 'research_members.user_id')->where('project_id', $id)->get(['research_members.id', 'research_members.user_id', 'role', 'accepted_at', 'users.name']), 'approvals' => DB::table('research_approvals')->where('project_id', $id)->latest('id')->limit(100)->get(), 'experiments' => Experiment::where('project_id', $id)->get(), 'artifacts' => DB::table('research_artifacts')->where('project_id', $id)->get(['id', 'kind', 'name', 'mime', 'bytes', 'sha256', 'experiment_id']), 'exports' => Export::where('project_id', $id)->latest('id')->limit(100)->get(), 'integrity' => app(IntegrityGates::class)->inspect($id), 'event_cursor' => (int) DB::table('research_events')->where('project_id', $id)->max('id'), 'recent_events' => DB::table('research_events')->where('project_id', $id)->latest('id')->limit(100)->get()->reverse()->values()->map(fn ($e) => ['id' => $e->id, 'type' => $e->type, 'data' => json_decode($e->data, true), 'created_at' => Carbon::parse($e->created_at)->toIso8601String()])];
+            return ['project' => $p, 'research_plan' => Run::where('project_id', $id)->where('kind', 'workflow')->whereNotNull('plan')->latest('id')->value('plan'), 'conversation' => $conversation, 'conversation_has_more' => $hasMoreQuestions, 'run' => $run, 'tasks' => $tasks, 'dependencies' => DB::table('research_dependencies')->whereIn('task_id', $tasks->pluck('id'))->get(['task_id', 'depends_on']), 'sources' => Source::where('project_id', $id)->get(['id', 'title', 'doi', 'authors', 'year', 'venue', 'url', 'verification', 'verified_at', 'metadata', 'content_hash']), 'evidence' => Evidence::where('project_id', $id)->get(), 'findings' => Finding::where('project_id', $id)->latest('id')->limit(50)->get(), 'document' => Document::where('project_id', $id)->first(), 'comments' => DB::table('research_comments')->where('project_id', $id)->latest('id')->limit(200)->get(), 'members' => DB::table('research_members')->join('users', 'users.id', '=', 'research_members.user_id')->where('project_id', $id)->get(['research_members.id', 'research_members.user_id', 'role', 'accepted_at', 'users.name']), 'approvals' => DB::table('research_approvals')->where('project_id', $id)->latest('id')->limit(100)->get(), 'experiments' => Experiment::where('project_id', $id)->get(), 'artifacts' => DB::table('research_artifacts')->where('project_id', $id)->get(['id', 'kind', 'name', 'mime', 'bytes', 'sha256', 'experiment_id']), 'deliveries' => Delivery::where('project_id', $id)->latest('id')->limit(20)->get(), 'exports' => Export::where('project_id', $id)->latest('id')->limit(100)->get(), 'integrity' => app(IntegrityGates::class)->inspect($id), 'event_cursor' => (int) DB::table('research_events')->where('project_id', $id)->max('id'), 'recent_events' => DB::table('research_events')->where('project_id', $id)->latest('id')->limit(100)->get()->reverse()->values()->map(fn ($e) => ['id' => $e->id, 'type' => $e->type, 'data' => json_decode($e->data, true), 'created_at' => Carbon::parse($e->created_at)->toIso8601String()])];
         });
     }
 
@@ -112,7 +116,10 @@ class ResearchStudioController
     public function component(Request $r, int $id)
     {
         $p = $this->access($r, $id, ['owner', 'editor']);
-        $d = $r->validate(['agent' => 'required|in:question,selection,quality,citations,verification,literature,gaps,editor,manuscript,integrity', 'input' => 'sometimes|array']);
+        $d = $r->validate(['agent' => 'required|in:nvidia,question,selection,quality,citations,verification,literature,gaps,editor,manuscript,integrity', 'input' => 'sometimes|array']);
+        if ($d['agent'] === 'nvidia') {
+            abort_unless(app(Blueprint::class)->health()['status'] === 'ready', 503, 'NVIDIA Deep Researcher runtime is not ready.');
+        }
         if (isset($d['input']['source_id'])) {
             Source::where('project_id', $id)->findOrFail($d['input']['source_id']);
         }
@@ -321,7 +328,12 @@ class ResearchStudioController
         }DB::table('research_approvals')->insert(['project_id' => $id, 'user_id' => $r->user()->id, 'gate' => $d['gate'], 'content_hash' => $d['hash'], 'override' => $d['override'], 'reason' => $d['reason'], 'created_at' => now(), 'updated_at' => now()]);
         Events::add($id, 'approval.recorded', ['gate' => $d['gate'], 'status' => $d['override'] ? 'human_override' : 'approved']);
 
-        return app(IntegrityGates::class)->inspect($id);
+        $g = app(IntegrityGates::class)->inspect($id);
+        if ($g['passed'] && ($run = Run::where('project_id', $id)->where('status', 'completed')->latest('id')->first())) {
+            GenerateDelivery::dispatch($run->id)->onConnection('database')->onQueue('research');
+        }
+
+        return $g;
     }
 
     public function experiment(Request $r, int $id)
@@ -366,28 +378,32 @@ class ResearchStudioController
             abort_if(Export::where('project_id', $id)->count() >= 100, 422, 'Export count limit.');
             $doc = Document::where('project_id', $id)->firstOrFail();
             $p = Project::findOrFail($id);
-            $ids = [];
-            $walk = function ($n) use (&$walk, &$ids) {
-                if (($n['type'] ?? '') === 'figure') {
-                    $ids[] = (int) $n['attrs']['artifactId'];
-                }foreach ($n['content'] ?? [] as $c) {
-                    $walk($c);
-                }
-            };
-            $walk($doc->content);
-            $figures = [];
-            foreach (array_unique($ids) as $file) {
-                $a = ExperimentArtifacts::figures($id)->where('id', $file)->firstOrFail();
-                $bytes = Storage::disk('local')->get($a->path);
-                abort_unless(hash_equals($a->sha256, hash('sha256', $bytes)), 422, 'Figure checksum mismatch.');
-                $figures[] = ['id' => $a->id, 'mime' => $a->mime, 'data' => base64_encode($bytes)];
-            }$snapshot = ['document' => $doc->content, 'version' => $doc->version, 'sources' => Source::where('project_id', $id)->get(['id', 'title', 'doi', 'authors', 'year', 'venue', 'url'])->toArray(), 'settings' => $p->settings, 'figures' => $figures, 'integrity' => $g, 'draft' => $d['draft'], 'format' => $d['format']];
+            $snapshot = app(ExportSnapshots::class)->make($id, $doc->content, $doc->version, $d['draft']) + ['format' => $d['format']];
             $e = Export::create(['project_id' => $id, 'actor_id' => $r->user()->id, 'format' => $d['format'], 'draft' => $d['draft'], 'snapshot' => $snapshot]);
             ExportDocument::dispatch($e->id)->onConnection('database')->onQueue('research')->afterCommit();
             Events::add($id, 'export.queued', ['format' => $d['format'], 'status' => 'queued']);
 
             return $e;
         });
+    }
+
+    public function delivery(Request $r, int $id)
+    {
+        $this->access($r, $id, ['owner', 'editor']);
+        $run = Run::where('project_id', $id)->where('status', 'completed')->latest('id')->firstOrFail();
+
+        $delivery = app(Deliveries::class)->generate($run->id);
+        abort_unless($delivery, 422, 'No manuscript draft is available yet.');
+
+        return response()->json($delivery, 202);
+    }
+
+    public function retryDelivery(Request $r, int $id, int $delivery)
+    {
+        $this->access($r, $id, ['owner', 'editor']);
+        Delivery::where('project_id', $id)->findOrFail($delivery);
+
+        return app(Deliveries::class)->retry($delivery);
     }
 
     public function download(Request $r, int $id, int $file)

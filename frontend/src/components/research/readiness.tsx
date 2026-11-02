@@ -63,6 +63,7 @@ export default function ResearchReadiness() {
               {workerLabels[status.worker.status] || "Unavailable"}
             </strong>
           </p>
+          <p>NVIDIA Deep Researcher 2.2: <strong>{status.blueprint?.status==="ready" ? "Available" : "Setup required"}</strong></p>
           {status.worker.status !== "ready" && (
             <p>
               PDF analysis, experiments and exports need an available processing

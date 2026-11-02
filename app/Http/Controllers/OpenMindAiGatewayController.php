@@ -227,13 +227,15 @@ class OpenMindAiGatewayController
         // Accept the full desktop tool registry (19 tools today) while
         // keeping total request size and individual tool-call counts bounded.
         abort_if(strlen($request->getContent()) > 1048576, 413, 'Chat request exceeds the 1 MiB gateway limit.');
+        $blueprint = $request->attributes->get('blueprint_context') === true;
+        $messageLimit = $blueprint ? 300000 : 16000;
         $data = $request->validate([
             'model' => 'required|string|max:60',
-            'messages' => 'required|array|min:1|max:40',
+            'messages' => $blueprint ? 'required|array|min:1|max:512' : 'required|array|min:1|max:40',
             'messages.*.role' => 'required|in:system,user,assistant,tool',
             'messages.*.content' => $mobile
-                ? ['sometimes', 'nullable', function ($attribute, $value, $fail) {
-                    if (! is_array($value) && (! is_string($value) || mb_strlen($value) > 16000)) {
+                ? ['sometimes', 'nullable', function ($attribute, $value, $fail) use ($messageLimit) {
+                    if (! is_array($value) && (! is_string($value) || mb_strlen($value) > $messageLimit)) {
                         $fail('Message content must be text or image content parts.');
                     }
                 }]
@@ -243,11 +245,11 @@ class OpenMindAiGatewayController
             'messages.*.tool_calls.*.id' => 'required|string|max:120',
             'messages.*.tool_calls.*.type' => 'required|in:function',
             'messages.*.tool_calls.*.function.name' => 'required|string|max:120',
-            'messages.*.tool_calls.*.function.arguments' => 'required|string|max:32000',
+            'messages.*.tool_calls.*.function.arguments' => $blueprint ? 'required|string|max:262144' : 'required|string|max:32000',
             'tools' => 'sometimes|array|max:64',
             'tools.*.type' => 'required|in:function',
             'tools.*.function.name' => 'required|string|max:120',
-            'tools.*.function.description' => 'sometimes|string|max:1000',
+            'tools.*.function.description' => $blueprint ? 'sometimes|string|max:10000' : 'sometimes|string|max:1000',
             'tools.*.function.parameters' => 'required|array',
             'stream' => 'sometimes|boolean',
             // Explicit caller budgets are optional; otherwise use the provider/model default.
@@ -309,7 +311,10 @@ class OpenMindAiGatewayController
             }
             // These models support the same bounded JSON mode used by the
             // hosted research planner. Leave ordinary chat and other agents alone.
-            if (($request->attributes->get('research_literature_json') === true || $request->attributes->get('studio_scene_json') === true)
+            if (! empty($payload['tools']) && $agent->provider_model === 'nvidia/nemotron-3-ultra-550b-a55b') {
+                // Ultra's documented parser requires both flags for native tool calls.
+                $payload['chat_template_kwargs'] = ['enable_thinking' => true, 'force_nonempty_content' => true];
+            } elseif (($request->attributes->get('research_literature_json') === true || $request->attributes->get('studio_scene_json') === true)
                 && in_array($agent->provider_model, ['nvidia/nemotron-3.5-lightning-30b-a3b', 'nvidia/nemotron-3-ultra-550b-a55b'], true)) {
                 $payload['chat_template_kwargs'] = ['enable_thinking' => false];
             } elseif (isset($data['chat_template_kwargs']['enable_thinking'])) {
@@ -370,10 +375,13 @@ class OpenMindAiGatewayController
 
             $held = false;
 
-            return response()->stream(function () use ($upstream, $credits, $user, $connection, $usageKey, $lock, $agent) {
+            return response()->stream(function () use ($upstream, $credits, $user, $connection, $usageKey, $lock, $agent, $blueprint) {
                 $body = $upstream->toPsrResponse()->getBody();
                 $buffer = '';
                 $done = false;
+                $toolIndexes = [];
+                $contentCharacters = 0;
+                $finishReason = null;
                 try {
                     while (! $body->eof()) {
                         if (connection_aborted()) {
@@ -405,6 +413,14 @@ class OpenMindAiGatewayController
                                     continue;
                                 }
                                 $decoded['model'] = $agent->slug;
+                                if ($blueprint) {
+                                    $choice = $decoded['choices'][0] ?? [];
+                                    $contentCharacters += mb_strlen((string) ($choice['delta']['content'] ?? ''));
+                                    $finishReason = $choice['finish_reason'] ?? $finishReason;
+                                    foreach ($choice['delta']['tool_calls'] ?? [] as $call) {
+                                        $toolIndexes[(int) ($call['index'] ?? 0)] = true;
+                                    }
+                                }
                                 echo 'data: '.json_encode($decoded, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE)."\n\n";
                             }
                             if (ob_get_level() > 0) {
@@ -417,6 +433,9 @@ class OpenMindAiGatewayController
                         $credits->completed($user->id, $connection, $usageKey);
                     }
                 } finally {
+                    if ($blueprint) {
+                        Log::warning('research.blueprint.stream', ['done' => $done, 'tool_count' => count($toolIndexes), 'content_characters' => $contentCharacters, 'finish_reason' => in_array($finishReason, ['stop', 'length', 'tool_calls', 'content_filter'], true) ? $finishReason : null]);
+                    }
                     $body->close();
                     $lock->release();
                 }

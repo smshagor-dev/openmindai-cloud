@@ -3,6 +3,7 @@
 namespace App\Services\Research;
 
 use App\Jobs\Research\ExecuteTask;
+use App\Jobs\Research\GenerateDelivery;
 use App\Models\Research\Project;
 use App\Models\Research\Run;
 use App\Models\Research\Source;
@@ -45,6 +46,17 @@ class Orchestrator
 
     public function expand(Context $ctx, array $out): void
     {
+        if ($ctx->task->agent === 'nvidia') {
+            $run = $ctx->run();
+            $verification = $this->task($run, 'nvidia-verification', 'verification', [], [$ctx->task->id]);
+            $literature = $this->task($run, 'nvidia-literature', 'literature', [], [$ctx->task->id]);
+            $previous = $this->task($run, 'nvidia-manuscript', 'manuscript', [], [$verification->id, $literature->id]);
+            foreach (['citations', 'quality', 'collaboration', 'integrity'] as $agent) {
+                $previous = $this->task($run, 'nvidia-'.$agent, $agent, [], [$previous->id]);
+            }
+
+            return;
+        }
         if ($ctx->task->agent !== 'planning') {
             return;
         }$r = $ctx->run();
@@ -118,6 +130,9 @@ class Orchestrator
                 $r->update(['status' => 'completed']);
                 $p->update(['status' => 'awaiting_approval']);
                 Events::add($p->id, 'run.completed', ['status' => 'awaiting_approval']);
+                if ($r->kind === 'workflow' || $tasks->contains(fn ($task) => $task->agent === 'quality')) {
+                    GenerateDelivery::dispatch($r->id)->onConnection('database')->onQueue('research')->afterCommit();
+                }
             } elseif (! $running && $tasks->contains(fn ($t) => $t->status === 'failed')) {
                 $r->update(['status' => 'failed']);
                 $p->update(['status' => 'attention']);

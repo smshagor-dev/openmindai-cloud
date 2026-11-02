@@ -6,7 +6,7 @@ use Illuminate\Support\Facades\DB;
 
 class Registry
 {
-    public const CLASSES = ['planning' => 'Planning', 'discovery' => 'Discovery', 'literature' => 'Literature', 'verification' => 'Verification', 'investigation' => 'Investigation', 'gaps' => 'Gaps', 'experiments' => 'Experiments', 'editor' => 'Editor', 'manuscript' => 'Manuscript', 'citations' => 'Citations', 'quality' => 'Quality', 'collaboration' => 'Collaboration', 'integrity' => 'Integrity', 'question' => 'QuestionAnswer', 'selection' => 'SelectionEditor'];
+    public const CLASSES = ['nvidia' => 'Nvidia', 'planning' => 'Planning', 'discovery' => 'Discovery', 'literature' => 'Literature', 'verification' => 'Verification', 'investigation' => 'Investigation', 'gaps' => 'Gaps', 'experiments' => 'Experiments', 'editor' => 'Editor', 'manuscript' => 'Manuscript', 'citations' => 'Citations', 'quality' => 'Quality', 'collaboration' => 'Collaboration', 'integrity' => 'Integrity', 'question' => 'QuestionAnswer', 'selection' => 'SelectionEditor'];
 
     public function get(string $key): Agent
     {

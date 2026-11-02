@@ -1,10 +1,14 @@
 <?php
 
 use App\Http\Controllers\ResearchStudioController as R;
+use App\Http\Controllers\WebPushController;
 use App\Http\Middleware\ResearchRequestLimits;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1/research')->middleware([ResearchRequestLimits::class, 'verified-mobile-ip', 'auth:sanctum', 'active', 'interactive-token', 'throttle:api'])->group(function () {
+    Route::get('push/key', [WebPushController::class, 'key']);
+    Route::post('push/subscriptions', [WebPushController::class, 'store']);
+    Route::delete('push/subscriptions', [WebPushController::class, 'destroy']);
     Route::get('status', [R::class, 'readiness']);
     Route::get('projects', [R::class, 'index']);
     Route::post('projects', [R::class, 'create']);
@@ -31,6 +35,8 @@ Route::prefix('v1/research')->middleware([ResearchRequestLimits::class, 'verifie
         Route::post('experiments', [R::class, 'experiment']);
         Route::post('experiments/{experiment}/cancel', [R::class, 'cancelExperiment'])->whereNumber('experiment');
         Route::post('experiments/{experiment}/execute', [R::class, 'execute'])->whereNumber('experiment');
+        Route::post('deliveries', [R::class, 'delivery']);
+        Route::post('deliveries/{delivery}/retry', [R::class, 'retryDelivery'])->whereNumber('delivery');
         Route::post('exports', [R::class, 'export']);
         Route::get('exports/{file}/download', [R::class, 'download'])->whereNumber('file');
         Route::get('artifacts/{file}/download', [R::class, 'artifact'])->whereNumber('file');

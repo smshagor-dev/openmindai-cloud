@@ -19,6 +19,9 @@ export default defineConfig({
     ["json", { outputFile: resolve(outputDir, "results.json") }],
   ],
   use: {
+    // Mocked API routes must remain visible to Playwright, including WebKit.
+    // PWA lifecycle/privacy coverage runs separately with service workers enabled.
+    serviceWorkers: "block",
     browserName,
     baseURL: process.env.RESEARCH_BROWSER_URL,
     headless: true,

@@ -21,6 +21,9 @@ export default defineConfig({
     ],
   ],
   use: {
+    // Mocked API routes must remain visible to Playwright, including WebKit.
+    // PWA lifecycle/privacy coverage runs separately with service workers enabled.
+    serviceWorkers: "block",
     browserName: (process.env.RESPONSIVE_BROWSER || "chromium") as
       "chromium" | "firefox" | "webkit",
     baseURL: process.env.RESEARCH_BROWSER_URL || "http://127.0.0.1:3101",

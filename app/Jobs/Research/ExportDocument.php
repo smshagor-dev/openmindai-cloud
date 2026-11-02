@@ -4,6 +4,7 @@ namespace App\Jobs\Research;
 
 use App\Models\Research\Export;
 use App\Models\Research\Project;
+use App\Services\Research\Deliveries;
 use App\Services\Research\Events;
 use App\Services\Research\Transactions;
 use App\Services\Research\Worker;
@@ -46,6 +47,10 @@ class ExportDocument implements ShouldQueue
         } catch (\Throwable) {
             Export::whereKey($e->id)->where('status', 'running')->update(['status' => 'failed', 'error_code' => 'export_processing_failed', 'updated_at' => now()]);
             Events::add($e->project_id, 'export.failed', ['format' => $e->format, 'error_code' => 'export_processing_failed']);
+        } finally {
+            if ($e->delivery_id) {
+                app(Deliveries::class)->settle($e->delivery_id);
+            }
         }
     }
 }

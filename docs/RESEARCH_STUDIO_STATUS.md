@@ -483,3 +483,47 @@ Quality now returns an actionable failed review for an empty saved document with
 Responsive browser traces exposed a real mobile drawer bug: the shared active-button scale shrank the full-screen backdrop on pointer down, moving edge clicks outside it at 430px and landscape widths. The backdrop is now excluded from the press-scale animation; acceptance keeps the original edge click so this regression remains covered.
 
 Chat initialization regression: the composer now stays disabled until authentication initialization and initial route restoration finish. This prevents early typing from being lost when route restoration clears the initial draft. A gated-auth browser test covers the first prompt; existing creation/Library browser acceptance remains required.
+
+
+### 2026-11-02 PWA, SEO and automatic research delivery checkpoint
+
+Implemented an installable manifest with app icons, a public-assets-only service worker, explicit install/update controls, an offline fallback that never caches private API data, route metadata/canonicals, sitemap, robots rules and noindex for private conversations and project URLs. Automatic research delivery creates frozen DOCX/PDF/LaTeX ZIP/BibTeX/Markdown exports, preserves the saved manuscript, labels unapplied proposals as drafts, deduplicates identical bundles and retries only failed formats. Download cards appear in the conversation and Export canvas. Web push subscriptions use consent-driven controls, encrypted subscription keys, provider-host validation and delivery receipts; VAPID setup never prints credentials.
+
+Verified so far: four delivery/security tests (33 assertions), existing Research tests and frontend typecheck. Full browser/export/push acceptance and production deployment remain pending. Existing private export worker health was checked live and is ready. NVIDIA Deep Researcher release/2.2 is being integrated against upstream commit a6d9efdec69a3052e1ee7f15a45d25711ac05d2a; the actual upstream runtime installs locally (Python 3.12) after selecting the available C++ compiler. NVIDIA integration is not yet complete or production-enabled.
+
+NVIDIA integration checkpoint: added a private Python runner for the pinned official Blueprint, authenticated task/claim-bound inference and source bridges, existing NVIDIA rate/credit enforcement, scoped scholarly/web retrieval, a resumable completed-report checkpoint, report-to-manuscript proposals and follow-up evidence/citation/quality stages. Native generated-code execution is disabled (virtual StateBackend only). A project action and runtime readiness status expose the engine. Local upstream configuration/runtime check passed; 43 focused backend tests (369 assertions), frontend typecheck and 259 integration tests passed. Shared-host upstream installation hit the account process limit with parallel builds and is being retried serially. Real-provider Blueprint run, five-format automatic export acceptance, PWA browser checks and production deployment remain pending.
+
+
+### Hosting runtime installed; release verification in progress
+
+Latest remote checkpoint eac87c9 passed all nine push workflows, including full backend/frontend validation and Research Studio backend, MySQL, browser and isolated worker jobs. The hosting installation completed successfully using serial builds: the pinned upstream runtime occupies 1.3 GB. Its actual installed Python 3.11 runtime passed runner.py --check, confirming commit a6d9efdec69a3052e1ee7f15a45d25711ac05d2a and disabled host sandbox execution. Fixed the installer fresh-clone path to create a checked-out worktree before its dirty-tree guard. Real-provider research, five automatic production formats, push and live deployment checks remain pending.
+
+
+### Live backend delivery acceptance and NVIDIA diagnosis
+
+Backend checkpoint bc38151 was fast-forwarded under all three queue lane locks after an 18-table private compressed research backup (1,182,750 bytes, gzip validated); no active run existed. Composer production dependencies and the delivery/push migration completed. VAPID keys were initialized privately and the two runtime paths configured. A comparison confirmed every unrelated environment line and existing hosting/seeder file preserved.
+
+Completed run 12/project 8 produced immutable draft delivery 1 from the unapplied manuscript proposal: DOCX 25,353 bytes, PDF 103,295, LaTeX ZIP 19,166, BibTeX 21,096 and Markdown 64,071. All five completed through the real isolated export worker; server checksum/byte counts, OOXML archive, PDF signature, LaTeX entry and text presence validated. This is draft output, not an approved saved manuscript. Browser downloads and device push still need live checks.
+
+A separate owner-scoped acceptance project 9/run 13 uses the real enabled/verified Ultra 550B. Native inference reached upstream writer enforcement but no source bridge call occurred and no report was committed. The test run was fenced for diagnosis; completed user research was untouched. Native exception class and basename/line diagnostics exclude credentials, raw messages and source text. Explicit source tool bindings are present; initialize NAT's lazy data-source registry before constructing the agent so tool/source mappings exist. Real-provider success is still pending. Added safe inference status/count metrics without recording prompts or outputs.
+
+Exact-code eac87c9 CI includes 21 web browser tests with PWA private-cache/offline and SEO checks, 23 3D browser tests, and Research backend/MySQL/browser/worker checks. The later diagnostic checkpoint passed 436 backend tests / 2,842 assertions but failed import style; that import is corrected and local Pint passes. Nine focused Blueprint/delivery tests pass (50 assertions). PR #84 remains draft pending real-provider completion and final release checks; frontend production remains at 13a2ac2.
+
+
+### Ultra native-tool parser correction
+
+The official Ultra 550B model card requires chat_template_kwargs enable_thinking=true and force_nonempty_content=true for tool-call parsing (https://build.nvidia.com/nvidia/nemotron-3-ultra-550b-a55b/modelcard). Research JSON requests previously forced thinking=false, including native tool requests. Tool-bearing Ultra calls now apply the documented parser flags before the text-only JSON override; ordinary text-only research behavior remains intact. A regression preserves a returned tool call and checks both flags with no forced output cap. Focused gateway/Blueprint tests: 15 passed / 86 assertions; Pint passes. Actual provider/native acceptance remains pending.
+
+The signed-in production browser completed all five existing export download actions. The synchronized LaTeX ZIP, BibTeX and Markdown downloads match expected byte lengths and their archive/text checks pass. Browser DOCX/PDF artifacts did not synchronize, so no browser-byte comparison is claimed for those two; their server bytes/checksums and isolated-worker validation passed. Hosting PHP has timestamp validation enabled with a 60-second revalidation interval; normal per-user refresh markers were applied during diagnosis.
+
+
+### Native gateway format rejection reproduced and repaired
+
+Live native callbacks are rejected with HTTP 422 inside the existing gateway, before a report/source retrieval completes. A regression using DeepAgents-style system/user text blocks reproduced the same 422 before the correction. The private Blueprint bridge now preserves and joins text blocks before entering the mobile gateway image validator, accepts only text plus optional cache hints, rejects images/unknown blocks, and retains the gateway's size and role checks. It does not expand ordinary mobile image input. Focused gateway/Blueprint tests now pass 16 tests / 90 assertions; the new regression failed before the change and passes afterward. Typed rejection reason codes exclude raw exception text and content. Real native execution must still pass before full release.
+
+
+### Real NVIDIA end-to-end workflow completed
+
+After text-block normalization, actual Ultra/NVIDIA Blueprint run 13/project 9 completed at 2026-11-02 07:35 UTC with 60 persisted project sources. All eight tasks completed: NVIDIA, verification, literature, manuscript, citations, quality, collaboration and integrity. These are actual provider results, not fixtures; saved manuscript/approval gates remain reviewable rather than auto-accepted. Automatic output bundle and frontend production checks are being finalized.
+
+Latest complete code passed backend/frontend and Research Studio CI. Responsive Chromium and Firefox passed; WebKit fixture-based tests encountered service-worker-owned API fetches bypassing page.route, yielding unauthenticated/malformed fixture responses. Following Playwright's documented routing guidance, disable service workers only in the mocked responsive/3D configs. Dedicated PWA lifecycle/offline/privacy tests continue with workers enabled. No responsive assertion was removed.

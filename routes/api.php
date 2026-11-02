@@ -24,6 +24,7 @@ use App\Http\Controllers\NvidiaMaxineController;
 use App\Http\Controllers\NvidiaVoiceChatController;
 use App\Http\Controllers\OpenMindAiGatewayController;
 use App\Http\Controllers\RealtimeController;
+use App\Http\Controllers\ResearchBlueprintBridgeController;
 use App\Http\Controllers\ResearchWorkerTransferController;
 use App\Http\Controllers\SceneStudioController;
 use App\Http\Controllers\SettingsController;
@@ -38,6 +39,9 @@ use App\Services\HostedCodeAgents;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->middleware('verified-mobile-ip')->group(function () {
+    Route::post('internal/blueprint/sources', [ResearchBlueprintBridgeController::class, 'sources'])->middleware('throttle:120,1');
+    Route::get('internal/blueprint/v1/models', [ResearchBlueprintBridgeController::class, 'models'])->middleware('throttle:120,1');
+    Route::post('internal/blueprint/v1/chat/completions', [ResearchBlueprintBridgeController::class, 'completion'])->middleware('throttle:120,1');
     Route::match(['get', 'post'], 'internal/research-worker/transfers/{id}/{action}', [ResearchWorkerTransferController::class, 'transfer'])->middleware('throttle:120,1')->where('id', '[a-f0-9]{64}')->where('action', 'input|authorize|result');
     // Server-to-server ticket callbacks, protected by a dedicated worker secret.
     Route::post('voicechat/worker/claim', [NvidiaVoiceChatController::class, 'claim'])->middleware('throttle:60,1');
