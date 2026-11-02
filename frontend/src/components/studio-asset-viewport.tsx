@@ -14,7 +14,16 @@ import { PLYLoader } from "three/addons/loaders/PLYLoader.js";
 import { SVGRenderer } from "three/addons/renderers/SVGRenderer.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { workbenchApi, type Asset } from "@/lib/studio-workbench";
-export default function AssetViewport({ asset }: { asset: Asset }) {
+// `local` renders a model generated on this device (e.g. an image relief)
+// without a server round trip; it is downloaded from memory.
+export default function AssetViewport({ asset, local }: { asset: Asset; local?: ArrayBuffer }) {
+  const [localUrl, setLocalUrl] = useState("");
+  useEffect(() => {
+    if (!local) return;
+    const url = URL.createObjectURL(new Blob([local], { type: "model/gltf-binary" }));
+    setLocalUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [local]);
   const host = useRef<HTMLDivElement>(null),
     reset = useRef<() => void>(() => {}),
     [error, setError] = useState(""),
@@ -47,8 +56,12 @@ export default function AssetViewport({ asset }: { asset: Asset }) {
     setSelected("");
     (async () => {
       try {
-        const result = await workbenchApi(`/assets/${asset.id}/data`);
-        let bytes = Uint8Array.from(atob(result.data), (c) => c.charCodeAt(0));
+        const result = local
+          ? { format: "glb", data: "" }
+          : await workbenchApi(`/assets/${asset.id}/data`);
+        let bytes = local
+          ? new Uint8Array(local)
+          : Uint8Array.from(atob(result.data), (c) => c.charCodeAt(0));
         let format = result.format;
         let object: THREE.Object3D;
         if (format === "json") {
@@ -171,9 +184,12 @@ export default function AssetViewport({ asset }: { asset: Asset }) {
         cleaners.push(() => controls.dispose());
         controls.target.copy(center);
         reset.current = () => {
+          // Image reliefs face +Z: start nearly front-on so the picture reads clearly.
           camera.position
             .copy(center)
-            .add(new THREE.Vector3(size, size * 0.7, size).multiplyScalar(0.9));
+            .add(local
+              ? new THREE.Vector3(size * 0.35, size * 0.15, size * 1.15)
+              : new THREE.Vector3(size, size * 0.7, size).multiplyScalar(0.9));
           controls.target.copy(center);
           controls.update();
           render();
@@ -225,14 +241,17 @@ export default function AssetViewport({ asset }: { asset: Asset }) {
       disposed = true;
       cleanup();
     };
-  }, [asset.id]);
+  }, [asset.id, local]);
   return (
     <section aria-label="Imported mesh preview">
       <div className="studio-tool-row">
         <button type="button" disabled={!ready} onClick={() => reset.current()}>
           Reset mesh view
         </button>
-        <a href={`/api/backend/3d-studio/assets/${asset.id}/download`} download>
+        <a
+          href={local ? localUrl : `/api/backend/3d-studio/assets/${asset.id}/download`}
+          download={local ? asset.name : true}
+        >
           Download {asset.format.toUpperCase()}
         </a>
       </div>

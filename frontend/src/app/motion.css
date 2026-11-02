@@ -404,3 +404,9 @@
 @keyframes creation-develop-shift { from { background-position: 0% 0%; } to { background-position: 100% 60%; } }
 /* Card follows the light/dark theme; only the artwork canvas stays dark. */
 .creation-progress { background: var(--sidebar, var(--panel, #202123)); border-color: var(--border, #3b3b3b); color: var(--text); }
+/* Same compact percentage chip for every creation kind that reports progress. */
+.creation-progress .creation-canvas-percent {
+  top: auto; bottom: 14px; left: 14px; right: auto; padding: 5px 11px; align-items: center;
+  border-radius: 999px; background: #0000006b; backdrop-filter: blur(8px);
+  font-size: 15px; font-weight: 600; letter-spacing: 0; text-shadow: none;
+}

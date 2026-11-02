@@ -15,6 +15,8 @@ export default function CreationProgress({
   stage = null,
   taskId = null,
   status = null,
+  localPercent = null,
+  localLabel = null,
 }: {
   kind: string;
   preparing?: boolean;
@@ -22,6 +24,9 @@ export default function CreationProgress({
   stage?: string | null;
   taskId?: number | null;
   status?: string | null;
+  /** Measured progress of work in this browser (e.g. model download bytes). */
+  localPercent?: number | null;
+  localLabel?: string | null;
 }) {
   const video = kind === "video";
   const image = kind === "image";
@@ -35,10 +40,12 @@ export default function CreationProgress({
   // Until the backend returns a task ID and status, no percentage can be verified.
   // The image provider reports completed workflow milestones, not rendering steps.
   const accepted = image && taskId !== null && Number.isSafeInteger(taskId);
-  const percent = accepted && typeof progress === "number" && Number.isFinite(progress)
-    ? Math.max(0, Math.min(100, Math.round(progress)))
-    : null;
-  const label = image && !accepted
+  const percent = typeof localPercent === "number" && Number.isFinite(localPercent)
+    ? Math.max(0, Math.min(100, Math.round(localPercent)))
+    : accepted && typeof progress === "number" && Number.isFinite(progress)
+      ? Math.max(0, Math.min(100, Math.round(progress)))
+      : null;
+  const label = localLabel ? localLabel : image && !accepted
     ? "Submitting your image request"
     : image && status == null
       ? "Checking your image request"
@@ -78,12 +85,12 @@ export default function CreationProgress({
       <div className="creation-caption" role={image ? "status" : undefined}
         aria-live={image ? "polite" : undefined} aria-atomic={image ? "true" : undefined}>
         <TypingIndicator label={label} />
-        {percent !== null && (
+        {percent !== null && image && (
           <span className="creation-progress-announcement">
             {"Image generation workflow: " + label + ", " + percent + "%"}
           </span>
         )}
-        {!accepted && (
+        {!accepted && !localLabel && (
           <span>{image ? "Waiting for the server to accept your request." : "You can stay here while it takes shape."}</span>
         )}
       </div>
