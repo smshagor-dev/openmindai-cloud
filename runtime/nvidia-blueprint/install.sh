@@ -9,7 +9,7 @@ upstream=https://github.com/NVIDIA-AI-Blueprints/deep-researcher-agent.git
 revision=a6d9efdec69a3052e1ee7f15a45d25711ac05d2a
 if [ ! -d "$runtime_dir/.git" ]; then
   [ ! -e "$runtime_dir" ] || { echo 'Destination exists and is not the Blueprint repository.' >&2; exit 1; }
-  git clone --no-checkout "$upstream" "$runtime_dir"
+  git clone --depth 1 "$upstream" "$runtime_dir"
 fi
 [ "$(git -C "$runtime_dir" remote get-url origin)" = "$upstream" ] || { echo 'Unexpected upstream repository.' >&2; exit 1; }
 git -C "$runtime_dir" diff --quiet HEAD || { echo 'Preserve local upstream changes before installing.' >&2; exit 1; }
