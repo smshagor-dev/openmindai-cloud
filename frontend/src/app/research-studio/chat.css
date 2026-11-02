@@ -1064,3 +1064,39 @@
 .rs details.rs-card { padding: 12px 18px; }
 .rs details.rs-card > summary { cursor: pointer; font-size: 13px; font-weight: 500; }
 .rs details.rs-card[open] > summary { margin-bottom: 10px; }
+
+/* Live agents: responsive staged pipeline instead of a scaled SVG. */
+.rs .rs-task-summary { display: flex; flex-wrap: wrap; gap: 8px 14px; margin: 4px 0 16px; font-size: 12.5px; color: var(--muted); }
+.rs .rs-task-count { display: inline-flex; align-items: center; gap: 6px; text-transform: capitalize; }
+.rs .rs-task-stages { list-style: none; margin: 0; padding: 0; }
+.rs .rs-task-stage { position: relative; padding: 0 0 18px 36px; }
+.rs .rs-task-stage::before { content: ""; position: absolute; left: 11px; top: 26px; bottom: 2px; width: 2px; border-radius: 1px; background: var(--line); }
+.rs .rs-task-stage:last-child { padding-bottom: 0; }
+.rs .rs-task-stage:last-child::before { display: none; }
+.rs .rs-task-stage-head { display: flex; align-items: center; gap: 8px; min-height: 24px; margin-bottom: 8px; }
+.rs .rs-task-stage-index {
+  position: absolute; left: 0; top: 0; display: grid; place-items: center; width: 24px; height: 24px;
+  border-radius: 50%; background: var(--panel2); font-size: 11.5px; font-weight: 600;
+}
+.rs .rs-task-stage-head strong { font-size: 13px; font-weight: 600; }
+.rs .rs-task-stage-head small { color: var(--muted); font-size: 12px; }
+.rs .rs-task-chips { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.rs .rs-canvas-content .rs-task-chips .rs-task-chip {
+  display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 8px; row-gap: 1px;
+  align-items: center; justify-content: stretch; min-height: 0; padding: 8px 11px; text-align: left;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--bg);
+}
+.rs .rs-task-chip > i { grid-row: 1 / span 2; }
+.rs .rs-task-chip span { font-size: 12.5px; font-weight: 500; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.rs .rs-task-chip small { font-size: 11px; color: var(--muted); }
+.rs .rs-canvas-content .rs-task-chips .rs-task-chip.selected { border-color: var(--text); box-shadow: 0 0 0 1px var(--text) inset; }
+/* Status dots: completed green, running blue (pulsing), failed red, waiting grey. */
+.rs :is(.rs-task-chip, .rs-task-count) > i { width: 8px; height: 8px; border-radius: 50%; background: #8a96a3; }
+.rs .rs-task-completed > i { background: #22c55e; }
+.rs .rs-task-running > i { background: #3b82f6; animation: rs-task-pulse 1.4s ease-in-out infinite; }
+.rs :is(.rs-task-failed, .rs-task-cancelled) > i { background: #ef4444; }
+.rs .rs-task-queued > i { background: #eab308; }
+.rs .rs-task-detail { margin: 14px 0 0; padding: 10px 12px; border-radius: 10px; background: var(--panel2); color: var(--text); overflow-wrap: anywhere; }
+@keyframes rs-task-pulse { 50% { box-shadow: 0 0 0 5px color-mix(in srgb, #3b82f6 25%, transparent); } }
+@media (prefers-reduced-motion: reduce) { .rs .rs-task-running > i { animation: none; } }
+@media (max-width: 480px) { .rs .rs-task-chips { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); } }

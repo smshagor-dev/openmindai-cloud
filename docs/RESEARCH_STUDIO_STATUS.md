@@ -646,3 +646,8 @@ Research tools in the sidebar have icons and compact rows; cards use tighter pad
 ### Chat image-generation progress animation — 2026-11-03
 
 The image creation card now has a shimmering "Creating image" title, a grainy canvas that develops top-down to the server-reported milestone with a glowing scan line at the edge (CSS transitions between milestones), a compact percentage chip and a "Step N of 3" caption. The percentage remains exactly the backend-reported workflow milestone (8/28/90/100); no time-based estimate was added, keeping the existing honesty test. The card follows light/dark theme. Checked stages and a live 28→90 transition at 1366px dark and 390px light. Frontend typecheck passed; integration 259/262 (same environmental failures). Not deployed.
+
+
+### Live agents dependency view made responsive — 2026-11-03
+
+The Live agents graph was a fixed 770px SVG with a pixel height and 100% width, so browsers scaled it down and centred it (large empty area, tiny text, clipped rows, crossing edges from wrapped levels). It is now a staged pipeline: status summary, numbered dependency stages joined by a vertical connector, and task chips in a wrapping grid with status dots (running pulses); repeated agents are numbered; selecting a chip shows its prerequisites. Checked with the live 27-task project at 1366px (three columns) and 390px (two columns). Frontend typecheck passed; integration 259/262 (same environmental failures). Not deployed.
