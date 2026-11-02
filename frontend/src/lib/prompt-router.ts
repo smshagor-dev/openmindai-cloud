@@ -79,6 +79,14 @@ function chooseChatModel(text: string, cfg: RouterConfig, opt: Options): string 
   return cfg.fastModel || cfg.defaultModel || FAST;
 }
 
+const productFreshness = /\b(?:prices?|buy|purchase|in stock|available in|availability|release date|released|launch(?:ed)?|newest|upcoming)\b|দাম|কিনতে|\b(?:dam koto|kinte chai)\b|купить|цена|вышел/iu;
+const productChoice = /\b(?:best|top|which|what|recommend(?:ed)?|compare)\b.{0,40}\b(?:laptops?|notebooks?|phones?|smartphones?|tablets?|tvs?|monitors?|cameras?|gpus?|graphics cards?|cpus?|processors?|headphones|earbuds|smartwatch(?:es)?|cars?)\b/iu;
+// Years from last year onward are likely after the model's training data.
+function recentYear(text: string): boolean {
+  const current = new Date().getUTCFullYear();
+  return [...text.matchAll(/\b(20\d{2})\b/g)].some(([, year]) => Number(year) >= current - 1);
+}
+
 export function researchIntent(text: string, opt: Options = {}): {webSearch?: boolean; deepResearch?: boolean} {
   if (opt.allowTools === false || opt.hasImage) return {};
   if (opt.deepResearch) return {webSearch: true, deepResearch: true};
@@ -87,6 +95,8 @@ export function researchIntent(text: string, opt: Options = {}): {webSearch?: bo
   if (codeIntent.test(text)) return {};
   if (/\b(?:deep research|literature review|systematic review|research with sources|comprehensive research)\b|বিস্তারিত গবেষণা|গভীর গবেষণা|\bdeep research koro\b/iu.test(text)) return {webSearch: true, deepResearch: true};
   if (/\b(?:search (?:the )?(?:web|internet)|look (?:it |this )?up|browse|latest|current price|today's|news today|verify (?:this|the claim))\b|সর্বশেষ|আজকের|ইন্টারনেটে.{0,20}খুঁজ|\b(?:web search|search koro|latest news|ajker khobor|ajker news)\b/iu.test(text)) return {webSearch: true};
+  // Products, prices, availability and recent model years change after the model's training.
+  if (productFreshness.test(text) || productChoice.test(text) || recentYear(text)) return {webSearch: true};
   return {};
 }
 

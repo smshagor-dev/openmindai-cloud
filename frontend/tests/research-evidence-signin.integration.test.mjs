@@ -17,3 +17,13 @@ test("current-information prompts are recognised for automatic web search", () =
   assert.equal(researchIntent("In two sentences, what is photosynthesis?").webSearch, undefined);
   assert.equal(researchIntent("latest news, but do not search the web").webSearch, undefined);
 });
+
+test("product, availability and recent model-year prompts search instead of answering from training data", () => {
+  const year = new Date().getUTCFullYear();
+  for (const prompt of ["what laptop can work without chareger longest ?", `xiaomi redmi book pro ${year} - can we buy it in Russia`,
+    `почему ты не написала про Xiaomi Redmi Book Pro ${year}`, "best phone under 30000 taka", "ei laptop er dam koto?"])
+    assert.equal(researchIntent(prompt).webSearch, true, prompt);
+  for (const prompt of ["what happened in 2019?", "Build a laptop price API in Laravel", "write a poem about rain",
+    `best laptop ${year}, but do not search the web`])
+    assert.equal(researchIntent(prompt).webSearch, undefined, prompt);
+});
