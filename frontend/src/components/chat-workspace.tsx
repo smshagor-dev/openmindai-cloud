@@ -47,6 +47,7 @@ import CreationProgress from "./creation-progress";
 import { generatedMediaIds } from "@/lib/chat-artifacts";
 import { STUDIO_HANDOFF_KEY, threeDModelIntent } from "@/lib/studio-intent";
 import TypingIndicator from "./typing-indicator";
+import ConversationSkeleton from "./conversation-skeleton";
 import ModelPicker from "./model-picker";
 import Dialog from "./dialog";
 import WelcomeToolsMenu, { type WelcomeToolAction } from "./welcome-tools-menu";
@@ -211,7 +212,9 @@ export default function ChatWorkspace() {
   const [accountMenu, setAccountMenu] = useState(false);
   const [historyMenuId, setHistoryMenuId] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
-  const [loadingChat, setLoadingChat] = useState(false);
+  // "open" swaps in a whole saved chat; "older" prepends earlier messages.
+  const [loadingChatMode, setLoadingChat] = useState<false | "open" | "older">(false);
+  const loadingChat = loadingChatMode !== false;
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [error, setError] = useState("");
   const [deleteId, setDeleteId] = useState<number | null>(null);
@@ -563,7 +566,7 @@ export default function ChatWorkspace() {
     chatRequest.current?.abort();
     const controller = new AbortController();
     chatRequest.current = controller;
-    setLoadingChat(true);
+    setLoadingChat("open");
     setEditingMessageIndex(null);
     setEditingText("");
     setTemporary(false);
@@ -649,7 +652,7 @@ export default function ChatWorkspace() {
     chatRequest.current?.abort();
     const controller = new AbortController();
     chatRequest.current = controller;
-    setLoadingChat(true);
+    setLoadingChat("older");
     try {
       const result = await api<{ messages: Page<Message> }>(
         `conversations/${conversationId}?page=${messagePage - 1}`,
@@ -1659,7 +1662,9 @@ export default function ChatWorkspace() {
           const container = event.currentTarget;
           followOutput.current = container.scrollHeight - container.scrollTop - container.clientHeight < 160;
         }}>
-          {messages.length === 0 && !loadingChat && !pendingCreation && inlineMedia.length === 0 ? (
+          {loadingChatMode === "open" ? (
+            <ConversationSkeleton />
+          ) : messages.length === 0 && !loadingChat && !pendingCreation && inlineMedia.length === 0 ? (
             <section className="welcome">
               <WorkspaceWelcome title="What can I help with?" />
             </section>
@@ -1937,7 +1942,7 @@ ${source.read_status === "read" ? "Page read" : "Snippet only"}`,
               ))}
             </div>
           )}
-          {loadingChat && (
+          {loadingChatMode === "older" && (
             <div className="chat-loading" role="status">
               <LoaderCircle className="spin" size={21} />
               Loading conversation…

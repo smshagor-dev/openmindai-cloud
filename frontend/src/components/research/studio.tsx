@@ -1,6 +1,7 @@
 "use client";
 import WorkspaceWelcome from "../workspace-welcome";
 import StudioFrame from "../studio-frame";
+import ConversationSkeleton from "../conversation-skeleton";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   BookOpen,
@@ -803,7 +804,7 @@ export default function ResearchStudio() {
             )}
           </section>
         ) : !data ? (
-          <div role="status">Loading research project…</div>
+          <ConversationSkeleton label="Loading research project…" />
         ) : (
           <>
             <div className="rs-project-header">

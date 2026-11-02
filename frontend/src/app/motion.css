@@ -337,4 +337,21 @@
 @keyframes workspace-breathe { 50% { transform: scale(1.04); box-shadow: 0 15px 48px #31558322; } }
 @media (prefers-reduced-motion: reduce) { .page-loading-mark, .page-loading-track i { animation: none; } }
 
+/* Opening a saved chat or research project: shimmering conversation outline. */
+.conversation-skeleton { --skeleton-base: var(--ui-hover, #ececec); --skeleton-shine: color-mix(in srgb, var(--ui-hover, #ececec) 55%, var(--bg, #fff)); width: min(760px, 100%); margin: 0 auto; padding: 28px 16px; display: flex; flex-direction: column; gap: 26px; animation: creation-reveal .3s ease-out; }
+.skeleton-turn { display: flex; gap: 12px; align-items: flex-start; }
+.skeleton-turn.is-user { justify-content: flex-end; }
+.skeleton-avatar { flex: 0 0 auto; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; animation: skeleton-pulse 1.6s ease-in-out infinite; }
+.skeleton-lines { flex: 1; display: flex; flex-direction: column; gap: 10px; padding-top: 4px; }
+.skeleton-bubble, .skeleton-lines i { display: block; border-radius: 10px; background: linear-gradient(90deg, var(--skeleton-base) 25%, var(--skeleton-shine) 50%, var(--skeleton-base) 75%); background-size: 200% 100%; animation: work-shine 1.4s linear infinite; }
+.skeleton-bubble { width: min(62%, 320px); height: 42px; border-radius: 20px; }
+.skeleton-bubble.is-short { width: min(40%, 200px); }
+.skeleton-lines i { height: 12px; }
+.skeleton-lines i:nth-child(1) { width: 92%; }
+.skeleton-lines i:nth-child(2) { width: 100%; animation-delay: .1s; }
+.skeleton-lines i:nth-child(3) { width: 78%; animation-delay: .2s; }
+.skeleton-lines i:nth-child(4) { width: 54%; animation-delay: .3s; }
+@keyframes skeleton-pulse { 50% { opacity: .45; transform: scale(.94); } }
+@media (prefers-reduced-motion: reduce) { .conversation-skeleton, .skeleton-avatar, .skeleton-bubble, .skeleton-lines i { animation: none; } }
+
 .pwa-actions {position:fixed;bottom:14px;right:14px;z-index:90;display:flex;gap:8px;max-width:calc(100vw - 28px);flex-wrap:wrap}.pwa-actions button{padding:10px 16px;border-radius:22px;background:#353535;color:#fff;border:1px solid #666;font:inherit;cursor:pointer}

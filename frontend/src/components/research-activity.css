@@ -283,38 +283,6 @@
 .web-investigation-heading > svg {
   color: var(--muted);
 }
-/* Website icons for every site searched or read. */
-.web-research-sites {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 5px;
-  margin: 10px 0 0 42px;
-  padding: 0;
-  list-style: none;
-}
-.web-research-sites li {
-  display: grid;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  border: 1px solid var(--border);
-  border-radius: 50%;
-  background: var(--panel);
-  opacity: 0.55;
-  animation: creation-reveal 0.25s ease-out;
-}
-.web-research-sites li.read { opacity: 1; }
-.web-research-sites li.more {
-  width: auto;
-  padding: 0 7px;
-  border-radius: 12px;
-  font-size: 10px;
-  color: var(--muted);
-  opacity: 1;
-}
-.site-icon { flex: 0 0 auto; border-radius: 3px; object-fit: contain; vertical-align: -3px; }
-.web-research-current p .site-icon { margin-right: 4px; }
 .web-research-current {
   margin: 13px 0 0 42px;
   font-size: 10px;
@@ -374,8 +342,7 @@
   .web-investigation {
     padding: 12px;
   }
-  .web-research-current,
-  .web-research-sites {
+  .web-research-current {
     margin-left: 0;
   }
 }
@@ -383,3 +350,83 @@
   animation: none !important;
   transition: none !important;
 }
+
+/* ChatGPT/Claude-style search line: no card, one muted line with stacked site
+   icons and a shimmer while working; details open underneath on demand. */
+.web-investigation {
+  border: 0;
+  background: none;
+  padding: 0;
+  margin: 0 0 14px;
+  font-size: 13px;
+}
+.web-investigation-heading {
+  display: inline-flex;
+  width: auto;
+  max-width: 100%;
+  gap: 8px;
+  padding: 4px 6px 4px 0;
+  border-radius: 8px;
+  color: var(--muted);
+}
+.web-investigation-heading:hover { color: var(--text); }
+.web-investigation-heading > svg { flex-shrink: 0; color: currentColor; transform: rotate(-90deg); transition: transform 160ms ease; }
+.web-investigation-heading > svg.rotated { transform: rotate(0deg); }
+.web-investigation-line {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 13px;
+  font-weight: 500;
+}
+.web-investigation .web-research-mark { width: 22px; height: 22px; border-radius: 50%; }
+.web-site-stack { display: inline-flex; flex-shrink: 0; }
+.web-site-stack > span {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-left: -7px;
+  border-radius: 50%;
+  border: 2px solid var(--bg);
+  background: var(--panel);
+  animation: creation-reveal 0.25s ease-out;
+}
+.web-site-stack > span:first-child { margin-left: 0; }
+.shimmer-text {
+  color: transparent;
+  background: linear-gradient(90deg, var(--muted) 35%, var(--text) 50%, var(--muted) 65%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: work-shine 1.6s linear infinite;
+}
+.web-investigation.expanded > :not(.web-investigation-heading) {
+  margin-left: 10px;
+  padding-left: 16px;
+  border-left: 2px solid var(--border);
+}
+.web-research-summary { padding-top: 8px; }
+.web-research-summary small { margin: 0; }
+.web-research-sites { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 2px; padding: 0; list-style: none; }
+.web-research-sites li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--muted);
+  opacity: 0.7;
+}
+.web-research-sites li.read { opacity: 1; color: var(--text); }
+.web-research-stages { border-top: 0; margin-top: 10px; padding-top: 0; }
+.site-icon { flex: 0 0 auto; border-radius: 3px; object-fit: contain; }
+@media (prefers-reduced-motion: reduce) {
+  .shimmer-text { animation: none; color: var(--muted); }
+}
+/* One continuous guide line beside the expanded details. */
+.web-investigation.expanded > :not(.web-investigation-heading) { margin-top: 0; margin-bottom: 0; padding-top: 10px; }
+.web-investigation.expanded > :last-child { padding-bottom: 6px; }
