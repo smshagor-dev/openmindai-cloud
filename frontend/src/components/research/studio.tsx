@@ -553,7 +553,9 @@ export default function ResearchStudio() {
     data?.run?.plan?.output_language,
   );
   const label = (status: string) =>
-    statusLabels[languageCode(lang)]?.[status] || status;
+    statusLabels[languageCode(lang)]?.[status] ||
+    // No translation (e.g. English/auto): "awaiting_approval" → "Awaiting approval".
+    status.charAt(0).toUpperCase() + status.slice(1).replaceAll("_", " ");
   const fileInput = (kind: string, accept: string) => (
     <label className="rs-file">
       Upload {kind}
@@ -808,53 +810,51 @@ export default function ResearchStudio() {
         ) : (
           <>
             <div className="rs-project-header">
-              <h1 dir="auto">{p.title}</h1>
+              <h1 dir="auto" title={p.title}>{p.title}</h1>
               <p className="rs-project-meta">
                 Progress language: {lang} · Manuscript: {manuscriptLanguage} ·
                 Role: {p.role}
               </p>
-              <span className="rs-status">{label(p.status)}</span>
+              <span className={`rs-status rs-status-${p.status}`}>{label(p.status)}</span>
               <div className="rs-progress-row">
+                {/* Only the actions that apply to the current run are shown. */}
                 <div className="rs-actions">
-                  <button
-                    disabled={
-                      !editable ||
-                      busy ||
-                      ["running", "paused"].includes(data.run?.status)
-                    }
-                    onClick={() =>
-                      void act(
-                        () => api(`projects/${id}/runs`, "POST", {}),
-                        "Research queued",
-                      )
-                    }
-                  >
-                    Start research
-                  </button>
-                  {["pause", "resume", "cancel"].map((action) => (
+                  {!["running", "paused"].includes(data.run?.status) && (
                     <button
-                      key={action}
-                      disabled={
-                        !editable ||
-                        busy ||
-                        !data.run ||
-                        (action === "resume"
-                          ? !["paused", "failed", "cancelled"].includes(
-                              data.run.status,
-                            )
-                          : data.run.status !== "running")
-                      }
+                      className="rs-action-primary"
+                      disabled={!editable || busy}
                       onClick={() =>
                         void act(
-                          () =>
-                            api(`projects/${id}/control`, "POST", { action }),
-                          action + " requested",
+                          () => api(`projects/${id}/runs`, "POST", {}),
+                          "Research queued",
                         )
                       }
                     >
-                      {action}
+                      Start research
                     </button>
-                  ))}
+                  )}
+                  {["pause", "resume", "cancel"]
+                    .filter((action) =>
+                      data.run &&
+                      (action === "resume"
+                        ? ["paused", "failed", "cancelled"].includes(data.run.status)
+                        : data.run.status === "running"),
+                    )
+                    .map((action) => (
+                      <button
+                        key={action}
+                        disabled={!editable || busy}
+                        onClick={() =>
+                          void act(
+                            () =>
+                              api(`projects/${id}/control`, "POST", { action }),
+                            action + " requested",
+                          )
+                        }
+                      >
+                        {action.charAt(0).toUpperCase() + action.slice(1)}
+                      </button>
+                    ))}
                 </div>
               </div>
             </div>

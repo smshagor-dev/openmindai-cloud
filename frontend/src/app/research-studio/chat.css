@@ -893,3 +893,44 @@
   display: flex;
   flex-direction: column;
 }
+
+/* Project header: two-line title, status pill and only the applicable run
+   actions as real buttons; compact on phones so the conversation keeps room. */
+.rs-chat .rs-project-header h1 {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  max-width: min(640px, 100%);
+  line-height: 1.35;
+}
+.rs-chat .rs-project-header .rs-status {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--ui-hover, #2f2f2f);
+  color: var(--text);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.rs-chat .rs-status-running { background: color-mix(in srgb, #3b82f6 22%, transparent); }
+.rs-chat .rs-status-completed { background: color-mix(in srgb, #22c55e 22%, transparent); }
+.rs-chat :is(.rs-status-failed, .rs-status-cancelled) { background: color-mix(in srgb, #ef4444 22%, transparent); }
+.rs-chat .rs-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.rs-chat .rs-actions button {
+  padding: 6px 14px;
+  border: 1px solid var(--border, #444);
+  border-radius: 999px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+}
+.rs-chat .rs-actions button:hover:not(:disabled) { background: var(--ui-hover, #2f2f2f); }
+.rs-chat .rs-actions .rs-action-primary { background: var(--text); color: var(--bg); border-color: var(--text); }
+.rs-chat .rs-actions .rs-action-primary:hover:not(:disabled) { background: var(--text); opacity: 0.88; }
+@media (max-width: 760px) {
+  .rs-chat .rs-project-header { padding: 10px 14px; gap: 8px; min-height: 0; }
+  .rs-chat .rs-project-header h1 { font-size: 14px; flex: 1 1 100%; }
+  .rs-chat .rs-project-meta { display: none; }
+  .rs-chat .rs-progress-row { margin-left: auto; }
+}

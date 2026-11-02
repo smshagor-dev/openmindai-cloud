@@ -624,3 +624,8 @@ Verified with a temporary preview page (removed): 1280px dark and 390px light co
 Tables inherited `overflow-wrap: anywhere` from answer text, so on PC wide tables were squeezed into the reading column and words split mid-word ("MacBoo|k", "Ryze|n"). Table cells now keep words whole with sensible minimum widths (text 7em, right-aligned numbers unwrapped, max 40em), use tabular digits and a subtle row hover; wide tables scroll inside their rounded frame with the first column pinned and divided, plus a right-edge shadow while more columns are hidden.
 
 Verified with a temporary preview page (removed) at 1024/1366/1920px and 390px, dark and light: no page overflow, 10-column table scrolls (750/866px) with the first column pinned when scrolled. Frontend typecheck passed; integration suite 259/262 (same three environmental failures). Not deployed.
+
+
+### Research Studio responsive check and project header — 2026-11-03
+
+Audited the list and Chat, Overview, Live agents, Literature, Manuscript, Export and Settings views at 360, 768, 1366 and 1920px with a real signed-in account (local frontend against the live API): no horizontal page overflow at any width. The project header was the visible problem: long titles filled 4–5 lines (about 300px on a 360px phone), the status showed raw `awaiting_approval`, and pause/resume/cancel were faint lowercase text. The title is now clamped to two lines (full title on hover), status falls back to a readable label in a pill, only the run actions that apply are shown as buttons (primary Start research), and the meta line is hidden on phones. Measured header height: 111px at 360px, 110px at 1366px. Frontend typecheck passed; integration suite 259/262 (same three environmental failures). Not deployed.
