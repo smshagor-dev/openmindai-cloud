@@ -8,6 +8,7 @@ import { hostedMediaRequest } from "./hosted-media.ts";
 import { generationIntent, generationNeedsContext, researchIntent } from "./prompt-router.ts";
 import { parseInlineImage, imageMessage } from "./vision-input.ts";
 import {imageSearchContext} from './image-search-context.ts';
+import {repairWebNumbers} from './web-answer-repair.ts';
 import {
   ResearchToolUnavailableError,
   plannerInstruction,
@@ -870,6 +871,13 @@ export async function nvidiaChat(
             );
           }
           checkpoint = { ...checkpoint, stage: "writing", finished: !continueAnswer };
+          await saveCheckpoint();
+        }
+        if(nativeBlueprint && groundResearchAnswer(content,lease.sources).audit.some(a=>a.status==='numeric_mismatch')) {
+          activity('verifying','running','Correcting numerical claims against inspected source passages');
+          content=await repairWebNumbers({text:content,sources:lease.sources,messages:generationMessages,imageObservation:checkpoint.imageObservation,
+            model:activeModel,apiKey:config.apiKey,fetcher,signal:AbortSignal.any([upstreamAbort.signal,AbortSignal.timeout(90000)])});
+          emit('answer',{content});
           await saveCheckpoint();
         }
       } catch (e) {
