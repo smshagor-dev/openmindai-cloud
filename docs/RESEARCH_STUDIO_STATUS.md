@@ -472,3 +472,10 @@ Focused recovery, upgrade and Research suite: 47 passed / 329 assertions. Real l
 ### Live recovery advanced; final responsive test alignment
 
 The real Editor advanced from three to four saved sections with errors reset to zero after the catalog/candidate repair. Accepted content and all validation remain intact; remaining sections are still processing. The combined local 3D acceptance suite passed all 23 tests in 58.8 seconds. Research browser acceptance passed all four tests in 28.7 seconds. Updated responsive acceptance selectors to the same current shared sidebar and composer controls, and scope the initial heading to visible accessible headings (the assets panel also contains an intentionally hidden heading). No viewport, overflow, screenshot or touch-navigation assertion was removed.
+
+
+### 2026-11-02 Quality recovery (verification pending)
+
+Live run 12 has completed Editor, Manuscript and Citations. Quality task 216 failed three times before reaching NVIDIA: its unescaped evidence JSON alone is 682,214 characters against the 300,000-character per-request context guard. The saved document is still the empty 47-character document, while the manuscript remains an unapplied proposal. Token budget is disabled (0); this failure is not NVIDIA RPM or a provider connection refusal.
+
+Quality now returns an actionable failed review for an empty saved document without calling a model. It preserves the manuscript proposal and never auto-applies it. For saved manuscripts, complete document records and evidence text are reviewed in bounded batches with persisted checkpoints; negative findings survive aggregation and retries. Input fingerprint changes invalidate old review progress. Context guard failures retain their specific task error rather than being wrapped as generic provider failures. Regression tests cover empty documents and a 750k-character evidence record, including complete text coverage and retained rejection. Verification and live recovery remain pending.

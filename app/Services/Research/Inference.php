@@ -45,6 +45,9 @@ class Inference
                 } catch (StaleExecution $e) {
                     throw $e;
                 } catch (HttpExceptionInterface $e) {
+                    if ($e->getMessage() === 'Research context requires additional chunking.') {
+                        throw $e;
+                    }
                     if ($e->getStatusCode() === 429 && $e->getMessage() !== 'Research token reservation limit reached.') {
                         throw $e;
                     }

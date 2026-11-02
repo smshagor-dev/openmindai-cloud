@@ -295,7 +295,7 @@ for (const [width, height] of sizes) {
       if (route === "/3d-studio") {
         await openSidebar(page);
         await page.locator(".sidebar").getByRole("button", { name: long, exact: true }).click();
-        if (width <= 760) await page.getByRole("button", { name: "Close sidebar", exact: true }).click({ position: { x: width - 8, y: 80 } });
+        if (width <= 760) await page.getByRole("button", { name: "Close sidebar", exact: true }).click({ position: { x: width - 8, y: 5 } });
         await expect(
           page.getByRole("heading", { name: long, exact: true }),
         ).toBeVisible();
