@@ -367,13 +367,16 @@ class ResearchStudioTest extends TestCase
     {
         Queue::fake();
         $p = $this->project();
-        $source = Source::create(['project_id' => $p->id, 'fingerprint' => 'quality-fixture', 'title' => 'Quality fixture']);
+        $source = Source::create(['project_id' => $p->id, 'fingerprint' => 'quality-fixture', 'title' => 'Quality fixture', 'authors' => []]);
         $evidence = Evidence::create(['project_id' => $p->id, 'source_id' => $source->id, 'claim' => 'Fixture claim', 'quote' => str_repeat('Evidence text. ', 50000), 'status' => 'unreviewed']);
         app(Documents::class)->save($p, $p->owner_id, ['type' => 'doc', 'content' => [['type' => 'paragraph', 'content' => [['type' => 'text', 'text' => str_repeat('A saved manuscript sentence. ', 10)]]]]], 1);
         $calls = 0;
         $quotes = '';
         $this->mock(Inference::class)->shouldReceive('json')->andReturnUsing(function ($ctx, $instruction, $input) use (&$calls, &$quotes, $evidence) {
             $calls++;
+            if ($calls === 2) {
+                throw new \RuntimeException('Synthetic transient provider failure');
+            }
             $this->assertLessThan(300000, mb_strlen(json_encode($input, JSON_UNESCAPED_UNICODE)));
             foreach ($input['evidence'] as $record) {
                 $this->assertSame($evidence->id, $record['id']);
@@ -389,7 +392,7 @@ class ResearchStudioTest extends TestCase
         $task = Task::where('run_id', $run->id)->firstOrFail();
         $this->assertGreaterThan(1, $calls);
         $this->assertSame($evidence->quote, $quotes);
-        $this->assertSame($calls, $task->checkpoint['next']);
+        $this->assertSame($calls - 1, $task->checkpoint['next']);
         $this->assertFalse($task->output['passed']);
         $this->assertCount(1, $task->output['issues']);
     }
