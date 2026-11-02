@@ -497,3 +497,14 @@ NVIDIA integration checkpoint: added a private Python runner for the pinned offi
 ### Hosting runtime installed; release verification in progress
 
 Latest remote checkpoint eac87c9 passed all nine push workflows, including full backend/frontend validation and Research Studio backend, MySQL, browser and isolated worker jobs. The hosting installation completed successfully using serial builds: the pinned upstream runtime occupies 1.3 GB. Its actual installed Python 3.11 runtime passed runner.py --check, confirming commit a6d9efdec69a3052e1ee7f15a45d25711ac05d2a and disabled host sandbox execution. Fixed the installer fresh-clone path to create a checked-out worktree before its dirty-tree guard. Real-provider research, five automatic production formats, push and live deployment checks remain pending.
+
+
+### Live backend delivery acceptance and NVIDIA diagnosis
+
+Backend checkpoint bc38151 was fast-forwarded under all three queue lane locks after an 18-table private compressed research backup (1,182,750 bytes, gzip validated); no active run existed. Composer production dependencies and the delivery/push migration completed. VAPID keys were initialized privately and the two runtime paths configured. A comparison confirmed every unrelated environment line and existing hosting/seeder file preserved.
+
+Completed run 12/project 8 produced immutable draft delivery 1 from the unapplied manuscript proposal: DOCX 25,353 bytes, PDF 103,295, LaTeX ZIP 19,166, BibTeX 21,096 and Markdown 64,071. All five completed through the real isolated export worker; server checksum/byte counts, OOXML archive, PDF signature, LaTeX entry and text presence validated. This is draft output, not an approved saved manuscript. Browser downloads and device push still need live checks.
+
+A separate owner-scoped acceptance project 9/run 13 uses the real enabled/verified Ultra 550B. Native inference reached upstream writer enforcement but no source bridge call occurred and no report was committed. The test run was fenced for diagnosis; completed user research was untouched. Native exception class and basename/line diagnostics exclude credentials, raw messages and source text. Explicit source tool bindings are present; initialize NAT's lazy data-source registry before constructing the agent so tool/source mappings exist. Real-provider success is still pending. Added safe inference status/count metrics without recording prompts or outputs.
+
+Exact-code eac87c9 CI includes 21 web browser tests with PWA private-cache/offline and SEO checks, 23 3D browser tests, and Research backend/MySQL/browser/worker checks. The later diagnostic checkpoint passed 436 backend tests / 2,842 assertions but failed import style; that import is corrected and local Pint passes. Nine focused Blueprint/delivery tests pass (50 assertions). PR #84 remains draft pending real-provider completion and final release checks; frontend production remains at 13a2ac2.

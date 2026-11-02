@@ -71,6 +71,8 @@ async def run(payload: dict) -> dict:
     register_bridge()
     config = load_config(Path(__file__).with_name("config.yml"))
     async with WorkflowBuilder.from_config(config=config) as builder:
+        # NAT functions are lazy: initialize source-to-tool mappings before the agent.
+        await builder.get_function("data_sources")
         agent = await builder.get_function("deep_research_agent")
         state = await agent.ainvoke(DeepResearchAgentState(messages=[HumanMessage(content=payload["input"])]))
         message = state.messages[-1]

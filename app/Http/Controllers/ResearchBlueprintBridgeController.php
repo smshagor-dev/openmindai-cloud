@@ -11,6 +11,7 @@ use App\Services\Research\Context;
 use App\Services\Research\Scholarly;
 use App\Services\WebReader;
 use App\Services\WebSearch;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -60,9 +61,16 @@ class ResearchBlueprintBridgeController
         $r->setUserResolver(fn () => $user);
         $r->attributes->set('blueprint_context', true);
         $r->attributes->set('research_literature_json', true);
-        $ctx->event('blueprint.inference', ['model' => $model->slug, 'status' => 'running']);
+        $ctx->event('blueprint.inference', ['model' => $model->slug, 'status' => 'running', 'stream' => (bool) ($data['stream'] ?? false), 'tool_count' => count($data['tools'] ?? [])]);
 
-        return app(OpenMindAiGatewayController::class)->mobileChat($r, $agents, $credits);
+        $response = app(OpenMindAiGatewayController::class)->mobileChat($r, $agents, $credits);
+        if ($response instanceof JsonResponse) {
+            $body = $response->getData(true);
+            $choice = $body['choices'][0] ?? [];
+            $ctx->event('blueprint.inference.completed', ['status_code' => $response->getStatusCode(), 'finish_reason' => $choice['finish_reason'] ?? null, 'tool_count' => count($choice['message']['tool_calls'] ?? []), 'content_characters' => is_string($choice['message']['content'] ?? null) ? mb_strlen($choice['message']['content']) : 0]);
+        }
+
+        return $response;
     }
 
     public function sources(Request $request, WebSearch $search, WebReader $reader)
