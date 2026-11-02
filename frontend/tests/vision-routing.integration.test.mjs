@@ -149,6 +149,7 @@ test("image web search reads pixels before starting the real-runtime bridge, wit
   const response=await nvidiaChat(JSON.stringify({message:'Search official specifications of this board',model_id:-4,image,web_search:true}),'session','https://backend',new AbortController().signal,{fetcher,config:cfg});
   const output=await response.text();
   assert.match(output,/Raspberry Pi 5/); assert.match(output,/"saved":true/);
+  assert.equal((output.match(/event: meta\n/g)||[]).length,1);
   const visionIndex=calls.findIndex(c=>c.url.includes('nvidia.com'));
   const searchIndex=calls.findIndex(c=>c.url.endsWith('/blueprint'));
   assert.ok(visionIndex>=0 && searchIndex>visionIndex);

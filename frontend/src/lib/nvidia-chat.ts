@@ -407,7 +407,7 @@ export async function nvidiaChat(
           sources: lease.sources,
           provider: "nvidia",
           content,
-          resumable: Boolean(lease.message_id) && (!inlineImage || Boolean(checkpoint.imageObservation)) && (!conversationTools || deep || nativeBlueprint),
+          resumable: Boolean(lease.message_id) && (!inlineImage || nativeBlueprint || Boolean(checkpoint.imageObservation)) && (!conversationTools || deep || nativeBlueprint),
         });
         if (cancelled) throw new Error("Cancelled");
         // Mark image turns non-resumable before inference so a failed request
@@ -451,7 +451,6 @@ export async function nvidiaChat(
           checkpoint.nativeBlueprint = nativeBlueprint;
           await saveCheckpoint();
           activity('analyzing','completed','Image observations extracted; verifying them against web sources');
-          emit('meta',{conversation_id:lease.conversation_id,user_message_id:lease.user_message_id,message_id:lease.message_id,sources:lease.sources,resumable:nativeBlueprint});
         }
         if (nativeBlueprint && !checkpoint.finished) {
           checkpoint.nativeBlueprint = true;
