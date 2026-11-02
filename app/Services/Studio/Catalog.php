@@ -15,6 +15,9 @@ class Catalog
         foreach (['procedural' => 'Procedural 3D', 'architecture' => '3D Architecture'] as $id => $name) {
             $builtins[] = ['id' => $id, 'name' => $name, 'kind' => 'scene', 'input' => 'text', 'output' => 'scene', 'available' => $reasoning, 'reason' => $reasoning ? null : 'scene_model_required'];
         }
+        // Hosted image-to-3D: NVIDIA runs the GPU work, so no Studio worker is needed.
+        $hosted = app(ImageToMesh::class)->available();
+        $builtins[] = ['id' => 'nvidia-trellis', 'name' => 'Image to 3D (NVIDIA TRELLIS)', 'kind' => 'model', 'input' => 'image', 'output' => 'hosted_mesh', 'available' => $hosted, 'reason' => $hosted ? null : 'nvidia_key_required'];
         foreach ($catalog['engines'] as &$engine) {
             $runtime = collect($health['engines'] ?? [])->firstWhere('id', $engine['id']);
             // Catalog presence is not installation evidence. A matching immutable

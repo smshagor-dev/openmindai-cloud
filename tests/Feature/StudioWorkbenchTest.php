@@ -46,7 +46,8 @@ class StudioWorkbenchTest extends TestCase
         $this->actor();
         Http::fake(['worker.example/health' => Http::response($this->health())]);
         $data = $this->getJson('/api/v1/3d-studio/engines')->assertOk()->json('data');
-        $this->assertCount(5, array_filter($data, fn ($e) => $e['kind'] === 'model'));
+        // Five GPU worker engines plus the NVIDIA-hosted image-to-3D engine (no key here).
+        $this->assertCount(5, array_filter($data, fn ($e) => $e['kind'] === 'model' && $e['id'] !== 'nvidia-trellis'));
         $this->assertCount(0, array_filter($data, fn ($e) => $e['kind'] === 'model' && $e['available']));
         Http::assertSent(function ($request) {
             $time = $request->header('X-Studio-Time')[0];

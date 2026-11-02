@@ -5,13 +5,16 @@ namespace App\Http\Controllers;
 use App\Jobs\ExecuteStudioJob;
 use App\Jobs\ExecuteStudioWorkflow;
 use App\Models\StudioJob;
+use App\Services\ApiCreditUsage;
 use App\Services\Studio\Assets;
 use App\Services\Studio\Catalog;
 use App\Services\Studio\DirectScenes;
+use App\Services\Studio\ImageToMesh;
 use App\Services\Studio\Jobs;
 use App\Services\Studio\Router;
 use App\Services\Studio\Workflow;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
@@ -68,6 +71,42 @@ class StudioWorkbenchController
                 Storage::disk('local')->delete($sourcePath);
             }
             throw $error;
+        }
+    }
+
+    /** Uploaded reference image → GLB mesh on NVIDIA's hosted TRELLIS, saved as a private asset. */
+    public function imageModel(Request $r, Assets $assets, ImageToMesh $engine, ApiCreditUsage $credits)
+    {
+        $data = $r->validate(['upload_id' => 'required|integer', 'request_key' => 'required|string|regex:/^[a-zA-Z0-9:_-]{1,80}$/', 'project_id' => 'nullable|integer']);
+        $user = $r->user()->id;
+        $public = fn (object $row) => response()->json(['asset' => collect((array) $row)->only(['id', 'project_id', 'parent_id', 'name', 'kind', 'format', 'bytes', 'sha256', 'metadata', 'created_at'])], 201)->header('Cache-Control', 'no-store');
+        $replay = fn () => DB::table('studio_assets')->where('user_id', $user)->whereNull('deleted_at')->where('metadata->request_key', $data['request_key'])->first();
+        // A retried request returns the saved model instead of a second billed call.
+        if ($existing = $replay()) {
+            return $public($existing);
+        }
+        $upload = DB::table('studio_uploads')->where('user_id', $user)->find($data['upload_id']);
+        abort_unless($upload, 404, 'Reference not found.');
+        abort_unless($upload->image_preview, 422, 'Select an image reference for image to 3D.');
+        abort_unless($engine->available(), 503, 'Image to 3D needs NVIDIA_API_KEY on the server.');
+        $lock = Cache::lock('3d-studio:'.$user, 300);
+        abort_unless($lock->get(), 409, 'A 3D generation is already running.');
+        try {
+            if ($existing = $replay()) {
+                return $public($existing);
+            }
+            try {
+                $result = $engine->generate($upload->image_preview);
+            } catch (\RuntimeException $error) {
+                abort(502, $error->getMessage());
+            }
+            $name = (pathinfo($upload->name, PATHINFO_FILENAME) ?: 'model').'.glb';
+            $id = $assets->store($user, $name, 'glb', $result['glb'], ['source' => 'nvidia-trellis', 'model' => $result['model'], 'upload_id' => $upload->id, 'request_key' => $data['request_key']], project: $data['project_id'] ?? null, kind: 'mesh', maxBytes: (int) config('studio.image_model.max_bytes'));
+            $credits->completed($user, $credits->connection('nvidia', $result['model'], 'model3d'), 'studio-asset:'.$id);
+
+            return $public(DB::table('studio_assets')->find($id));
+        } finally {
+            $lock->release();
         }
     }
 

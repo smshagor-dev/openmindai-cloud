@@ -97,6 +97,7 @@ Route::prefix('v1')->middleware('verified-mobile-ip')->group(function () {
         Route::prefix('3d-studio')->controller(StudioWorkbenchController::class)->group(function () {
             Route::post('workflows/run', 'runWorkflow');
             Route::post('jobs/scene', 'sceneJob');
+            Route::post('jobs/image-model', 'imageModel')->middleware('throttle:chat');
             Route::get('engines', 'catalog');
             Route::post('route', 'route');
             Route::get('assets', 'assets');

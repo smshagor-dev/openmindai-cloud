@@ -304,7 +304,8 @@ async function proxy(
         endpoint === "guest/chat" ||
         endpoint === "3d-scenes" ||
         /^3d-scenes\/\d+\/edit$/.test(endpoint) ||
-        endpoint === "3d-studio/jobs/scene"
+        endpoint === "3d-studio/jobs/scene" ||
+        endpoint === "3d-studio/jobs/image-model"
           ? request.signal
           : AbortSignal.timeout(30_000),
     });

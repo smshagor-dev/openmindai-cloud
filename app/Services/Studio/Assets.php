@@ -24,9 +24,9 @@ class Assets
         return $bytes;
     }
 
-    public function store(int $user, string $name, string $format, string $bytes, array $metadata = [], ?int $parent = null, ?int $project = null, string $kind = 'mesh', ?string $job = null): int
+    public function store(int $user, string $name, string $format, string $bytes, array $metadata = [], ?int $parent = null, ?int $project = null, string $kind = 'mesh', ?string $job = null, ?int $maxBytes = null): int
     {
-        abort_unless(in_array($format, ['glb', 'gltf', 'obj', 'stl', 'ply', 'json', 'png'], true) && strlen($bytes) > 0 && strlen($bytes) <= config('studio.artifact_bytes'), 422, 'Invalid or oversized artifact.');
+        abort_unless(in_array($format, ['glb', 'gltf', 'obj', 'stl', 'ply', 'json', 'png'], true) && strlen($bytes) > 0 && strlen($bytes) <= ($maxBytes ?? config('studio.artifact_bytes')), 422, 'Invalid or oversized artifact.');
         $name = basename(str_replace('\\', '/', $name));
         abort_if(mb_strlen($name) > 160 || preg_match('/[\x00-\x1f\x7f]/', $name), 422, 'Invalid asset name.');
         if ($parent) {
