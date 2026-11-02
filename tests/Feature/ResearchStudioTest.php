@@ -367,7 +367,7 @@ class ResearchStudioTest extends TestCase
     {
         Queue::fake();
         $p = $this->project();
-        $source = Source::create(['project_id' => $p->id, 'fingerprint' => 'quality-fixture', 'title' => 'Quality fixture', 'authors' => []]);
+        $source = Source::create(['project_id' => $p->id, 'fingerprint' => 'quality-fixture', 'title' => 'Quality fixture', 'authors' => [], 'metadata' => []]);
         $evidence = Evidence::create(['project_id' => $p->id, 'source_id' => $source->id, 'claim' => 'Fixture claim', 'quote' => str_repeat('Evidence text. ', 50000), 'status' => 'unreviewed']);
         app(Documents::class)->save($p, $p->owner_id, ['type' => 'doc', 'content' => [['type' => 'paragraph', 'content' => [['type' => 'text', 'text' => str_repeat('A saved manuscript sentence. ', 10)]]]]], 1);
         $calls = 0;
