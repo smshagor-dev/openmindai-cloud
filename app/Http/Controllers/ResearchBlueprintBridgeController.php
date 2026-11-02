@@ -15,7 +15,10 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 use Laravel\Sanctum\PersonalAccessToken;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
 class ResearchBlueprintBridgeController
 {
@@ -63,7 +66,15 @@ class ResearchBlueprintBridgeController
         $r->attributes->set('research_literature_json', true);
         $ctx->event('blueprint.inference', ['model' => $model->slug, 'status' => 'running', 'stream' => (bool) ($data['stream'] ?? false), 'tool_count' => count($data['tools'] ?? [])]);
 
-        $response = app(OpenMindAiGatewayController::class)->mobileChat($r, $agents, $credits);
+        try {
+            $response = app(OpenMindAiGatewayController::class)->mobileChat($r, $agents, $credits);
+        } catch (ValidationException $error) {
+            Log::warning('research.blueprint.request_rejected', ['status' => 422, 'fields' => array_slice(array_keys($error->validator->failed()), 0, 32)]);
+            throw $error;
+        } catch (HttpExceptionInterface $error) {
+            Log::warning('research.blueprint.request_rejected', ['status' => $error->getStatusCode(), 'exception_class' => get_class($error)]);
+            throw $error;
+        }
         if ($response instanceof JsonResponse) {
             $body = $response->getData(true);
             $choice = $body['choices'][0] ?? [];
