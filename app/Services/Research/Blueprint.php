@@ -5,6 +5,7 @@ namespace App\Services\Research;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Symfony\Component\Process\Process;
 
@@ -36,7 +37,7 @@ class Blueprint
         }
         if (! $process->isSuccessful() || ! is_array($last) || isset($last['error_code'])) {
             $frames = collect($last['exception_frames'] ?? [])->take(8)->map(fn ($f) => ['file' => preg_replace('/[^a-zA-Z0-9_.-]/', '', basename((string) ($f['file'] ?? ''))), 'line' => (int) ($f['line'] ?? 0)])->all();
-            \Illuminate\Support\Facades\Log::warning('research.blueprint.runtime_failed', ['exception_class' => preg_replace('/[^a-zA-Z0-9_]/', '', (string) ($last['exception_class'] ?? 'Unknown')), 'frames' => $frames, 'exit_code' => $process->getExitCode()]);
+            Log::warning('research.blueprint.runtime_failed', ['exception_class' => preg_replace('/[^a-zA-Z0-9_]/', '', (string) ($last['exception_class'] ?? 'Unknown')), 'frames' => $frames, 'exit_code' => $process->getExitCode()]);
             throw new \RuntimeException('nvidia_blueprint_runtime_failed');
         }
 

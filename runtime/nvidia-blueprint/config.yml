@@ -33,6 +33,7 @@ functions:
     operation: read
   deep_research_agent:
     _type: deep_research_agent
+    tools: [web_search, paper_search, read_source]
     orchestrator_llm: research_llm
     researcher_llm: research_llm
     planner_llm: research_llm
