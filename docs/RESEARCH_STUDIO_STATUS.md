@@ -520,3 +520,10 @@ The signed-in production browser completed all five existing export download act
 ### Native gateway format rejection reproduced and repaired
 
 Live native callbacks are rejected with HTTP 422 inside the existing gateway, before a report/source retrieval completes. A regression using DeepAgents-style system/user text blocks reproduced the same 422 before the correction. The private Blueprint bridge now preserves and joins text blocks before entering the mobile gateway image validator, accepts only text plus optional cache hints, rejects images/unknown blocks, and retains the gateway's size and role checks. It does not expand ordinary mobile image input. Focused gateway/Blueprint tests now pass 16 tests / 90 assertions; the new regression failed before the change and passes afterward. Typed rejection reason codes exclude raw exception text and content. Real native execution must still pass before full release.
+
+
+### Real NVIDIA end-to-end workflow completed
+
+After text-block normalization, actual Ultra/NVIDIA Blueprint run 13/project 9 completed at 2026-11-02 07:35 UTC with 60 persisted project sources. All eight tasks completed: NVIDIA, verification, literature, manuscript, citations, quality, collaboration and integrity. These are actual provider results, not fixtures; saved manuscript/approval gates remain reviewable rather than auto-accepted. Automatic output bundle and frontend production checks are being finalized.
+
+Latest complete code passed backend/frontend and Research Studio CI. Responsive Chromium and Firefox passed; WebKit fixture-based tests encountered service-worker-owned API fetches bypassing page.route, yielding unauthenticated/malformed fixture responses. Following Playwright's documented routing guidance, disable service workers only in the mocked responsive/3D configs. Dedicated PWA lifecycle/offline/privacy tests continue with workers enabled. No responsive assertion was removed.
