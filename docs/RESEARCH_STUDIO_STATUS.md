@@ -641,3 +641,8 @@ Found and fixed: a manual export after completion was empty (81-byte Markdown) b
 ### Research Studio professional design pass — 2026-11-03
 
 Research tools in the sidebar have icons and compact rows; cards use tighter padding, 15px headings and muted 13px body text, and nested cards render as sections instead of boxes; buttons and file inputs inside cards/canvases share one control style; delivery and export downloads have download icons and consistent sizes; form labels are sentence case; the manuscript toolbar is borderless; the draft-ready banner keeps its button beside the text; the remaining "Download validated file" label for drafts is now "Download file (N KB)" (browser test updated). Checked at 1366px and 390px with the real account. Frontend typecheck passed; integration 259/262 (same environmental failures). Not deployed.
+
+
+### Chat image-generation progress animation — 2026-11-03
+
+The image creation card now has a shimmering "Creating image" title, a grainy canvas that develops top-down to the server-reported milestone with a glowing scan line at the edge (CSS transitions between milestones), a compact percentage chip and a "Step N of 3" caption. The percentage remains exactly the backend-reported workflow milestone (8/28/90/100); no time-based estimate was added, keeping the existing honesty test. The card follows light/dark theme. Checked stages and a live 28→90 transition at 1366px dark and 390px light. Frontend typecheck passed; integration 259/262 (same environmental failures). Not deployed.

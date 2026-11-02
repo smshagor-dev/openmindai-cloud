@@ -7,6 +7,7 @@ const imageStages: Record<string, string> = {
   finalizing: "Finalizing your image",
   complete: "Image ready",
 };
+const stageSteps: Record<string, number> = { queued: 1, preparing: 1, generating: 2, finalizing: 3, complete: 3 };
 
 export default function CreationProgress({
   kind,
@@ -45,16 +46,28 @@ export default function CreationProgress({
       : image && stage && imageStages[stage]
         ? imageStages[stage]
         : preparing ? `Preparing your ${name}` : `Creating your ${name}`;
+  const step = image && stage ? stageSteps[stage] : undefined;
 
   return (
-    <section className={`creation-progress ${video ? "creation-video" : ""}`}
+    <section className={`creation-progress ${video ? "creation-video" : ""} ${image ? "creation-image" : ""}`}
       aria-label={`Creating ${name}`}>
-      <div className="creation-canvas" aria-hidden="true">
-        <div className="creation-glow" />
-        <div className="creation-grid" />
-        <span className="creation-glyph">
-          {video ? "▷" : image ? "✧" : "✳"}
+      <div className="creation-head" aria-hidden="true">
+        <span className="creation-title shimmer-text">
+          {image ? "Creating image" : video ? "Creating video" : `Creating ${name}`}
         </span>
+      </div>
+      {/* The image "develops" from the top down to the reported milestone;
+          motion between milestones is visual only, never a new number. */}
+      <div className="creation-canvas" aria-hidden="true"
+        style={{ "--creation-progress": `${percent ?? 0}%` } as React.CSSProperties}>
+        <div className="creation-glow" />
+        <div className="creation-grain" />
+        {percent !== null && <div className="creation-develop" />}
+        {percent !== null && <div className="creation-scan" />}
+        <div className="creation-grid" />
+        {percent === null && (
+          <span className="creation-glyph">{video ? "▷" : image ? "✧" : "✳"}</span>
+        )}
         {percent !== null && (
           <span className="creation-canvas-percent">{percent}%</span>
         )}
@@ -73,7 +86,7 @@ export default function CreationProgress({
           </span>
         )}
         <span>{accepted
-          ? `Task #${taskId} accepted · Status: ${status || "checking"}`
+          ? `${step ? `Step ${step} of 3 · ` : ""}Task #${taskId} · ${status || "checking"}`
           : image ? "Waiting for the server to accept your request." : "You can stay here while it takes shape."}</span>
       </div>
     </section>

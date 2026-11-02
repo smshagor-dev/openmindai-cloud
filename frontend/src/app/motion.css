@@ -355,3 +355,52 @@
 @media (prefers-reduced-motion: reduce) { .conversation-skeleton, .skeleton-avatar, .skeleton-bubble, .skeleton-lines i { animation: none; } }
 
 .pwa-actions {position:fixed;bottom:14px;right:14px;z-index:90;display:flex;gap:8px;max-width:calc(100vw - 28px);flex-wrap:wrap}.pwa-actions button{padding:10px 16px;border-radius:22px;background:#353535;color:#fff;border:1px solid #666;font:inherit;cursor:pointer}
+
+/* ChatGPT-style image creation: shimmering title, grainy canvas that develops
+   top-down to the server-reported milestone, glowing scan line at the edge. */
+.creation-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px 10px; }
+.creation-title { font-size: 14px; font-weight: 600; letter-spacing: -0.1px; }
+.creation-progress { border-radius: 20px; }
+.creation-image .creation-canvas { aspect-ratio: 1; margin: 0 12px; border-radius: 16px; }
+.creation-grain {
+  position: absolute; inset: 0; z-index: 1; opacity: 0.22; mix-blend-mode: overlay; pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  animation: creation-grain 0.9s steps(3) infinite;
+}
+/* Developed region: a sharper, richer version of the glow above the edge. */
+.creation-develop {
+  position: absolute; inset: 0; z-index: 0;
+  background:
+    radial-gradient(circle at 30% 25%, #8b7cf6aa, transparent 55%),
+    radial-gradient(circle at 75% 60%, #38bdf888, transparent 55%),
+    radial-gradient(circle at 45% 85%, #f472b677, transparent 50%),
+    linear-gradient(160deg, #2e2a4f, #1b2b3a);
+  filter: blur(6px) saturate(1.2);
+  clip-path: inset(0 0 calc(100% - var(--creation-progress, 0%)) 0);
+  transition: clip-path 1.4s cubic-bezier(0.22, 1, 0.36, 1);
+  animation: creation-drift 14s ease-in-out infinite alternate;
+}
+.creation-scan {
+  position: absolute; left: 0; right: 0; z-index: 2; height: 44px;
+  top: calc(var(--creation-progress, 0%) - 22px);
+  background: linear-gradient(to bottom, transparent, #ffffff30 45%, #ffffffb0 50%, #ffffff30 55%, transparent);
+  filter: blur(1px);
+  transition: top 1.4s cubic-bezier(0.22, 1, 0.36, 1);
+  animation: creation-scan-pulse 1.8s ease-in-out infinite;
+}
+.creation-image .creation-canvas-percent {
+  top: auto; bottom: 14px; left: 14px; right: auto; padding: 5px 11px; align-items: center;
+  border-radius: 999px; background: #0000006b; backdrop-filter: blur(8px);
+  font-size: 15px; font-weight: 600; letter-spacing: 0; text-shadow: none;
+}
+.creation-image .creation-caption { padding: 12px 18px 16px; }
+@keyframes creation-grain { 33% { transform: translate(-2%, 1%); } 66% { transform: translate(1%, -2%); } }
+@keyframes creation-scan-pulse { 50% { opacity: 0.55; } }
+@media (prefers-reduced-motion: reduce) {
+  .creation-grain, .creation-develop, .creation-scan { animation: none; transition: none; }
+}
+/* Keep the developing edge straight: shift colours instead of rotating the layer. */
+.creation-develop { background-size: 180% 180%; animation: creation-develop-shift 9s ease-in-out infinite alternate; }
+@keyframes creation-develop-shift { from { background-position: 0% 0%; } to { background-position: 100% 60%; } }
+/* Card follows the light/dark theme; only the artwork canvas stays dark. */
+.creation-progress { background: var(--sidebar, var(--panel, #202123)); border-color: var(--border, #3b3b3b); color: var(--text); }
