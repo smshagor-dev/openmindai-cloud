@@ -63,20 +63,26 @@ class AuthController
         ]);
         $u = User::where('email', $d['email'])->first();
         abort_unless($u && Hash::check($d['password'], $u->password), 422, 'Invalid credentials.');
+
+        return $this->signIn($r, $u, $d['device_name'], $d['code'] ?? '', $two, $login);
+    }
+
+    public function signIn(Request $r, User $u, string $device, string $code, TwoFactor $two, UnfamiliarLogin $login)
+    {
         abort_unless($u->is_active, 403, 'Account disabled.');
         abort_unless($u->email_verified_at, 403, 'Verify your email first.');
 
         if ($u->two_factor_confirmed_at) {
-            abort_unless($two->verify($u, $d['code'] ?? ''), 422, 'A valid two-factor or recovery code is required.');
+            abort_unless($two->verify($u, $code), 422, 'A valid two-factor or recovery code is required.');
         }
         abort_if($u->tokens()->where('name', 'not like', 'developer:%')->count() >= 10, 422, 'Revoke an existing device first.');
 
-        $challenge = $login->challenge($u, $r, $d['device_name']);
+        $challenge = $login->challenge($u, $r, $device);
         if ($challenge) {
             return response()->json($challenge, 202);
         }
 
-        $token = $u->createToken($d['device_name'], ['user'], now()->addDays(30))->plainTextToken;
+        $token = $u->createToken($device, ['user'], now()->addDays(30))->plainTextToken;
         if (app(AdminSettings::class)->enabled('unusual_ip_verification_enabled')) {
             $login->trust($u, (string) $r->ip());
         }

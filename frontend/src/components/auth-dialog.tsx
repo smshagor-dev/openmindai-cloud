@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import PasswordInput from "./password-input";
 import { ArrowRight, LoaderCircle, Mail, ShieldCheck } from "lucide-react";
 import Dialog from "./dialog";
+import SocialProviderButtons from "./social-provider-buttons";
 import OtpCodeInput from "./otp-code-input";
 import { api, type User } from "@/lib/api";
 type Mode = "login" | "register" | "forgot" | "verify-email" | "reset";
@@ -14,14 +15,16 @@ export default function AuthDialog({
   onLogin: (user: User) => void;
 }) {
   const [mode, setMode] = useState<Mode>("login");
+  const [socialProviders, setSocialProviders] = useState<string[]>([]);
   const [registrationEnabled, setRegistrationEnabled] = useState(true);
   const [registrationEmailVerification, setRegistrationEmailVerification] = useState(false);
   const [ipChallengeId, setIpChallengeId] = useState<string | null>(null);
   useEffect(() => {
     let active = true;
-    api<{ registration_enabled: boolean; registration_email_verification_enabled: boolean }>("public-config")
+    api<{ registration_enabled: boolean; registration_email_verification_enabled: boolean; social_providers?: string[] }>("public-config")
       .then((result) => {
         if (!active) return;
+        setSocialProviders(result.social_providers || []);
         setRegistrationEnabled(result.registration_enabled);
         setRegistrationEmailVerification(result.registration_email_verification_enabled);
         if (!result.registration_enabled) setMode((current) => current === "register" ? "login" : current);
@@ -148,6 +151,12 @@ export default function AuthDialog({
             ? "We'll send a six-digit reset code to your email address."
             : "Pick up where you left off."}
       </p>
+      {!ipChallengeId && (mode === "login" || mode === "register") && socialProviders.length > 0 && (
+        <>
+          <SocialProviderButtons providers={socialProviders} />
+          <p className="muted">Or continue with email</p>
+        </>
+      )}
       <form onSubmit={submit} className="form-stack">
         {mode === "register" && !ipChallengeId && (
           <label>
@@ -296,6 +305,10 @@ export default function AuthDialog({
           </button>
         )}
       </div>
+      <p className="auth-links">
+        <a href="/privacy-policy">Privacy Policy</a>
+        <a href="/terms-and-conditions">Terms and Conditions</a>
+      </p>
     </Dialog>
   );
 }

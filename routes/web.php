@@ -7,12 +7,14 @@ use App\Http\Controllers\AdminSettingsController;
 use App\Http\Controllers\ApiCreditsController;
 use App\Http\Controllers\AssistantGalleryController;
 use App\Http\Controllers\CodeAgentsAdminController;
+use App\Http\Controllers\LegalPageController;
 use App\Http\Controllers\ModelBundleController;
 use App\Http\Controllers\SmtpSettingsController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', fn () => redirect('/admin'));
 Route::get('/reset-password', fn () => view('reset-password'))->name('password.reset');
+Route::get('/{slug}', [LegalPageController::class, 'page'])->where('slug', LegalPageController::SLUGS)->middleware('throttle:60,1');
 Route::get('/admin/login', [AdminController::class, 'loginForm'])->name('login');
 Route::post('/admin/login', [AdminController::class, 'login'])->middleware('throttle:auth');
 Route::prefix('admin')->middleware(['auth', 'active', 'admin'])->group(function () {
@@ -20,6 +22,8 @@ Route::prefix('admin')->middleware(['auth', 'active', 'admin'])->group(function 
     Route::get('api-credits', [ApiCreditsController::class, 'index']);
     Route::patch('api-credits/models/{id}', [ApiCreditsController::class, 'modelLimit'])->middleware('throttle:sensitive');
     Route::patch('api-credits/users/{user}', [ApiCreditsController::class, 'userLimit'])->middleware('throttle:sensitive');
+    Route::get('legal-pages', [LegalPageController::class, 'edit']);
+    Route::patch('legal-pages/{slug}', [LegalPageController::class, 'update'])->where('slug', LegalPageController::SLUGS)->middleware('throttle:sensitive');
     Route::get('settings', [AdminSettingsController::class, 'index']);
     Route::get('smtp-settings', [SmtpSettingsController::class, 'index']);
     Route::patch('smtp-settings', [SmtpSettingsController::class, 'update'])->middleware('throttle:sensitive');

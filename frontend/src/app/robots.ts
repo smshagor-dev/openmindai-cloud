@@ -10,6 +10,7 @@ export default function robots(): MetadataRoute.Robots {
         "/share/",
         "/reset-password",
         "/confirm-email",
+        "/social-sign-in",
         "/offline.html",
         "/*?project=",
         "/*&project=",

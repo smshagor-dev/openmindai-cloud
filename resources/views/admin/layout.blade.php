@@ -8,6 +8,7 @@
 {{-- Tabler UI is MIT licensed; admin.css provides local styling if CDN is unavailable. --}}
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/core@1.6.1/dist/css/tabler.min.css">
 <link rel="stylesheet" href="{{ asset('css/admin.css') }}?v=20261021-admin-forms">
+@stack('styles')
 </head>
 <body class="admin-shell">
 @php
@@ -21,6 +22,7 @@ $navigation = [
     ['Media models', '/admin/model-bundles', 'layers', request()->is('admin/model-bundles*')],
     ['API credits', '/admin/api-credits', 'credit', request()->is('admin/api-credits*')],
     ['Public assistants', '/admin/assistants', 'spark', request()->is('admin/assistants*')],
+    ['Privacy and terms', '/admin/legal-pages', 'settings', request()->is('admin/legal-pages*')],
     ['Workspace settings', '/admin/settings', 'settings', request()->is('admin/settings*')],
     ['SMTP settings', '/admin/smtp-settings', 'mail', request()->is('admin/smtp-settings*')],
     ['My profile', '/admin/profile', 'profile', request()->is('admin/profile*')],
@@ -75,5 +77,6 @@ $navigation = [
 <script src="{{ asset('js/admin-photo.js') }}" defer></script>
 <script src="{{ asset('js/admin-console.js') }}" defer></script>
 <script src="{{ asset('js/password-visibility.js') }}" defer></script>
+@stack('scripts')
 </body>
 </html>

@@ -14,6 +14,7 @@ use App\Http\Controllers\FrontendChatController;
 use App\Http\Controllers\GuestChatController;
 use App\Http\Controllers\HostedImageController;
 use App\Http\Controllers\HostedMediaController;
+use App\Http\Controllers\LegalPageController;
 use App\Http\Controllers\MediaController;
 use App\Http\Controllers\NvidiaAvSceneController;
 use App\Http\Controllers\NvidiaAvWorkerController;
@@ -27,6 +28,7 @@ use App\Http\Controllers\RealtimeController;
 use App\Http\Controllers\ResearchWorkerTransferController;
 use App\Http\Controllers\SceneStudioController;
 use App\Http\Controllers\SettingsController;
+use App\Http\Controllers\SocialAuthController;
 use App\Http\Controllers\StreamChatController;
 use App\Http\Controllers\StudioUploadController;
 use App\Http\Controllers\StudioWorkbenchController;
@@ -35,6 +37,7 @@ use App\Http\Controllers\ToolsController;
 use App\Http\Controllers\WorkspaceController;
 use App\Services\AdminSettings;
 use App\Services\HostedCodeAgents;
+use App\Services\SocialProvider;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->middleware('verified-mobile-ip')->group(function () {
@@ -75,7 +78,11 @@ Route::prefix('v1')->middleware('verified-mobile-ip')->group(function () {
         Route::post('openmindai/chat/completions', [OpenMindAiGatewayController::class, 'chat'])->middleware('throttle:chat');
     });
     Route::post('guest/chat', [GuestChatController::class, 'send'])->middleware('throttle:10,1');
-    Route::get('public-config', fn () => ['guest_chat_daily_limit' => app(AdminSettings::class)->limit('guest_chat_daily_limit'), 'frontend_inference_route' => app(AdminSettings::class)->get('frontend_inference_route'), 'registration_enabled' => app(AdminSettings::class)->enabled('registration_enabled'), 'site_name' => app(AdminSettings::class)->get('site_name'), 'registration_email_verification_enabled' => app(AdminSettings::class)->enabled('registration_email_verification_enabled')])->middleware('throttle:60,1');
+    Route::get('public-config', fn () => ['social_providers' => SocialProvider::enabled(), 'guest_chat_daily_limit' => app(AdminSettings::class)->limit('guest_chat_daily_limit'), 'frontend_inference_route' => app(AdminSettings::class)->get('frontend_inference_route'), 'registration_enabled' => app(AdminSettings::class)->enabled('registration_enabled'), 'site_name' => app(AdminSettings::class)->get('site_name'), 'registration_email_verification_enabled' => app(AdminSettings::class)->enabled('registration_email_verification_enabled')])->middleware('throttle:60,1');
+    Route::get('legal/{slug}', [LegalPageController::class, 'show'])->where('slug', LegalPageController::SLUGS)->middleware('throttle:60,1');
+    Route::post('social/{provider}/start', [SocialAuthController::class, 'start'])->where('provider', 'google|facebook')->middleware('throttle:social-auth');
+    Route::post('social/{provider}/exchange', [SocialAuthController::class, 'exchange'])->where('provider', 'google|facebook')->middleware('throttle:social-auth');
+    Route::post('social/{provider}/complete', [SocialAuthController::class, 'complete'])->where('provider', 'google|facebook')->middleware('throttle:social-auth');
     Route::get('explore/assistants', [AssistantGalleryController::class, 'index'])->middleware('throttle:60,1');
     Route::get('explore/assistants/{slug}', [AssistantGalleryController::class, 'show'])->middleware('throttle:60,1');
     Route::get('shared/{token}', [WorkspaceController::class, 'shared'])->middleware('throttle:60,1');

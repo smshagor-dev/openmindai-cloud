@@ -1,3 +1,4 @@
+import { webSessionCookie as cookieName, webSessionOptions } from "@/lib/web-session";
 import { studioRoute, studioDownload } from "@/lib/studio-proxy";
 import { researchRoute, researchDownload } from "@/lib/research-proxy";
 import { createHmac } from "node:crypto";
@@ -22,7 +23,7 @@ export const dynamic = "force-dynamic";
 // Vercel Fluid Compute (Hobby): allow hosted chat, research and media to finish.
 // This is an upper bound, not a guarantee when Laravel or NVIDIA time out.
 export const maxDuration = 300;
-const cookieName = "openmindai_token";
+
 const publicPaths = new Set([
   "guest/chat",
   "login",
@@ -446,13 +447,7 @@ async function proxy(
       upstream.ok &&
       typeof data.token === "string"
     ) {
-      jar.set(cookieName, data.token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
-        path: "/",
-        maxAge: 30 * 86400,
-      });
+      jar.set(cookieName, data.token, webSessionOptions);
       delete data.token;
     }
     if (
