@@ -275,6 +275,30 @@
 .rs-project-header > p {
   font-size: 12px;
 }
+
+.rs-project-header > .rs-status-running {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.rs-project-header > .rs-status-running::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #22c55e;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .rs-project-header > .rs-status-running::before {
+    animation: rs-running-indicator 1.4s ease-in-out infinite;
+  }
+}
+@keyframes rs-running-indicator {
+  50% {
+    box-shadow: 0 0 0 4px #22c55e40;
+    opacity: 0.65;
+  }
+}
 .rs-progress-row {
   display: flex;
   align-items: center;
