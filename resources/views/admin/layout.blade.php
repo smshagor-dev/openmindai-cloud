@@ -8,6 +8,7 @@
 {{-- Tabler UI is MIT licensed; admin.css provides local styling if CDN is unavailable. --}}
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/core@1.6.1/dist/css/tabler.min.css">
 <link rel="stylesheet" href="{{ asset('css/admin.css') }}?v=20261021-admin-forms">
+@stack('styles')
 </head>
 <body class="admin-shell">
 @php
@@ -76,5 +77,6 @@ $navigation = [
 <script src="{{ asset('js/admin-photo.js') }}" defer></script>
 <script src="{{ asset('js/admin-console.js') }}" defer></script>
 <script src="{{ asset('js/password-visibility.js') }}" defer></script>
+@stack('scripts')
 </body>
 </html>

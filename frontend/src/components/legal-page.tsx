@@ -29,7 +29,7 @@ export default async function LegalPage({ slug }: { slug: "privacy-policy" | "te
       {policy ? (
         <>
           <p className="muted">Updated {policy.updated_at.slice(0, 10)}</p>
-          <article className="shared-message markdown">
+          <article className="shared-message markdown legal-page-content">
             <Markdown remarkPlugins={[remarkGfm]} skipHtml disallowedElements={["img"]}>{policy.body}</Markdown>
           </article>
           {policy.support_email && <p>Support contact <a href={`mailto:${policy.support_email}`}>{policy.support_email}</a></p>}

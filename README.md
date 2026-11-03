@@ -42,3 +42,5 @@ In the admin panel, **My profile** edits your name/photo and supports password o
 4. Run `php artisan migrate --force` and refresh Laravel's config cache. Confirm SMTP delivers verification codes for Facebook and Google accounts that require OpenMindAI email verification.
 5. In **Admin → Privacy and terms**, review and publish the starter text at `/privacy-policy` and `/terms-and-conditions`. Set the public support address in Workspace settings. Use the published privacy page for provider disclosures and account deletion instructions.
 6. Test each provider with a test account. Existing OpenMindAI accounts sign in normally once and link the provider in **Settings → Security**. The public social buttons only appear for configured providers. Enable public access in each provider console after completing its app requirements.
+
+Set `CKEDITOR_LICENSE_KEY` on Laravel and refresh its config cache to enable the CKEditor 5 Cloud CDN toolbar under **Admin → Privacy and terms**. The editor saves Markdown, so existing policy content remains editable and renders with justified paragraphs on the public pages.

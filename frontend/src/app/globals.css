@@ -566,6 +566,10 @@ button {
   line-height: 1.9;
   overflow-wrap: anywhere;
 }
+.legal-page-content :is(p, li) {
+  text-align: justify;
+  hyphens: auto;
+}
 .markdown > :first-child {
   margin-top: 0;
 }
