@@ -118,8 +118,8 @@ class Orchestrator
             $tasks = Task::where('run_id', $id)->get();
             if ($tasks->every(fn ($t) => $t->status === 'completed')) {
                 $r->update(['status' => 'completed']);
-                $p->update(['status' => 'awaiting_approval']);
-                Events::add($p->id, 'run.completed', ['status' => 'awaiting_approval']);
+                $p->update(['status' => 'completed']);
+                Events::add($p->id, 'run.completed', ['status' => 'completed']);
                 EmailRunStatus::dispatch($r->id, $r->generation, $r->status)->onConnection('database')->onQueue('research')->beforeCommit();
                 if ($r->kind === 'workflow' || $tasks->contains(fn ($task) => $task->agent === 'quality')) {
                     GenerateDelivery::dispatch($r->id)->onConnection('database')->onQueue('research')->afterCommit();
