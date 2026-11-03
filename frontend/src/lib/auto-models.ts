@@ -18,16 +18,9 @@ function preferred<T extends AutomaticModel>(models: T[], slugs: string[]): T | 
   return undefined;
 }
 export function automaticCoordinator<T extends AutomaticModel>(models: T[]): T | undefined {
-  // Super answers first (~4-5s) and writes correct Bangla/Banglish; Lite is fast
-  // but produced garbled Bengali in live tests, so it is only a last resort.
-  return preferred(automaticModels(models), ['openmindai-super', 'openmindai-ultra', 'nvidia-gpt-oss-20b', 'nvidia-step-5-preview', 'openmindai-lite']);
+  return preferred(automaticModels(models), ['openmindai-ultra', 'openmindai-super', 'nvidia-gpt-oss-20b', 'nvidia-step-5-preview', 'openmindai-lite']);
 }
-export function automaticWebCoordinator<T extends AutomaticModel>(models: T[]): T | undefined {
-  // Selected search favors the verified reasoning model; ordinary Auto chat
-  // keeps its existing coordinator. Failed or untested Ultra is never promoted.
-  return automaticModels(models).find(model => model.slug === 'openmindai-ultra' && model.lastTestStatus === 'success')
-    || automaticCoordinator(models);
-}
+
 export function automaticReasoner<T extends AutomaticModel>(models: T[]): T | undefined {
   return preferred(automaticModels(models), ['openmindai-ultra', 'nvidia-step-5-preview', 'nvidia-gpt-oss-20b', 'openmindai-lite']);
 }

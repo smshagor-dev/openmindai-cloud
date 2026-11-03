@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {automaticCoordinator,automaticWebCoordinator,automaticSpecialists} from '../src/lib/auto-models.ts';
+import {automaticCoordinator,automaticSpecialists} from '../src/lib/auto-models.ts';
 const model=(slug,status)=>({slug,name:slug,provider:slug,lastTestStatus:status});
 test('Auto excludes failed providers and restricted models from delegation',()=>{
  const models=[model('openmindai-super','failed'),model('openmindai-lite','success'),model('openmindai-ultra','success'),model('nvidia-laguna-xs-2.1','failed'),model('nvidia-riva-translate-4b','success'),model('guard','success')];
@@ -11,11 +11,10 @@ test('Auto excludes failed providers and restricted models from delegation',()=>
  assert.equal(automaticCoordinator([model('openmindai-lite','success'),model('openmindai-super','success')]).slug,'openmindai-super');
  assert.equal(automaticCoordinator([model('openmindai-lite','failed')]),undefined);
 });
-test('selected Web Search prefers verified Ultra while general chat and unavailable Ultra preserve fallback routing',()=>{
+test('Auto prioritizes verified 550B for general chat and web search',()=>{
  const lite=model('openmindai-lite','success');
- assert.equal(automaticWebCoordinator([lite,model('openmindai-ultra','success')]).slug,'openmindai-ultra');
- assert.equal(automaticCoordinator([lite,model('openmindai-ultra','success')]).slug,'openmindai-ultra');
+ const superModel=model('openmindai-super','success');
+ assert.equal(automaticCoordinator([lite,superModel,model('openmindai-ultra','success')]).slug,'openmindai-ultra');
  for(const status of [null,'not_tested','failed','rate_limited','unreachable','disabled'])
-   assert.equal(automaticWebCoordinator([lite,model('openmindai-ultra',status)]).slug,'openmindai-lite');
- assert.equal(automaticWebCoordinator([model('openmindai-ultra','failed')]),undefined);
+   assert.equal(automaticCoordinator([lite,superModel,model('openmindai-ultra',status)]).slug,'openmindai-super');
 });

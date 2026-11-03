@@ -1,5 +1,6 @@
-import { automaticModels, automaticCoordinator, automaticWebCoordinator, automaticReasoner, automaticSpecialists } from "./auto-models.ts";
+import { automaticModels, automaticCoordinator, automaticReasoner, automaticSpecialists } from "./auto-models.ts";
 import {compactResearchMetadata,type ResearchMetadata} from "./research-status.ts";
+import { verifyWebDraft } from "./web-draft-verification.ts";
 import { duplicateOf, evidenceUrl, groundResearchAnswer } from "./research-evidence.ts";
 import { withPromptUnderstanding } from "./prompt-understanding.ts";
 import { runConversationTools } from "./conversation-tools.ts";
@@ -198,8 +199,7 @@ export async function nvidiaChat(
   const autoWebSearch = !input.web_search && !input.deep_research && !inlineImage && !input.attachment_ids?.length &&
     !input.resume_message_id && typeof input.message === "string" && Boolean(researchIntent(input.message).webSearch);
   const webSearchSelected = Boolean(input.web_search) || autoWebSearch;
-  const coordinator = webSearchSelected && !input.deep_research
-    ? automaticWebCoordinator(eligibleModels) : automaticCoordinator(eligibleModels);
+  const coordinator = automaticCoordinator(eligibleModels);
   if (isAuto && !input.resume_message_id && !coordinator)
     return Response.json({message:"No healthy automatic model is available. Retest or configure a chat model."}, {status:503});
   const visionModel = selectVisionModel(isAuto ? eligibleModels : (selected && selectVisionModel([selected]) ? [selected] : catalog));
@@ -224,19 +224,19 @@ export async function nvidiaChat(
     fallbackModel = permittedSlugs.includes("openmindai-lite") ? NVIDIA_HOSTED_MODELS[2].provider :
       permittedSlugs.includes("openmindai-super") ? NVIDIA_HOSTED_MODELS[0].provider : (catalog.find((model) => model.slug === permittedSlugs?.[0])?.provider || config.model);
   }
-  if (isAuto) fallbackModel = coordinator?.provider || routedModel;
+  if (isAuto) fallbackModel = automaticCoordinator(eligibleModels.filter(model => model.provider !== routedModel))?.provider || routedModel;
   // An explicit model selection is honored for ordinary text chat;
   // automatic requests use the prompt's result. Images require a configured vision model.
   if (selected && !inlineImage) { routedModel = selected.provider; fallbackModel = selected.provider; }
   if (inlineImage) routedModel = visionModel?.provider || NVIDIA_HOSTED_MODELS[0].provider;
   if (input.deep_research && !input.resume_message_id) backendInput.conversation_tools = true;
-  const conversationTools = (isAuto || Boolean(requestedGeneration)) && !input.resume_message_id && !inlineImage && !input.deep_research;
+  const conversationTools = (isAuto || Boolean(requestedGeneration) || Boolean(selected && webSearchSelected)) && !input.resume_message_id && !inlineImage && !input.deep_research;
   if (conversationTools) {
     backendInput.conversation_tools = true;
     // The native search tool forms a focused query from the full request.
     // Avoid the legacy quick-search path searching the entire instruction.
     backendInput.web_search = false;
-    if (isAuto || !generation) routedModel = coordinator?.provider || config.model;
+    if (isAuto) routedModel = coordinator?.provider || config.model;
   } else if (autoWebSearch) {
     // Selected models keep their model and receive server-side search evidence.
     backendInput.web_search = true;
@@ -478,60 +478,94 @@ export async function nvidiaChat(
               : bangla ? "\n\nআপনার অনুরোধ গ্রহণ করা হয়েছে। তৈরি হলে এখানেই দেখা যাবে; Library-তেও সংরক্ষিত আছে।" : "\n\nYour request was accepted. The result will appear here when ready and is saved in Library.";
             content += text; emit("delta", {content:text});
             if (!result.ok) {status="failed"; emit("error", {message:result.message});}
-          } else await runConversationTools({
-            model:activeModel, apiKey:config.apiKey, fetcher, messages:requestedGeneration
-              ? [...generationMessages,{role:"system",content:`The user requested a generated ${requestedGeneration.kind}, format ${requestedGeneration.format || "docx"}. Use the conversation and attached evidence, perform requested research before creating the file, and use create_artifact. Never claim the file exists without a successful tool result.`}]
-              : generationMessages, webSearchSelected,
-            signal:AbortSignal.any([upstreamAbort.signal, AbortSignal.timeout(600000)]), specialists:automaticSpecialists(eligibleModels, activeModel),
-            progress: label => emit("research", {label, sources:lease.sources}),
-            delta: text => {content += text; emit("delta", {content:text});},
-            web: async action => {
-              if(action.action==='read' && !evidenceUrl(action.url)) {
-                activity('reading','failed','Unsupported source URL was rejected');
-                return {read_status:'unavailable'};
-              }
-              activity(action.action === "search" ? "searching" : "reading","running",action.action === "search" ? "Searching the web" : "Reading source passages",action.query?{query:action.query}:{url:action.url||""});
-              let data;
-              try {
-                const response = await backend("tool", {ticket:lease.ticket, ...action, question:input.message||""}, 30000, upstreamAbort.signal);
-                if (!response.ok) throw new Error("Tool unavailable");
-                data = await response.json();
-              } catch {
-                activity(action.action === "search" ? "searching" : "reading","failed",action.action === "search" ? "Search request unavailable" : "Source request unavailable",action.query?{query:action.query}:{url:action.url||""});
-                throw new Error("Tool unavailable");
-              }
-              if (Array.isArray(data.sources)) {
-                const sources = new Map(lease.sources.map(source=>[source.url,source]));
-                for (const source of data.sources) {
-                  // A later search must not downgrade an already inspected page
-                  // or replace its retrieval timestamp/passages with a snippet.
-                  if (evidenceUrl(source.url) && !sources.has(source.url)) sources.set(source.url, {url:source.url,title:String(source.title || source.url).slice(0,200),snippet:String(source.snippet || "").slice(0,2000),provider:source.provider,retrieved_at:source.retrieved_at,read_status:"snippet_only"});
+          } else {
+            let firstInference = true;
+            const routedFetcher: typeof fetch = async (url, init) => {
+              if (String(url) !== endpoint || typeof init?.body !== "string") return fetcher(url, init);
+              const payload = JSON.parse(init.body);
+              if (payload.model !== routedModel) return fetcher(url, init);
+              const invoke = (model: string) => fetcher(url, {
+                ...init, body: model === routedModel ? init.body : JSON.stringify({...payload, model}),
+              });
+              if (!firstInference) return invoke(activeModel);
+              firstInference = false;
+              const response = await invoke(activeModel);
+              if (fallbackModel === activeModel || ![404, 408, 410, 429, 500, 502, 503, 504].includes(response.status) ||
+                  upstreamAbort.signal.aborted) return response;
+              await response.body?.cancel().catch(() => {});
+              activeModel = fallbackModel;
+              activity("planning", "running", "Continuing with a healthy fallback model");
+              return invoke(activeModel);
+            };
+            const result = await runConversationTools({
+              model:activeModel, apiKey:config.apiKey, fetcher:routedFetcher, messages:requestedGeneration
+                ? [...generationMessages,{role:"system",content:`The user requested a generated ${requestedGeneration.kind}, format ${requestedGeneration.format || "docx"}. Use the conversation and attached evidence, perform requested research before creating the file, and use create_artifact. Never claim the file exists without a successful tool result.`}]
+                : generationMessages, webSearchSelected,
+              signal:AbortSignal.any([upstreamAbort.signal, AbortSignal.timeout(600000)]), specialists:automaticSpecialists(eligibleModels, activeModel),
+              progress: label => emit("research", {label, sources:lease.sources}),
+              delta: text => {if (!webSearchSelected) {content += text; emit("delta", {content:text});}},
+              web: async action => {
+                if(action.action==='read' && !evidenceUrl(action.url)) {
+                  activity('reading','failed','Unsupported source URL was rejected');
+                  return {read_status:'unavailable'};
                 }
-                lease.sources = [...sources.values()].slice(0,40).map((source,index)=>({...source,citation:index+1}));
+                activity(action.action === "search" ? "searching" : "reading","running",action.action === "search" ? "Searching the web" : "Reading source passages",action.query?{query:action.query}:{url:action.url||""});
+                let data;
+                try {
+                  const response = await backend("tool", {ticket:lease.ticket, ...action, question:input.message||"", time_range:lease.search_time_range || input.search_time_range || null}, 30000, upstreamAbort.signal);
+                  if (!response.ok) throw new Error("Tool unavailable");
+                  data = await response.json();
+                } catch {
+                  activity(action.action === "search" ? "searching" : "reading","failed",action.action === "search" ? "Search request unavailable" : "Source request unavailable",action.query?{query:action.query}:{url:action.url||""});
+                  throw new Error("Tool unavailable");
+                }
+                if (Array.isArray(data.sources)) {
+                  const sources = new Map(lease.sources.map(source=>[source.url,source]));
+                  for (const source of data.sources) {
+                    // A later search must not downgrade an already inspected page
+                    // or replace its retrieval timestamp/passages with a snippet.
+                    if (evidenceUrl(source.url) && !sources.has(source.url)) sources.set(source.url, {url:source.url,title:String(source.title || source.url).slice(0,200),snippet:String(source.snippet || "").slice(0,2000),provider:source.provider,retrieved_at:source.retrieved_at,read_status:"snippet_only"});
+                  }
+                  lease.sources = [...sources.values()].slice(0,40).map((source,index)=>({...source,citation:index+1}));
+                }
+                if (action.action === "read" && typeof data.url === "string") {
+                  const existing = lease.sources.find(source=>source.url === data.url);
+                  const source = {...(existing || {url:data.url,title:String(data.title || data.url).slice(0,200),citation:lease.sources.length+1}),read_status:data.read_status === "read" ? "read" : "unavailable",passages:Array.isArray(data.passages) ? data.passages : typeof data.page_text === "string" && data.page_text.trim() ? [{id:"p1",text:data.page_text.slice(0,1000)}] : [],mime:data.mime,pdf:data.pdf,retrieved_at:data.retrieved_at};
+                  const duplicate=duplicateOf(source,lease.sources.filter(old=>old.url!==source.url));
+                  Object.assign(source,{duplicate_of:duplicate});
+                  lease.sources = existing
+                    ? lease.sources.map(item => item.url === data.url ? source : item)
+                    : [...lease.sources,source];
+                }
+                for(const attempt of (data.sources?.[0]?.provider_events||[]).slice(0,12)) {
+                  if(['failed','unavailable','cooldown'].includes(attempt.status))activity('searching','failed','Search provider unavailable; fallback attempted',{provider:String(attempt.provider)});
+                }
+                activity(action.action === "search" ? "searching" : "reading",data.read_status === "unavailable"?"failed":"completed",action.action === "search" ? "Search results collected" : "Source reading finished",data.sources?.[0]?.provider?{provider:String(data.sources[0].provider)}:{});
+                const citationFor = (url: unknown) => {
+                  const source = lease.sources.find(item => item.url === url);
+                  return source ? {citation:source.citation,citation_markdown:`[${source.citation}](${source.url.replace(/\(/g, "%28").replace(/\)/g, "%29")})`} : {};
+                };
+                // Give the model the exact persisted source mapping; do not ask it
+                // to invent numbering or infer a URL from a domain label.
+                return {...data,...citationFor(data.url),...(Array.isArray(data.sources) ? {sources:data.sources.map((source: {url?: string}) => ({...source,...citationFor(source.url)}))} : {})};
+              },
+              artifact,
+            });
+            if (webSearchSelected) {
+              let answer = result.text;
+              if (result.readEvidence && !result.searchDeclined) {
+                activity("verifying", "running", "Checking the draft against retrieved source passages");
+                const verifier = automaticCoordinator(eligibleModels)?.provider || activeModel;
+                answer = await verifyWebDraft({
+                  question: input.message || "", draft: answer, sources: lease.sources,
+                  models: [...new Set([activeModel, verifier, fallbackModel])], apiKey: config.apiKey,
+                  fetcher, signal: upstreamAbort.signal,
+                });
               }
-              if (action.action === "read" && typeof data.url === "string") {
-                const existing = lease.sources.find(source=>source.url === data.url);
-                const source = {...(existing || {url:data.url,title:String(data.title || data.url).slice(0,200),citation:lease.sources.length+1}),read_status:data.read_status === "read" ? "read" : "unavailable",passages:Array.isArray(data.passages)?data.passages:[],mime:data.mime,pdf:data.pdf,retrieved_at:data.retrieved_at};
-                const duplicate=duplicateOf(source,lease.sources.filter(old=>old.url!==source.url));
-                Object.assign(source,{duplicate_of:duplicate});
-                lease.sources = existing
-                  ? lease.sources.map(item => item.url === data.url ? source : item)
-                  : [...lease.sources,source];
-              }
-              for(const attempt of (data.sources?.[0]?.provider_events||[]).slice(0,12)) {
-                if(['failed','unavailable','cooldown'].includes(attempt.status))activity('searching','failed','Search provider unavailable; fallback attempted',{provider:String(attempt.provider)});
-              }
-              activity(action.action === "search" ? "searching" : "reading",data.read_status === "unavailable"?"failed":"completed",action.action === "search" ? "Search results collected" : "Source reading finished",data.sources?.[0]?.provider?{provider:String(data.sources[0].provider)}:{});
-              const citationFor = (url: unknown) => {
-                const source = lease.sources.find(item => item.url === url);
-                return source ? {citation:source.citation,citation_markdown:`[${source.citation}](${source.url.replace(/\(/g, "%28").replace(/\)/g, "%29")})`} : {};
-              };
-              // Give the model the exact persisted source mapping; do not ask it
-              // to invent numbering or infer a URL from a domain label.
-              return {...data,...citationFor(data.url),...(Array.isArray(data.sources) ? {sources:data.sources.map((source: {url?: string}) => ({...source,...citationFor(source.url)}))} : {})};
-            },
-            artifact,
-          });
+              content += (content ? "\n\n" : "") + answer;
+              if (!lease.sources.length && !researchMetadata.activity.length) emit("delta", {content:answer});
+            }
+          }
           checkpoint.finished = true;
           await saveCheckpoint();
         }

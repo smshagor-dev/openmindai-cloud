@@ -73,7 +73,7 @@ class WebSearch
         $events = [];
         $merged = [];
         $deadline = microtime(true) + 20;
-        foreach ($providers as [$provider, $url, $queryParams]) {
+        foreach ($providers as $index => [$provider, $url, $queryParams]) {
             $cooldown = 'web-search:cooldown:'.hash('sha256', $provider.$url.(string) config('web_research.brave_key').(string) config('web_research.google_key').(string) config('web_research.yandex_key'));
             if (Cache::has($cooldown)) {
                 $events[] = ['provider' => $provider, 'status' => 'cooldown'];
@@ -85,9 +85,14 @@ class WebSearch
 
                 continue;
             }
+            $providerDeadline = microtime(true) + ($deadline - microtime(true)) / (count($providers) - $index);
             for ($attempt = 1; $attempt <= config('web_research.attempts', 2); $attempt++) {
+                $remaining = $providerDeadline - microtime(true);
+                if ($remaining < 0.25) {
+                    break;
+                }
                 try {
-                    $r = Http::withHeaders(['Accept' => in_array($provider, ['searxng', 'brave', 'google']) ? 'application/json' : 'application/rss+xml,text/html', 'User-Agent' => 'OpenMindAI-Research/2.0', ...($provider === 'brave' ? ['X-Subscription-Token' => config('web_research.brave_key')] : [])])->connectTimeout(3)->timeout(8)->withOptions(['allow_redirects' => false, 'stream' => true])->get($url, $queryParams);
+                    $r = Http::withHeaders(['Accept' => in_array($provider, ['searxng', 'brave', 'google']) ? 'application/json' : 'application/rss+xml,text/html', 'User-Agent' => 'OpenMindAI-Research/2.0', ...($provider === 'brave' ? ['X-Subscription-Token' => config('web_research.brave_key')] : [])])->connectTimeout(min(2, $remaining))->timeout(min(6, $remaining))->withOptions(['allow_redirects' => false, 'stream' => true])->get($url, $queryParams);
                     if (! $r->successful()) {
                         $r->toPsrResponse()->getBody()->close();
                         $events[] = ['provider' => $provider, 'status' => 'failed', 'http_status' => $r->status(), 'attempt' => $attempt];
@@ -108,8 +113,8 @@ class WebSearch
                         $body = '';
                         while (! $stream->eof()) {
                             $body .= $stream->read(65536);
-                            if (strlen($body) > 1000000) {
-                                throw new \RuntimeException('Search response too large.');
+                            if (strlen($body) > 1000000 || microtime(true) > $providerDeadline) {
+                                throw new \RuntimeException('Search response exceeded its size or time budget.');
                             }
                         }
                     } finally {

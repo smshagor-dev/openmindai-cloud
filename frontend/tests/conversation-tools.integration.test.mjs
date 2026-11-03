@@ -143,3 +143,14 @@ test("planning text before a tool call is not shown, while the final answer stre
  await runConversationTools({...base(),fetcher:async()=>sse({content:long},"stop"),delta:chunk=>streamed.push(chunk)});
  assert.equal(streamed.join(""),long);
 });
+
+test('unread search results never release a draft as a verified answer',async()=>{
+ const url='https://example.org/blocked';
+ const replies=[call('web_search',{query:'current deadline'},'s'),call('read_page',{url},'r'),sse({content:'The deadline is certainly in 2024.'},'stop')];
+ const chunks=[];
+ const result=await runConversationTools({...base(),webSearchSelected:true,fetcher:async()=>replies.shift(),
+  web:async input=>input.action==='search'?{sources:[{url}]}:{url,read_status:'unavailable'},delta:chunk=>chunks.push(chunk)});
+ assert.match(result.text,/cannot verify/);
+ assert.doesNotMatch(chunks.join(''),/2024/);
+ assert.equal(result.readEvidence,false);
+});

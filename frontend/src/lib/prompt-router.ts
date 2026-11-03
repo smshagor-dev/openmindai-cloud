@@ -92,11 +92,12 @@ export function researchIntent(text: string, opt: Options = {}): {webSearch?: bo
   if (opt.deepResearch) return {webSearch: true, deepResearch: true};
   if (opt.webSearch) return {webSearch: true};
   if (/\b(?:do not|don't|without|no)\s+(?:web\s+)?(?:search|browsing|browse)|(?:search|browse).{0,12}(?:koro na|korba na)|সার্চ.{0,12}করো না/iu.test(text)) return {};
-  if (codeIntent.test(text)) return {};
+  if (codeIntent.test(text) && /^(?:please\s+)?(?:build|create|write|implement|debug|refactor|fix)\b/iu.test(text)) return {};
   if (/\b(?:deep research|literature review|systematic review|research with sources|comprehensive research)\b|বিস্তারিত গবেষণা|গভীর গবেষণা|\bdeep research koro\b/iu.test(text)) return {webSearch: true, deepResearch: true};
   if (/\b(?:search (?:the )?(?:web|internet)|look (?:it |this )?up|browse|latest|current price|today's|news today|verify (?:this|the claim))\b|সর্বশেষ|আজকের|ইন্টারনেটে.{0,20}খুঁজ|\b(?:web search|search koro|latest news|ajker khobor|ajker news)\b/iu.test(text)) return {webSearch: true};
   // Products, prices, availability and recent model years change after the model's training.
   if (productFreshness.test(text) || productChoice.test(text) || recentYear(text)) return {webSearch: true};
+  if (codeIntent.test(text)) return {};
   // Every other informational request is cross-checked against live sources
   // before answering; only requests that need no outside facts skip search.
   if (needsNoLookup(text)) return {};
@@ -109,7 +110,7 @@ const creative = /\b(?:write|compose|make)\b.{0,25}\b(?:poem|story|song|lyrics|j
 const arithmetic = /^[\d\s+\-*/().^%=×÷x,]+\??$|^(?:solve|calculate|compute|simplify|differentiate|integrate)\b/iu;
 function needsNoLookup(text: string): boolean {
   const p = text.trim();
-  return p.length < 4 || smallTalk.test(p) || ownTextTask.test(p) || creative.test(p) || arithmetic.test(p) ||
+  return p.length < 4 || /^(?:remember (?:that )?|i prefer\b|my preference is\b)/iu.test(p) || smallTalk.test(p) || ownTextTask.test(p) || creative.test(p) || arithmetic.test(p) ||
     Boolean(generationIntent(p)) || threeDModelIntent(p.toLowerCase());
 }
 
