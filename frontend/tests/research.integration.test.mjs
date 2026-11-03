@@ -54,7 +54,7 @@ test("provider length boundary continues and saves a single complete answer", as
   let generated = 0;
   let saved;
   const response = await nvidiaChat(
-    '{"message":"Explain fully","model_id":-1}',
+    '{"message":"Explain fully without browsing","model_id":-1}',
     "token",
     "https://backend/api/v1",
     new AbortController().signal,

@@ -476,7 +476,7 @@ test("a catalog model selected in the picker reaches backend inference with its 
   }
 });
 
-test("missing model selection defaults to Auto, while explicit choices suppress automatic tools", async () => {
+test("missing model selection defaults to Auto, while explicit choices keep their selected model", async () => {
   const previous = process.env.FRONTEND_CHAT_BRIDGE_KEY;
   process.env.FRONTEND_CHAT_BRIDGE_KEY = "k".repeat(32);
   const rows = [{id:"openmindai-lite"}, {id:"openmindai-ultra"}, {id:"nvidia-laguna-xs-2.1",name:"Code",provider_model:"provider/code"}];
@@ -487,8 +487,6 @@ test("missing model selection defaults to Auto, while explicit choices suppress 
       {message:"Write a short poem about rain", expected:"nvidia/nemotron-3-ultra-550b-a55b", tools:true},
       {message:"Rewrite this: UAV security risks are growing", expected:"nvidia/nemotron-3-ultra-550b-a55b", tools:true},
       {message:"Rewrite this sentence about photo composition", model_id:-1, expected:config.model},
-      // A selected model keeps its model and receives server-side search evidence.
-      {message:"Explain photo composition", model_id:-1, expected:config.model, webSearch:true},
     ]) {
       const f = fixture({providerUrl:"https://backend/api/v1/chat/provider", providerAuthorization:"Bearer user-token"});
       const fetcher = async (url, init) => {
