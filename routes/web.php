@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('/', fn () => redirect('/admin'));
 Route::get('/reset-password', fn () => view('reset-password'))->name('password.reset');
+Route::get('/{slug}', [LegalPageController::class, 'page'])->where('slug', LegalPageController::SLUGS)->middleware('throttle:60,1');
 Route::get('/admin/login', [AdminController::class, 'loginForm'])->name('login');
 Route::post('/admin/login', [AdminController::class, 'login'])->middleware('throttle:auth');
 Route::prefix('admin')->middleware(['auth', 'active', 'admin'])->group(function () {

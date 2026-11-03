@@ -18,7 +18,7 @@
 @foreach($pages as $page)
     <form method="post" action="/admin/legal-pages/{{ $page->slug }}" class="card settings-layout" data-legal-editor="{{ config('admin.ckeditor_license_key') }}">
         @csrf @method('PATCH')
-        <div class="section-separator"><h2>{{ $page->title }}</h2><p>Public path /{{ $page->slug }}. Use the formatting toolbar or edit the Markdown source.</p></div>
+        <div class="section-separator"><h2>{{ $page->title }}</h2><p><a href="/{{ $page->slug }}">View public page</a>. Use the formatting toolbar or edit the Markdown source.</p></div>
         <div class="field"><label for="{{ $page->slug }}-title">Page title</label><input id="{{ $page->slug }}-title" name="title" maxlength="120" required value="{{ old('_page') === $page->slug ? old('title') : $page->title }}"></div>
         <div class="field"><label for="{{ $page->slug }}-body">Page content</label><textarea id="{{ $page->slug }}-body" name="body" data-legal-body rows="16" maxlength="100000" required>{{ old('_page') === $page->slug ? old('body') : $page->body }}</textarea></div>
         <p class="field-help" data-legal-editor-fallback hidden>Visual editing is unavailable. You can still edit the Markdown below the page title.</p>

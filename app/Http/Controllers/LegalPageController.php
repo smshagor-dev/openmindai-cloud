@@ -6,6 +6,7 @@ use App\Services\AdminSettings;
 use App\Services\TwoFactor;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class LegalPageController
 {
@@ -17,6 +18,24 @@ class LegalPageController
         abort_unless($page, 404);
 
         return ['title' => $page->title, 'body' => $page->body, 'updated_at' => $page->updated_at, 'support_email' => $settings->get('support_email')];
+    }
+
+    public function page(string $slug, AdminSettings $settings)
+    {
+        $page = $this->show($slug, $settings);
+        $html = Str::markdown($page['body'], [
+            'html_input' => 'strip',
+            'allow_unsafe_links' => false,
+            'max_nesting_level' => 25,
+        ]);
+
+        return view('legal-page', [
+            'page' => $page,
+            'html' => $html,
+            'slug' => $slug,
+            'siteName' => $settings->get('site_name'),
+            'frontendUrl' => config('app.frontend_url') ?: '/',
+        ]);
     }
 
     public function edit()

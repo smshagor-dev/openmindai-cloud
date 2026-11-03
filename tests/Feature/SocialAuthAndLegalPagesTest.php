@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\User;
 use App\Notifications\EmailOtpCode;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Notification;
 use Tests\TestCase;
@@ -104,5 +105,19 @@ class SocialAuthAndLegalPagesTest extends TestCase
         $this->actingAs($admin)->patch($url, $input)->assertForbidden();
         $this->withSession(['admin_verified' => true])->patch($url, $input)->assertRedirect('/admin/legal-pages');
         $this->getJson('/api/v1/legal/privacy-policy')->assertOk()->assertJsonPath('title', $input['title'])->assertJsonPath('body', $input['body']);
+    }
+
+    public function test_backend_policy_renders_markdown_without_raw_html_or_unsafe_links(): void
+    {
+        DB::table('legal_pages')->where('slug', 'privacy-policy')->update([
+            'body' => "## Data controls\n\nUse **account settings**.\n\n[Safe link](https://example.org)\n\n<script>alert(1)</script>\n\n[Unsafe](javascript:alert%281%29)",
+        ]);
+        $this->get('/privacy-policy')->assertOk()
+            ->assertSee('<h2>Data controls</h2>', false)
+            ->assertSee('<strong>account settings</strong>', false)
+            ->assertSee('href="https://example.org"', false)
+            ->assertDontSee('<script>', false)
+            ->assertDontSee('href="javascript:', false);
+        $this->get('/terms-and-conditions')->assertOk()->assertSee('Terms and Conditions');
     }
 }
