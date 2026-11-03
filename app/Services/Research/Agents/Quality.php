@@ -42,6 +42,23 @@ class Quality extends BaseAgent
                 return $o;
             }
         }
+        $records = $this->documentRecords($doc);
+        $citedIds = [];
+        foreach ($records as $record) {
+            if (($record['type'] ?? '') === 'citation' && isset($record['attrs']['sourceId'])) {
+                $citedIds[(int) $record['attrs']['sourceId']] = true;
+            }
+        }
+        $referenceCount = count($citedIds);
+        $o['reference_coverage'] = ['distinct_cited_sources' => $referenceCount, 'minimum' => 25];
+        if ($referenceCount < 25) {
+            $o['passed'] = false;
+            $o['issues'][] = [
+                'severity' => 'error',
+                'message' => "The manuscript cites {$referenceCount} distinct sources. Cite at least 25 relevant sources where they support the manuscript.",
+                'agent' => 'citations',
+            ];
+        }
         $o['content_hash'] = $hash;
         $o['similarity'] = ['scope' => 'project_sources_only', 'overlaps' => $overlaps, 'global_check' => 'not_available'];
 
@@ -64,7 +81,7 @@ class Quality extends BaseAgent
         $total = count($documents) * count($evidenceBatches);
         $index = $checkpoint['next'];
         if ($index < $total) {
-            $part = $this->ask($ctx, 'Review the supplied ACTUAL saved manuscript records for coherent sections, methods, citation coverage, unsupported factual/novelty/experimental claims, limitations, disclosure and supplied layout settings. Records retain document paths; long text/evidence fields are contiguous numbered fragments, not omitted content. This is a partial review: do not report missing manuscript sections or missing evidence merely because they occur in another batch. Flag concrete problems visible here. Do not treat supplied evidence as exhaustive or certify global plagiarism freedom. Return passed boolean, issues[{severity:info|warning|error,message,agent}], disclosure.', [
+            $part = $this->ask($ctx, 'Review the supplied ACTUAL saved manuscript records for coherent sections, methods, whether citations support nearby claims, unrelated or redundant citations, unsupported factual/novelty/experimental claims, limitations, disclosure and supplied layout settings. Records retain document paths; long text/evidence fields are contiguous numbered fragments, not omitted content. This is a partial review: do not report missing manuscript sections or missing evidence merely because they occur in another batch. Flag concrete problems visible here. Do not treat supplied evidence as exhaustive or certify global plagiarism freedom. Return passed boolean, issues[{severity:info|warning|error,message,agent}], disclosure.', [
                 'project' => $project,
                 'review_scope' => ['batch' => $index + 1, 'total' => $total, 'partial' => $total > 1, 'document_batches' => count($documents), 'evidence_batches' => count($evidenceBatches)],
                 'document' => $documents[intdiv($index, count($evidenceBatches))],
