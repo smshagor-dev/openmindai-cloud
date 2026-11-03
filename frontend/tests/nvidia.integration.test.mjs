@@ -485,8 +485,10 @@ test("missing model selection defaults to Auto, while explicit choices suppress 
       {message:"Debug my app", expected:"nvidia/nemotron-3-ultra-550b-a55b", tools:true},
       // "latest news" now forces grounded web tools (see web-tool-flow tests).
       {message:"Write a short poem about rain", expected:"nvidia/nemotron-3-ultra-550b-a55b", tools:true},
-      {message:"Outline UAV security risks", expected:"nvidia/nemotron-3-ultra-550b-a55b", tools:true},
-      {message:"Explain photo composition", model_id:-1, expected:config.model},
+      {message:"Rewrite this: UAV security risks are growing", expected:"nvidia/nemotron-3-ultra-550b-a55b", tools:true},
+      {message:"Rewrite this sentence about photo composition", model_id:-1, expected:config.model},
+      // A selected model keeps its model and receives server-side search evidence.
+      {message:"Explain photo composition", model_id:-1, expected:config.model, webSearch:true},
     ]) {
       const f = fixture({providerUrl:"https://backend/api/v1/chat/provider", providerAuthorization:"Bearer user-token"});
       const fetcher = async (url, init) => {
@@ -500,6 +502,7 @@ test("missing model selection defaults to Auto, while explicit choices suppress 
       assert.equal(generation.body.model, scenario.expected);
       const begin = f.calls.find(call => call.url.endsWith("/begin"));
       assert.equal(Boolean(begin.body.conversation_tools), Boolean(scenario.tools));
+      assert.equal(Boolean(begin.body.web_search), Boolean(scenario.webSearch), scenario.message);
       assert.equal(Boolean(generation.body.tools), Boolean(scenario.tools));
       assert.equal(f.calls.some(call => call.url.includes("nvidia.com")), false);
     }
@@ -620,30 +623,4 @@ test("context dependent documents retain native tools even with an explicit text
   assert.ok(provider.body.tools.some(tool=>tool.function.name==="create_artifact"));
   assert.ok(JSON.stringify(provider.body.messages).includes("PRIVATE CONTEXT"));
   assert.equal(f.calls.some(call=>call.url.includes("/media/")),false);
-});
-
-test('web search with requested document creation retains search, reading and the actual file tool when native research is available',async()=>{
-  const f=fixture();let step=0,native=0,output;const actions=[];
-  const source='https://example.org/tree-evidence';
-  const fetcher=async(url,init)=>{
-    const body=JSON.parse(init.body);
-    if(url.endsWith('/chat/frontend/begin')){const r=await f.fetcher(url,init);return Response.json({...await r.json(),blueprint_available:true});}
-    if(url.endsWith('/blueprint')){native++;throw Error('A report must not replace requested file creation');}
-    if(url.endsWith('/tool')){actions.push(body.action);return Response.json(body.action==='search'?{sources:[{url:source,title:'Trees'}]}:{url:source,title:'Trees',read_status:'read',passages:[{id:'p1',text:'Trees absorb carbon dioxide and release oxygen.'}]});}
-    if(url.endsWith('/media/hosted/task/begin')){actions.push('create');return Response.json({id:93});}
-    if(url.endsWith('/media/93/hosted/task/complete')){output=body;return Response.json({id:93,status:'complete'});}
-    if(url.endsWith('/chat/completions')){
-      if(!body.stream)return Response.json({choices:[{message:{content:'Tree report\n\nTrees absorb carbon dioxide.'}}]});
-      const tool=(name,args,id)=>({delta:{tool_calls:[{index:0,id,type:'function',function:{name,arguments:JSON.stringify(args)}}]},finish_reason:'tool_calls'});
-      const choices=[tool('web_search',{query:'Trees evidence'},'s'),tool('read_page',{url:source},'r'),tool('create_artifact',{kind:'document_create',prompt:'Create a tree report from the verified evidence',format:'docx'},'d'),{delta:{content:'The requested document is ready.'},finish_reason:'stop'}];
-      return new Response('data: '+JSON.stringify({choices:[choices[step++]]})+'\n\ndata: [DONE]\n\n',{headers:{'Content-Type':'text/event-stream'}});
-    }
-    return f.fetcher(url,init);
-  };
-  const response=await nvidiaChat(JSON.stringify({message:'Search the web about trees and create a Word document',generation_kind:'document_create',web_search:true,model_id:-4}),'token','https://backend/api/v1',new AbortController().signal,{config,fetcher,pollMs:100000});
-  const text=await response.text();
-  assert.equal(native,0);assert.deepEqual(actions,['search','read','create']);
-  assert.equal(Buffer.from(output.data,'base64').subarray(0,2).toString(),'PK');
-  assert.match(text,/event: artifact/);
-  assert.equal(f.calls.find(c=>c.url.endsWith('/finish')).body.status,'complete');
 });

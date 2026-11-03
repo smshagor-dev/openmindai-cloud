@@ -46,25 +46,42 @@ class WebSearch
         if (in_array($options['time_range'] ?? '', ['day', 'week', 'month', 'year'], true)) {
             $params['time_range'] = $options['time_range'];
         }
+        // Optional "country-language" region (e.g. ru-ru) so local-language sites
+        // are searched for country-specific questions.
+        [$country, $language] = preg_match('/^([a-z]{2})-([a-z]{2})$/', (string) ($options['region'] ?? ''), $region) ? [$region[1], $region[2]] : [null, null];
         $providers = [];
         if (config('models.search_url')) {
-            $providers[] = ['searxng', config('models.search_url'), $params];
+            $providers[] = ['searxng', config('models.search_url'), [...$params, ...($language ? ['language' => $language.'-'.strtoupper($country)] : [])]];
         }
         if (config('web_research.brave_key')) {
-            $providers[] = ['brave', 'https://api.search.brave.com/res/v1/web/search', ['q' => $params['q'], 'count' => 10]];
+            $providers[] = ['brave', 'https://api.search.brave.com/res/v1/web/search', ['q' => $params['q'], 'count' => 10, ...($country ? ['country' => $country, 'search_lang' => $language] : [])]];
         }
         if (config('web_research.google_key') && config('web_research.google_cx')) {
-            $providers[] = ['google', 'https://www.googleapis.com/customsearch/v1', ['q' => $params['q'], 'key' => config('web_research.google_key'), 'cx' => config('web_research.google_cx'), 'num' => 10]];
+            $providers[] = ['google', 'https://www.googleapis.com/customsearch/v1', ['q' => $params['q'], 'key' => config('web_research.google_key'), 'cx' => config('web_research.google_cx'), 'num' => 10, ...($country ? ['gl' => $country, 'hl' => $language] : [])]];
+        }
+        // Official Yandex Search API (XML); anonymous yandex.ru searches are captcha-gated.
+        if (config('web_research.yandex_key') && config('web_research.yandex_folder')) {
+            $domain = $country === 'tr' ? 'com.tr' : (in_array($country, ['ru', 'by', 'kz', 'uz'], true) ? 'ru' : 'com');
+            $providers[] = ['yandex', 'https://yandex.'.$domain.'/search/xml', ['folderid' => config('web_research.yandex_folder'), 'apikey' => config('web_research.yandex_key'), 'query' => $params['q'], 'l10n' => $language ?: 'en', 'sortby' => 'rm', 'filter' => 'moderate', 'groupby' => 'attr=d.mode=deep.groups-on-page=10.docs-in-group=1']];
         }
         if (config('models.public_search_fallback')) {
-            $providers[] = ['bing_rss', 'https://www.bing.com/search', ['q' => $params['q'], 'format' => 'rss']];
-            $providers[] = ['duckduckgo', 'https://html.duckduckgo.com/html/', ['q' => $params['q']]];
+            $providers[] = ['bing_rss', 'https://www.bing.com/search', ['q' => $params['q'], 'format' => 'rss', ...($country ? ['cc' => strtoupper($country), 'setlang' => $language] : [])]];
+            $providers[] = ['duckduckgo', 'https://html.duckduckgo.com/html/', ['q' => $params['q'], ...($country ? ['kl' => $country.'-'.$language] : [])]];
         }
+        // Every available engine is queried and results are merged, so a site
+        // missing from one engine's index can still be found through another.
         $events = [];
+        $merged = [];
+        $deadline = microtime(true) + 20;
         foreach ($providers as [$provider, $url, $queryParams]) {
-            $cooldown = 'web-search:cooldown:'.hash('sha256', $provider.$url.(string) config('web_research.brave_key').(string) config('web_research.google_key'));
+            $cooldown = 'web-search:cooldown:'.hash('sha256', $provider.$url.(string) config('web_research.brave_key').(string) config('web_research.google_key').(string) config('web_research.yandex_key'));
             if (Cache::has($cooldown)) {
                 $events[] = ['provider' => $provider, 'status' => 'cooldown'];
+
+                continue;
+            }
+            if (microtime(true) > $deadline) {
+                $events[] = ['provider' => $provider, 'status' => 'skipped_time_budget'];
 
                 continue;
             }
@@ -98,12 +115,16 @@ class WebSearch
                     } finally {
                         $stream->close();
                     }
-                    $rows = $this->parseResults($provider, $body);
-                    $results = $this->normalize($rows, $options, $query);
-                    if ($results) {
-                        return array_map(fn ($source) => [...$source, 'provider' => $provider, 'retrieved_at' => now()->toIso8601String(), 'provider_events' => [...$events, ['provider' => $provider, 'status' => 'completed', 'attempt' => $attempt]], 'time_filter_applied' => $provider === 'searxng' && isset($params['time_range'])], $results);
+                    $results = $this->normalize($this->parseResults($provider, $body), $query);
+                    $events[] = ['provider' => $provider, 'status' => $results ? 'completed' : 'empty', 'attempt' => $attempt];
+                    foreach ($results as $result) {
+                        if (isset($merged[$result['url']])) {
+                            $merged[$result['url']]['providers'][] = $provider;
+                            $merged[$result['url']]['snippet'] = $merged[$result['url']]['snippet'] ?: $result['snippet'];
+                        } else {
+                            $merged[$result['url']] = [...$result, 'provider' => $provider, 'providers' => [$provider]];
+                        }
                     }
-                    $events[] = ['provider' => $provider, 'status' => 'empty', 'attempt' => $attempt];
                     break;
                 } catch (\Throwable $e) {
                     $events[] = ['provider' => $provider, 'status' => 'unavailable', 'attempt' => $attempt];
@@ -113,7 +134,19 @@ class WebSearch
                 }
             }
         }
-        abort(503, 'Web search is unavailable. No live sources could be retrieved.');
+        if (! $merged) {
+            abort(503, 'Web search is unavailable. No live sources could be retrieved.');
+        }
+        // Rank: matched query terms, agreement between engines, and the requested
+        // year (a "2026" question must not be answered from 2024 pages first).
+        preg_match_all('/\b(?:19|20)\d{2}\b/', $query, $years);
+        $rank = fn (array $result) => $result['score'] + 2 * (count($result['providers']) - 1)
+            + ($years[0] && array_filter($years[0], fn ($year) => preg_match('/(?<!\d)'.$year.'(?!\d)/', urldecode($result['url']).' '.$result['title'].' '.$result['snippet'])) ? 3 : 0);
+        $results = array_values($merged);
+        usort($results, fn ($a, $b) => $rank($b) <=> $rank($a));
+
+        return array_map(fn ($source) => [...array_diff_key($source, ['score' => true]), 'retrieved_at' => now()->toIso8601String(), 'provider_events' => $events, 'time_filter_applied' => in_array('searxng', $source['providers'], true) && isset($params['time_range'])],
+            array_slice($results, 0, min(10, max(1, (int) ($options['limit'] ?? 5)))));
     }
 
     private function parseResults(string $provider, string $body): array
@@ -135,14 +168,21 @@ class WebSearch
         $dom = new \DOMDocument;
         $previous = libxml_use_internal_errors(true);
         try {
-            $loaded = $provider === 'bing_rss'
+            $loaded = in_array($provider, ['bing_rss', 'yandex'], true)
                 ? $dom->loadXML($body, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING)
                 : $dom->loadHTML('<?xml encoding="UTF-8">'.$body, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING);
             if (! $loaded) {
                 return [];
             }
             $rows = [];
-            if ($provider === 'bing_rss') {
+            if ($provider === 'yandex') {
+                // <doc><url/><title/><passages><passage/></passages></doc>; an
+                // <error> response simply has no documents.
+                foreach ($dom->getElementsByTagName('doc') as $doc) {
+                    $passages = array_map(fn ($node) => $node->textContent, iterator_to_array($doc->getElementsByTagName('passage')));
+                    $rows[] = ['url' => $doc->getElementsByTagName('url')->item(0)?->textContent ?? '', 'title' => $doc->getElementsByTagName('title')->item(0)?->textContent ?? '', 'content' => implode(' … ', $passages) ?: ($doc->getElementsByTagName('headline')->item(0)?->textContent ?? '')];
+                }
+            } elseif ($provider === 'bing_rss') {
                 foreach ($dom->getElementsByTagName('item') as $item) {
                     $rows[] = ['url' => $item->getElementsByTagName('link')->item(0)?->textContent ?? '', 'title' => $item->getElementsByTagName('title')->item(0)?->textContent ?? '', 'content' => $item->getElementsByTagName('description')->item(0)?->textContent ?? ''];
                 }
@@ -169,13 +209,14 @@ class WebSearch
         }
     }
 
-    private function normalize(array $rows, array $options, string $query): array
+    private function normalize(array $rows, string $query): array
     {
         // Preserve technical identifiers such as array_map: a generic PHP home
         // page is not relevant evidence for a requested function.
         preg_match_all('/(?<![\pL\pN_])[\pL][\pL\pN]*_[\pL\pN_]+/u', $query, $matches);
         $identifiers = array_map(fn ($term) => str_replace('_', '-', mb_strtolower($term)), $matches[0]);
-        preg_match_all('/[\pL][\pL\pM\pN_]{2,}/u', $query, $words);
+        // Numbers such as model years are topics too: "Pro 2026" is not "Pro 2024".
+        preg_match_all('/[\pL\pN][\pL\pM\pN_]{2,}/u', $query, $words);
         $stop = explode(' ', 'the and for from with that this what when where which how are was were does using use into versus official documentation document search web research read sources source report compare comparing explain write concise detailed include exact url urls page pages evidence limitations information please about findings only then its can not could would should have has their they them you your request');
         $topics = array_values(array_unique(array_diff(array_map('mb_strtolower', $words[0]), $stop)));
         preg_match('/\bsite:([a-z0-9.-]+)/i', $query, $site);
@@ -203,15 +244,19 @@ class WebSearch
             }
             // Reject provider fallback noise rather than treating unrelated pages
             // as research evidence merely because the HTTP request succeeded.
-            if (count($topics) >= 2 && ! array_filter($topics, fn ($term) => str_contains($evidence, str_replace('_', '-', $term)))) {
+            // One shared word is not enough: Bing RSS answers specific product
+            // queries with brand home pages that only match the brand name.
+            $score = count(array_filter($topics, fn ($term) => str_contains($evidence, str_replace('_', '-', $term))));
+            if (count($topics) >= 2 && $score < max(2, (int) ceil(count($topics) / 3))) {
                 continue;
             }
-            $results[$url] = ['title' => $title, 'url' => $url, 'snippet' => $snippet];
-            if (count($results) >= min(10, max(1, (int) ($options['limit'] ?? 5)))) {
+            $results[$url] = ['title' => $title, 'url' => $url, 'snippet' => $snippet, 'score' => $score];
+            if (count($results) >= 10) {
                 break;
             }
         }
 
+        // Scores are kept for ranking across engines; search() removes them.
         return array_values($results);
     }
 }

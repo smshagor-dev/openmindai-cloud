@@ -4,20 +4,15 @@ namespace Tests\Feature;
 
 use App\Models\Conversation;
 use App\Models\Message;
-use App\Models\Research\Task;
 use App\Models\User;
 use App\Services\AdminSettings;
 use App\Services\HostedChatActivity;
-use App\Services\Research\Blueprint;
-use App\Services\Research\Context;
-use App\Services\Research\Orchestrator;
 use App\Services\WebResearch;
 use App\Services\WebSearch;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\RateLimiter;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -203,10 +198,14 @@ class FrontendChatTest extends TestCase
     public function test_native_conversation_tools_use_an_owned_active_lease_without_research_mode(): void
     {
         $this->authenticate();
-        $this->mock(WebSearch::class)->shouldReceive('search')->once()->with('Evidence', ['limit' => 10, 'time_range' => null])->andReturn([]);
+        $search = $this->mock(WebSearch::class);
+        $search->shouldReceive('search')->once()->with('Evidence', ['limit' => 10, 'time_range' => null, 'region' => null])->andReturn([]);
+        $search->shouldReceive('search')->once()->with('Цены', ['limit' => 10, 'time_range' => null, 'region' => 'ru-ru'])->andReturn([]);
         $r = $this->postJson('/api/v1/chat/frontend/begin', ['message' => 'Find evidence', 'conversation_tools' => true], $this->headers())->assertOk();
         $payload = ['ticket' => $r->json('ticket'), 'action' => 'search', 'query' => 'Evidence'];
         $this->postJson('/api/v1/chat/frontend/tool', $payload, $this->headers())->assertOk();
+        $this->postJson('/api/v1/chat/frontend/tool', [...$payload, 'query' => 'Цены', 'region' => 'ru-ru'], $this->headers())->assertOk();
+        $this->postJson('/api/v1/chat/frontend/tool', [...$payload, 'region' => 'russia'], $this->headers())->assertStatus(422);
         $this->assertFalse(Message::findOrFail($r->json('message_id'))->resumable);
         $this->postJson('/api/v1/chat/frontend/finish', ['ticket' => $r->json('ticket'), 'content' => 'Partial', 'status' => 'failed'], $this->headers())->assertOk();
         $this->postJson('/api/v1/chat/frontend/tool', $payload, $this->headers())->assertStatus(409);
@@ -279,43 +278,5 @@ class FrontendChatTest extends TestCase
         $this->postJson('/api/v1/chat/frontend/begin', ['message' => 'New request'], $this->headers())->assertStatus(429);
         $this->postJson('/api/v1/chat/frontend/resume', ['message_id' => $first->json('message_id')], $this->headers())->assertOk();
         $this->assertDatabaseCount('messages', 2);
-    }
-
-    public function test_native_web_search_is_owned_deduplicated_and_resumes_the_same_background_task(): void
-    {
-        $u = $this->authenticate();
-        Queue::fake();
-        $this->mock(Blueprint::class)->shouldReceive('configured')->andReturn(true);
-        $begin = $this->postJson('/api/v1/chat/frontend/begin', ['message' => 'Read the image and search official specifications', 'conversation_tools' => true], $this->headers())->assertOk()->assertJsonPath('blueprint_available', true);
-        $ticket = $begin->json('ticket');
-        $payload = ['ticket' => $ticket, 'action' => 'start', 'question' => 'Visible label Raspberry Pi 5; verify official specifications'];
-        $first = $this->postJson('/api/v1/chat/frontend/blueprint', $payload, $this->headers())->assertOk();
-        $this->postJson('/api/v1/chat/frontend/blueprint', $payload, $this->headers())->assertOk()->assertJsonPath('project_id', $first->json('project_id'));
-        $this->assertDatabaseCount('research_projects', 1);
-        $this->assertDatabaseCount('research_tasks', 1);
-        $task = Task::firstOrFail();
-        $this->assertTrue($task->input['web_search']);
-        app(Orchestrator::class)->expand(new Context($task, 'unused'), []);
-        $this->assertDatabaseCount('research_tasks', 1);
-        $task->update(['status' => 'completed', 'output' => ['report' => 'Official source verified.']]);
-        $this->postJson('/api/v1/chat/frontend/blueprint', ['ticket' => $ticket, 'action' => 'status'], $this->headers())->assertOk()->assertJsonPath('report', 'Official source verified.');
-        $this->postJson('/api/v1/chat/frontend/checkpoint', ['ticket' => $ticket, 'state' => ['stage' => 'writing', 'nativeBlueprint' => true, 'imageObservation' => 'Visible label Raspberry Pi 5', 'imageRequired' => false]], $this->headers())->assertOk();
-        $this->postJson('/api/v1/chat/frontend/finish', ['ticket' => $ticket, 'content' => '', 'status' => 'failed'], $this->headers())->assertOk();
-        $resume = $this->postJson('/api/v1/chat/frontend/resume', ['message_id' => $begin->json('message_id')], $this->headers())->assertOk();
-        $this->postJson('/api/v1/chat/frontend/blueprint', [...$payload, 'ticket' => $resume->json('ticket')], $this->headers())->assertOk()->assertJsonPath('project_id', $first->json('project_id'));
-        $this->assertDatabaseCount('research_tasks', 1);
-        Sanctum::actingAs($this->user());
-        $this->postJson('/api/v1/chat/frontend/blueprint', ['ticket' => $resume->json('ticket'), 'action' => 'status'], $this->headers())->assertStatus(410);
-        Sanctum::actingAs($u);
-        $this->postJson('/api/v1/conversations/'.$begin->json('conversation_id').'/messages/'.$begin->json('message_id').'/stop', [], $this->headers())->assertOk();
-        $this->assertDatabaseHas('research_runs', ['id' => $task->run_id, 'status' => 'cancelled']);
-    }
-
-    public function test_temporary_chat_cannot_create_persisted_native_research(): void
-    {
-        $this->authenticate();
-        $begin = $this->postJson('/api/v1/chat/frontend/begin', ['message' => 'Temporary search', 'temporary' => true], $this->headers())->assertOk()->assertJsonPath('blueprint_available', false);
-        $this->postJson('/api/v1/chat/frontend/blueprint', ['ticket' => $begin->json('ticket'), 'action' => 'start', 'question' => 'Do not persist me'], $this->headers())->assertStatus(409);
-        $this->assertDatabaseCount('research_projects', 0);
     }
 }

@@ -568,3 +568,86 @@ The audit retained three warnings: uncited image observations, an uncited blanke
 PR #87 merged as c7150c267260fba22c58084f9d4b507d233cd02a; production deployment dpl_Ekxf7DZ4WX7NyhRZmxzDyNXqdGTs is READY. All 22 release-head checks passed. Local typecheck and 266 integration tests passed, including optional repair timeout fallback and explicit cancellation. Third uploaded-card acceptance is chat 48/message 144, project 12/task 233, with Raspberry Pi 5 / VISION-942 correctly observed. Its native research is still running and has reached 60 collected sources; final numerical acceptance remains pending.
 
 Preserved the existing search/read/create-artifact path when a user requests an actual generated file. A native text report must not swallow document/image/media creation. The plain image-search path remains unchanged. The new end-to-end regression searches and reads evidence, creates actual DOCX bytes and persists its artifact while the native runtime is available. All 267 frontend integration tests pass.
+
+
+### NVIDIA Deep Researcher (Blueprint) removed — 2026-11-02
+
+At the user's request, the pinned NVIDIA Deep Researcher integration was removed from Research Studio and from chat Web Search. This reverts eac87c9, bc38151, 08fa087, ee9a7dc, a14b7ee, bcb0d75, 8db02b8, 39d18ce, 48454f1, 45cd650, 29a25e4, 3c49379, 17d7961, 35f45ca, e08adfd and 8c4a287. Removed: the `nvidia` Research Studio agent and "NVIDIA Deep Research" button, the Blueprint service, `runtime/nvidia-blueprint`, the internal `internal/blueprint/*` bridge routes, Blueprint gateway limits, readiness reporting, chat `blueprint` lease action, image-before-search observation path, web-answer numeric repair and their tests. Chat Web Search returns to its previous search/read path. The service-worker isolation for mocked browser tests (e9bc5a2) is kept.
+
+The sections above describing Blueprint/native research checkpoints and live acceptance are historical and no longer describe the code. Existing database rows created by earlier native runs (research projects/tasks with agent `nvidia`, message checkpoints with `nativeBlueprint`) are not deleted; the `nvidia` agent is no longer registered, so such tasks cannot be re-run. The deployed production release still contains the removed integration until a new release is deployed. Hosting-side Blueprint runtime files/environment (`RESEARCH_BLUEPRINT_*`) are untouched and are now unused.
+
+
+### Current date and automatic search for time-sensitive product questions — 2026-11-02
+
+Live chats 46/47 showed laptop answers framed as "current (2024–2025)" and a 2026 model described as nonexistent: six of eight answers ran without web search, and models had no current date. Shared chat guidance (backend `MultilingualPrompt`, frontend `withPromptUnderstanding`) now states the current UTC date and forbids treating absence from training data as nonexistence. Auto mode now also searches for product recommendations, prices, purchase/availability, releases and model years from last year onward; explicit "do not search" and code requests remain excluded.
+
+Verified locally: targeted backend tests 35 passed; frontend typecheck and new intent/date tests passed. Full suites: backend failures are only the two existing `python3`-dependent tests; frontend failures are the existing CRLF source-layout test and two tests needing `frontend/.env.example`, which is deleted in this local working tree. Not deployed; no live re-test of the laptop chat has been run.
+
+
+### Web search returned brand pages and older model years — 2026-11-02
+
+Root cause of the remaining "outdated news" mismatch: with no SearXNG/Brave/Google provider in use, the first provider is Bing RSS, which answers specific queries such as "Xiaomi Redmi Book Pro 2026 launch announcement specifications" with generic brand/store pages (live chat 47: mi.com/sg, Wikipedia, Shopee). The relevance filter accepted a result sharing one query word ("xiaomi"), ignored numeric terms such as model years, and so never fell through to DuckDuckGo, which returns the actual 2026 coverage.
+
+`WebSearch` now counts numeric terms, requires at least two (and for long queries a third of) query terms per result, ranks results by matched terms, and treats a provider whose results never mention a requested year as a fallback while trying the next provider. Regression tests cover brand-page noise, 2024-vs-2026 mismatch, and keeping year-mismatched results only when no provider matches. A real local run against live Bing/DuckDuckGo returned 2026 launch coverage, Russian retailer listings and 2026 battery-life rankings. Full backend suite: only the two existing `python3`-dependent failures. Not deployed.
+
+
+### Cross-checked answers, regional search, site icons and no fixed tool budget — 2026-11-02
+
+At the user's request, chat answers are cross-checked against live web sources by default (Auto and selected models). Search is skipped only for greetings/small talk, code, generation (image/file/3D), rewriting/translating/summarizing the user's own text, creative writing, arithmetic, attached-file questions and explicit "do not search". The native tool loop no longer has the 12-call budget or 8-round cap; it stops when six consecutive tool calls add no new evidence (loop guard), on user Stop, or when search is exhausted. Before answering it must read pages from at least two different websites when the search found them (sign-in walls excluded), and instructions require newest dated sources, disclosed disagreements and no "does not exist" claims without sources. `web_search` accepts an optional country-language region (e.g. `ru-ru`) passed to SearXNG/Brave/Google/Bing/DuckDuckGo. Selected-model quick search now reads every returned result instead of three. The research activity card shows website icons (DuckDuckGo icon service, globe fallback) for every site found or read, and in live reading lines and the timeline.
+
+Verified locally: real region search returned Russian retailers (Avito, Ozon) for the 2026 model; icon row rendered in dark/light at 390px. Frontend typecheck passed; integration suite 259/262 (remaining: CRLF layout test and two tests needing the locally deleted `frontend/.env.example`). Backend: only the existing `python3`-dependent failures. Not verified with a real NVIDIA model run; latency and provider usage per answer increase because most answers now search and read several pages. Not deployed.
+
+
+### ChatGPT/Claude-style answer design and mobile UI fixes — 2026-11-02
+
+Search activity is now one compact line above the answer (stacked site icons; shimmering "Reading ozon.ru" while running, "Searched N sites" when done) that expands into a guide-lined detail view with site chips, stages and timeline. Inline citations are chips with site icon and domain plus a hover/focus preview card (title, snippet). The three preview cards under answers are replaced by a "Sources" button with stacked icons; the sources drawer shows site icons and becomes a bottom sheet on phones. Answer typography has calmer spacing and rounded, content-width tables. Also included: mobile composer controls stay on one row (model name truncates, Tools label icon-only below 380px), the brand name stays beside the header icon on narrow screens, and saved chats/research projects open with an animated conversation skeleton.
+
+Verified with a temporary preview page (removed) rendering the real components: 390px dark and 900px light, hover card, bottom sheet and expanded details, no page errors or horizontal overflow. Frontend typecheck passed; integration suite 259/262 (remaining failures are the existing CRLF layout test and two tests needing the locally deleted `frontend/.env.example`). Not verified with a live logged-in chat; not deployed.
+
+
+### Multi-engine merged search and Yandex Search API — 2026-11-02
+
+`WebSearch` no longer stops at the first engine with results: it queries every available engine (SearXNG, Brave, Google CSE, Yandex, Bing RSS, DuckDuckGo) within a 20-second budget, keeps each engine's retry/cooldown handling, merges results by canonical URL with a `providers` list, and ranks by matched query terms, cross-engine agreement and the requested year (year-mismatched pages are kept but ranked last). Yandex is added through the official Yandex Cloud Search API XML interface (`YANDEX_SEARCH_API_KEY`, `YANDEX_SEARCH_FOLDER_ID`); anonymous yandex.ru/Yahoo searches are captcha/bot-gated and are not scraped. Region `ru`/`by`/`kz`/`uz` uses yandex.ru, `tr` yandex.com.tr, others yandex.com.
+
+Tests: merge/agreement ranking and Yandex XML parsing/parameters with fakes; WebResearchTest now blocks stray HTTP (two earlier tests had silently reached real DuckDuckGo). A full-suite run with stray HTTP blocked everywhere showed only the existing `python3` failures. Real local run without a Yandex key: Russian query returned Avito, Ozon, Dikotech, mi.moscow, ximion.ru and Yandex Market listings; Yandex itself is unverified until a key is configured. Not deployed.
+
+
+### Code blocks with inline HTML preview; desktop responsiveness check — 2026-11-02
+
+Code blocks in answers have a compact header (language, Code | Preview toggle for HTML/SVG, Copy, Expand), no line wrapping with horizontal scrolling, 13px/12px monospace, and long code (over 24 lines) collapsed behind "Show all N lines". HTML/SVG previews render inline in the same sandboxed iframe and CSP as before (scripts only, no network, forms or parent access), with a Desktop/Mobile (375px) width switch on larger screens; Expand opens the dialog. Syntax colours now also follow the system dark theme, not only an explicit dark choice.
+
+Verified with a temporary preview page (removed): 1280px dark and 390px light code/preview/collapse, plus home page at 1024/1366/1920px with no horizontal overflow or page errors. Frontend typecheck passed; integration suite 259/262 (same three environmental failures). Not verified in a live logged-in chat; not deployed.
+
+
+### Answer tables on PC — 2026-11-03
+
+Tables inherited `overflow-wrap: anywhere` from answer text, so on PC wide tables were squeezed into the reading column and words split mid-word ("MacBoo|k", "Ryze|n"). Table cells now keep words whole with sensible minimum widths (text 7em, right-aligned numbers unwrapped, max 40em), use tabular digits and a subtle row hover; wide tables scroll inside their rounded frame with the first column pinned and divided, plus a right-edge shadow while more columns are hidden.
+
+Verified with a temporary preview page (removed) at 1024/1366/1920px and 390px, dark and light: no page overflow, 10-column table scrolls (750/866px) with the first column pinned when scrolled. Frontend typecheck passed; integration suite 259/262 (same three environmental failures). Not deployed.
+
+
+### Research Studio responsive check and project header — 2026-11-03
+
+Audited the list and Chat, Overview, Live agents, Literature, Manuscript, Export and Settings views at 360, 768, 1366 and 1920px with a real signed-in account (local frontend against the live API): no horizontal page overflow at any width. The project header was the visible problem: long titles filled 4–5 lines (about 300px on a 360px phone), the status showed raw `awaiting_approval`, and pause/resume/cancel were faint lowercase text. The title is now clamped to two lines (full title on hover), status falls back to a readable label in a pill, only the run actions that apply are shown as buttons (primary Start research), and the meta line is hidden on phones. Measured header height: 111px at 360px, 110px at 1366px. Frontend typecheck passed; integration suite 259/262 (same three environmental failures). Not deployed.
+
+
+### Live cPanel end-to-end run and Research Studio fixes — 2026-11-03
+
+Live run on the deployed cPanel backend (deployed release, not this branch) through the chat frontend with the test account: readiness reported reasoning verified, worker available, `infrastructure_ready: true`. Project 14 ("E2E validation 2026-11-03") was created (201), its run queued (201) and all 27 tasks (planning, 9 discovery, 5 investigation, 2 literature, 2 verification, gaps, experiments, editor, manuscript, citations, quality, collaboration, integrity) completed through the cPanel cron lanes in about 13 minutes with no failed task. The automatic delivery produced all five formats (PDF 61 KB, DOCX 17.5 KB, LaTeX ZIP, BibTeX, Markdown 29 KB); each downloaded with HTTP 200 and the correct file signature. Integrity gates: experiment passed; evidence and manuscript not passed, so only drafts are exportable. One poll returned HTTP 429 whose JSON included `exception`, `file`, `line` and `trace`, indicating `APP_DEBUG` is enabled in production; it should be disabled on the server.
+
+Found and fixed: a manual export after completion was empty (81-byte Markdown) because it used the saved editor document, while the generated manuscript remains an unaccepted proposal. Manual export now uses the current proposal when nothing has been saved (always as a draft, so no gate is bypassed) and refuses an empty manuscript with a clear message; covered by two new tests. The Manuscript view now shows a "Generated manuscript draft ready — Review draft" banner (the review button was hidden in collapsed tools). Design: view links (`?view=`) were overridden by a repeated URL-restore effect in development; recent-research rows are left-aligned two-line titles; sidebar project names end with an ellipsis; manual exports are grouped as "Your exports" buttons labelled e.g. "PDF · draft" instead of the contradictory "validated … draft". Checked at 390px and 1366px with the real account. Backend delivery/studio tests pass except the existing `python3` converter test; frontend typecheck passed; integration 259/262 (same environmental failures). Not deployed.
+
+
+### Research Studio professional design pass — 2026-11-03
+
+Research tools in the sidebar have icons and compact rows; cards use tighter padding, 15px headings and muted 13px body text, and nested cards render as sections instead of boxes; buttons and file inputs inside cards/canvases share one control style; delivery and export downloads have download icons and consistent sizes; form labels are sentence case; the manuscript toolbar is borderless; the draft-ready banner keeps its button beside the text; the remaining "Download validated file" label for drafts is now "Download file (N KB)" (browser test updated). Checked at 1366px and 390px with the real account. Frontend typecheck passed; integration 259/262 (same environmental failures). Not deployed.
+
+
+### Chat image-generation progress animation — 2026-11-03
+
+The image creation card now has a shimmering "Creating image" title, a grainy canvas that develops top-down to the server-reported milestone with a glowing scan line at the edge (CSS transitions between milestones), a compact percentage chip and a "Step N of 3" caption. The percentage remains exactly the backend-reported workflow milestone (8/28/90/100); no time-based estimate was added, keeping the existing honesty test. The card follows light/dark theme. Checked stages and a live 28→90 transition at 1366px dark and 390px light. Frontend typecheck passed; integration 259/262 (same environmental failures). Not deployed.
+
+
+### Live agents dependency view made responsive — 2026-11-03
+
+The Live agents graph was a fixed 770px SVG with a pixel height and 100% width, so browsers scaled it down and centred it (large empty area, tiny text, clipped rows, crossing edges from wrapped levels). It is now a staged pipeline: status summary, numbered dependency stages joined by a vertical connector, and task chips in a wrapping grid with status dots (running pulses); repeated agents are numbered; selecting a chip shows its prerequisites. Checked with the live 27-task project at 1366px (three columns) and 390px (two columns). Frontend typecheck passed; integration 259/262 (same environmental failures). Not deployed.

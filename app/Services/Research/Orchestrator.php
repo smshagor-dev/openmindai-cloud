@@ -46,20 +46,6 @@ class Orchestrator
 
     public function expand(Context $ctx, array $out): void
     {
-        if ($ctx->task->agent === 'nvidia') {
-            if (! empty($ctx->task->input['web_search'])) {
-                return;
-            }
-            $run = $ctx->run();
-            $verification = $this->task($run, 'nvidia-verification', 'verification', [], [$ctx->task->id]);
-            $literature = $this->task($run, 'nvidia-literature', 'literature', [], [$ctx->task->id]);
-            $previous = $this->task($run, 'nvidia-manuscript', 'manuscript', [], [$verification->id, $literature->id]);
-            foreach (['citations', 'quality', 'collaboration', 'integrity'] as $agent) {
-                $previous = $this->task($run, 'nvidia-'.$agent, $agent, [], [$previous->id]);
-            }
-
-            return;
-        }
         if ($ctx->task->agent !== 'planning') {
             return;
         }$r = $ctx->run();

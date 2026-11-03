@@ -14,7 +14,6 @@ use App\Models\Memory;
 use App\Models\Project;
 use App\Models\ScheduledTask;
 use App\Models\TaskRun;
-use App\Services\ChatBlueprint;
 use App\Services\UserSettings;
 use App\Services\WebSearch;
 use Illuminate\Http\Request;
@@ -206,9 +205,6 @@ class WorkspaceController
         $c = Conversation::where('user_id', $r->user()->id)->findOrFail($id);
         $m = $c->messages()->where('role', 'assistant')->where('status', 'generating')->findOrFail($message);
         Cache::put('stop-message:'.$m->id, true, 180);
-        if (! empty($m->inference_checkpoint['blueprint_project_id'])) {
-            app(ChatBlueprint::class)->handle($m->id, $r->user()->id, 'cancel');
-        }
 
         return ['message' => 'Stop requested.'];
     }

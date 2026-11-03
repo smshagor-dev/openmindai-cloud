@@ -2,7 +2,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowUpRight,
-  BookOpen,
   ChevronRight,
   FileText,
   Search,
@@ -19,6 +18,7 @@ import {
 } from "@/lib/research-sources";
 import ResponseMarkdown from "./response-markdown";
 import ResearchActivity from "./research-activity";
+import SiteIcon from "./site-icon";
 import Dialog from "./dialog";
 import "./research-sources.css";
 const emptySources: Source[] = [];
@@ -92,55 +92,22 @@ export default function ResearchResponse({
         statusLabel={statusLabel}
       />
       {safeSources.length > 0 && (
-        <div className="web-source-summary" aria-label="Answer sources">
-          <div className="web-source-summary-heading">
-            <span>
-              <BookOpen size={14} />
-              {safeSources.length}{" "}
-              {safeSources.length === 1 ? "source" : "sources"}
-              <small>{evidenceCount(read, "page")} read</small>
-            </span>
-            <button
-              type="button"
-              onClick={() => openSource()}
-              aria-label="View all sources"
-            >
-              View all
-              <ChevronRight size={14} />
-            </button>
-          </div>
-          <div className="web-source-preview-grid">
-            {safeSources.slice(0, 3).map((source, index) => (
-              <button
-                type="button"
-                className="web-source-preview"
-                key={source.url}
-                onClick={() => openSource(source)}
-                aria-label={`Inspect source ${source.citation || index + 1}: ${source.title}`}
-              >
-                <span className="web-source-domain">
-                  <span className="web-domain-icon" aria-hidden="true">
-                    {sourceDomain(source).slice(0, 1).toUpperCase()}
-                  </span>
-                  {sourceDomain(source)}
-                  <span className="web-source-number">
-                    {source.citation || index + 1}
-                  </span>
-                </span>
-                <strong dir="auto">{source.title}</strong>
-                <small>
-                  {source.read_status === "read"
-                    ? source.mime === "application/pdf"
-                      ? "PDF passages"
-                      : "Page inspected"
-                    : source.read_status === "unavailable"
-                      ? "Page unavailable"
-                      : "Search excerpt"}
-                </small>
-              </button>
-            ))}
-          </div>
-        </div>
+        <button
+          type="button"
+          className="web-sources-button"
+          onClick={() => openSource()}
+          aria-label={`View ${evidenceCount(safeSources.length, "source")}, ${evidenceCount(read, "page")} read`}
+        >
+          <span className="web-site-stack" aria-hidden="true">
+            {[...new Map(safeSources.map((source) => [sourceDomain(source), source])).values()]
+              .slice(0, 4)
+              .map((source) => (
+                <span key={source.url}><SiteIcon url={source.url} size={14} /></span>
+              ))}
+          </span>
+          Sources
+          <small>{safeSources.length}</small>
+        </button>
       )}
       {drawer && (
         <Dialog
@@ -215,9 +182,11 @@ export default function ResearchResponse({
                       aria-expanded={expanded}
                       onClick={() => setSelected(expanded ? null : source.url)}
                     >
-                      <span className="web-source-record-index">{number}</span>
+                      <span className="web-source-record-index" aria-hidden="true">
+                        <SiteIcon url={source.url} size={16} />
+                      </span>
                       <span>
-                        <small>{sourceDomain(source)}</small>
+                        <small>{number} · {sourceDomain(source)}</small>
                         <strong dir="auto">{source.title}</strong>
                         <span className="web-source-state">
                           {source.read_status === "read"

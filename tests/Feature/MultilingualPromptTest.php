@@ -25,6 +25,16 @@ class MultilingualPromptTest extends TestCase
         $this->assertSame('system', $messages[0]['role']);
     }
 
+    public function test_saved_chat_context_states_the_current_date(): void
+    {
+        $this->travelTo(now()->setDate(2026, 11, 2));
+        $user = User::create(['name' => 'Date test', 'email' => 'date@example.com', 'password' => 'StrongPassword123']);
+        $messages = app(ChatContext::class)->build($user, null, 'Is the Redmi Book Pro 2026 out?');
+
+        $this->assertStringContainsString('Current date: 2026-11-02 (UTC)', $messages[0]['content']);
+        $this->assertStringContainsString('does not exist only because it is absent from your training', $messages[0]['content']);
+    }
+
     public function test_guidance_is_added_once_without_changing_message_roles_or_content(): void
     {
         foreach (['¿Puedes revisar este código?', 'هل يمكنك شرح هذا؟', '请帮我检查这个函数', 'ami ekta report chai'] as $prompt) {

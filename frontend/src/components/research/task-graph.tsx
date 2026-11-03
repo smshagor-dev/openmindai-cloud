@@ -1,6 +1,11 @@
 "use client";
 import { useMemo, useState } from "react";
 import type { Row } from "@/lib/research";
+
+const title = (agent: string) => agent.charAt(0).toUpperCase() + agent.slice(1).replaceAll("_", " ");
+
+// Tasks grouped by dependency depth and laid out as responsive stages: chips
+// wrap to the panel width, so the graph stays readable on phones and desktops.
 export default function TaskGraph({
   tasks,
   dependencies,
@@ -9,7 +14,7 @@ export default function TaskGraph({
   dependencies: Row[];
 }) {
   const [selected, setSelected] = useState<number | null>(null);
-  const layout = useMemo(() => {
+  const stages = useMemo(() => {
     const byId = new Map(tasks.map((t) => [t.id, t]));
     const levels = new Map<number, number>();
     const level = (id: number, path = new Set<number>()): number => {
@@ -28,110 +33,69 @@ export default function TaskGraph({
     };
     tasks.forEach((t) => level(t.id));
     const groups: Row[][] = [];
-    tasks.forEach((t) => {
-      const depth = levels.get(t.id)!;
-      (groups[depth] ||= []).push(t);
-    });
-    let y = 30;
-    const nodes: Row[] = [];
-    for (const group of groups) {
-      if (!group) continue;
-      group.forEach((t, i) =>
-        nodes.push({
-          ...t,
-          x: 20 + (i % 4) * 185,
-          y: y + Math.floor(i / 4) * 90,
-        }),
-      );
-      y += Math.ceil(group.length / 4) * 90 + 35;
-    }
-    return { nodes, height: Math.max(160, y) };
+    tasks.forEach((t) => (groups[levels.get(t.id)!] ||= []).push(t));
+    return groups.filter(Boolean);
   }, [tasks, dependencies]);
+  const counts = useMemo(
+    () => tasks.reduce<Record<string, number>>((all, t) => ({ ...all, [t.status]: (all[t.status] || 0) + 1 }), {}),
+    [tasks],
+  );
   const chosen = tasks.find((t) => t.id === selected);
-  const color = (status: string) =>
-    ({
-      running: "#86dbc8",
-      completed: "#6caa91",
-      failed: "#e4a0a0",
-      cancelled: "#8a96a3",
-    })[status as "running"] || "#607289";
   if (!tasks.length) return null;
+  const stageName = (group: Row[]) => {
+    const agents = [...new Set(group.map((t) => title(String(t.agent))))];
+    return agents.length <= 2 ? agents.join(" & ") : `${agents.slice(0, 2).join(", ")} +${agents.length - 2}`;
+  };
   return (
-    <section className="rs-card">
+    <section className="rs-card rs-task-graph" aria-label="Research task dependency graph">
       <h2>Execution dependencies</h2>
-      <p>
-        Each node is a persisted task. Select a node to inspect its current
-        state and prerequisites.
-      </p>
-      <div style={{ overflow: "auto", maxHeight: 480 }}>
-        <svg
-          role="group"
-          aria-label="Research task dependency graph"
-          viewBox={`0 0 770 ${layout.height}`}
-          style={{ width: "100%", minWidth: 590, height: layout.height }}
-        >
-          {dependencies.map((d) => {
-            const a = layout.nodes.find((t) => t.id === d.depends_on),
-              b = layout.nodes.find((t) => t.id === d.task_id);
-            return a && b ? (
-              <path
-                key={d.task_id + "-" + d.depends_on}
-                d={`M${a.x + 80},${a.y + 55} C${a.x + 80},${a.y + 85} ${b.x + 80},${b.y - 25} ${b.x + 80},${b.y}`}
-                fill="none"
-                stroke="#607289"
-                strokeWidth={1.2}
-              />
-            ) : null;
-          })}
-          {layout.nodes.map((t) => (
-            <g
-              key={t.id}
-              role="button"
-              tabIndex={0}
-              aria-label={`${t.agent}: ${t.status}`}
-              onClick={() => setSelected(t.id)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  setSelected(t.id);
-                }
-              }}
-              style={{ cursor: "pointer" }}
-            >
-              <rect
-                x={t.x}
-                y={t.y}
-                width={165}
-                height={55}
-                rx={8}
-                fill="var(--panel2)"
-                stroke={color(t.status)}
-                strokeWidth={selected === t.id ? 3 : 1}
-              />
-              <text x={t.x + 12} y={t.y + 21} fill="var(--text)" fontSize={12}>
-                {t.agent}
-              </text>
-              <text
-                x={t.x + 12}
-                y={t.y + 41}
-                fill={color(t.status)}
-                fontSize={11}
-              >
-                {t.status}
-              </text>
-            </g>
-          ))}
-        </svg>
+      <p>Tasks run stage by stage; each stage waits for the one above. Select a task to see its prerequisites.</p>
+      <div className="rs-task-summary">
+        <span>{tasks.length} tasks</span>
+        {Object.entries(counts).map(([status, n]) => (
+          <span key={status} className={`rs-task-count rs-task-${status}`}>
+            <i aria-hidden="true" />{n} {status}
+          </span>
+        ))}
       </div>
+      <ol className="rs-task-stages">
+        {stages.map((group, index) => (
+          <li key={index} className="rs-task-stage">
+            <div className="rs-task-stage-head">
+              <span className="rs-task-stage-index">{index + 1}</span>
+              <strong>{stageName(group)}</strong>
+              {group.length > 1 && <small>×{group.length}</small>}
+            </div>
+            <div className="rs-task-chips">
+              {group.map((t) => {
+                // Number repeated agents within a stage so chips stay distinguishable.
+                const same = group.filter((other) => other.agent === t.agent);
+                const name = title(String(t.agent)) + (same.length > 1 ? ` ${same.indexOf(t) + 1}` : "");
+                return (
+                <button
+                  key={t.id}
+                  type="button"
+                  className={`rs-task-chip rs-task-${t.status}${selected === t.id ? " selected" : ""}`}
+                  aria-pressed={selected === t.id}
+                  aria-label={`${name}: ${t.status}`}
+                  onClick={() => setSelected(selected === t.id ? null : t.id)}
+                >
+                  <i aria-hidden="true" />
+                  <span>{name}</span>
+                  <small>{t.status}</small>
+                </button>
+                );
+              })}
+            </div>
+          </li>
+        ))}
+      </ol>
       {chosen && (
-        <p>
-          <strong>{chosen.key}</strong> · {chosen.status} · Dependencies:{" "}
+        <p className="rs-task-detail" role="status">
+          <strong>{chosen.key}</strong> · {chosen.status} · Depends on:{" "}
           {dependencies
             .filter((d) => d.task_id === chosen.id)
-            .map(
-              (d) =>
-                tasks.find((t) => t.id === d.depends_on)?.key || d.depends_on,
-            )
+            .map((d) => tasks.find((t) => t.id === d.depends_on)?.key || d.depends_on)
             .join(", ") || "None"}
         </p>
       )}

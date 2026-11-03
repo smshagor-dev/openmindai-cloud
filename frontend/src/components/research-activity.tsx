@@ -16,6 +16,7 @@ import {
   activeResearchOperations,
   evidenceCount,
 } from "@/lib/research-sources";
+import SiteIcon, { siteHost } from "./site-icon";
 import "./research-activity.css";
 const stages = [
   ["planning", "Plan"],
@@ -50,75 +51,86 @@ export default function ResearchActivity({
   const web = metadata.mode === "web_search";
   const checked =
     metadata.audit?.filter((a) => a.status !== "passage_match") || [];
+  // One icon per website; a site counts as read if any of its pages was read.
+  const sites = [...sources.reduce((all, source) => {
+    const host = siteHost(source.url);
+    if (host) all.set(host, { url: source.url, read: all.get(host)?.read || source.read_status === "read" });
+    return all;
+  }, new Map<string, { url: string; read: boolean }>())].sort((a, b) => Number(b[1].read) - Number(a[1].read));
+  const pagesRead = sources.filter((source) => source.read_status === "read").length;
+  // One compact line, as in ChatGPT/Claude: what is happening now, or a summary.
+  const live = active.at(-1) || latest;
+  const liveHost = siteHost(live?.url);
+  const siteCount = `${sites.length} ${sites.length === 1 ? "site" : "sites"}`;
+  const line = running
+    ? liveHost
+      ? `Reading ${liveHost}`
+      : live?.query
+        ? `Searching “${live.query}”`
+        : live?.label || (web ? "Searching the web" : "Researching your question")
+    : web
+      ? metadata.status === "failed"
+        ? "Web search interrupted"
+        : metadata.status === "cancelled"
+          ? "Web search stopped"
+          : sites.length
+            ? `Searched ${siteCount}${metadata.status === "partial" ? " · limited evidence" : ""}`
+            : "Searched the web"
+      : metadata.status === "complete"
+        ? `Research report ready${sites.length ? ` · ${siteCount}` : ""}`
+        : metadata.status === "paused"
+          ? "Research paused · resume available"
+          : metadata.status === "partial"
+            ? "Report ready · evidence gaps remain"
+            : metadata.status === "failed"
+              ? "Research interrupted"
+              : metadata.status === "cancelled"
+                ? "Research stopped"
+                : "Researching your question";
   return (
-    <section className="web-investigation" aria-label="Research activity">
+    <section className={`web-investigation${expanded ? " expanded" : ""}`} aria-label="Research activity">
       <button
         type="button"
         className="web-investigation-heading"
         aria-expanded={expanded}
         onClick={() => setExpanded((v) => !v)}
       >
-        <span
-          className={running ? "web-research-mark active" : "web-research-mark"}
-        >
-          {running ? (
-            <Search size={16} />
-          ) : metadata.status === "complete" ? (
-            <Check size={16} />
-          ) : (
-            <BookOpen size={16} />
-          )}
-        </span>
-        <span>
-          <span className="web-research-mode">
-            {web
-              ? "Web search"
-              : metadata.mode === "deep_research"
-                ? "Deep research"
-                : "Research"}
+        {sites.length > 0 ? (
+          <span className="web-site-stack" aria-hidden="true">
+            {(running && liveHost ? [[liveHost, { url: live!.url! }] as const, ...sites.filter(([host]) => host !== liveHost)] : sites)
+              .slice(0, 4)
+              .map(([host, site]) => (
+                <span key={host}><SiteIcon url={site.url} size={14} /></span>
+              ))}
           </span>
-          <strong>
-            {web
-              ? metadata.status === "complete"
-                ? "Searched the web"
-                : metadata.status === "failed"
-                  ? "Web search interrupted"
-                  : metadata.status === "cancelled"
-                    ? "Web search stopped"
-                    : metadata.status === "partial"
-                      ? "Search complete · limited evidence"
-                      : "Searching the web"
-              : metadata.status === "complete"
-                ? "Research report ready"
-                : metadata.status === "paused"
-                  ? "Research paused · resume available"
-                  : metadata.status === "partial"
-                    ? "Report ready · evidence gaps remain"
-                    : metadata.status === "failed"
-                      ? "Research interrupted"
-                      : metadata.status === "cancelled"
-                        ? "Research stopped"
-                        : "Researching your question"}
-          </strong>
-          <small>
-            {running
-              ? `${evidenceCount(sources.length, "source")} collected · ${evidenceCount(sources.filter((source) => source.read_status === "read").length, "page")} read`
-              : `${evidenceCount(sources.length, "source")} · ${evidenceCount(sources.filter((s) => s.read_status === "read").length, "page")} read${checked.length ? ` · ${checked.length} checks need review` : ""}`}
-          </small>
+        ) : (
+          <span className={running ? "web-research-mark active" : "web-research-mark"} aria-hidden="true">
+            {running ? <Search size={14} /> : metadata.status === "complete" ? <Check size={14} /> : <BookOpen size={14} />}
+          </span>
+        )}
+        <span className={running ? "web-investigation-line shimmer-text" : "web-investigation-line"} dir="auto" aria-live={running ? "polite" : undefined}>
+          {line}
         </span>
-        <ChevronDown size={15} className={expanded ? "rotated" : ""} />
+        <ChevronDown size={15} className={expanded ? "rotated" : ""} aria-hidden="true" />
       </button>
-      {running && (
-        <div className="web-research-current" aria-live="polite">
-          <span className="web-research-live-dot" />
-          {active.length > 1
-            ? `${active.length} requests running in parallel`
-            : latest?.label || "Preparing research"}
-          {active.slice(-3).map((event) => (
-            <p key={event.operation_id} dir="auto">
-              {event.query || event.url}
-            </p>
-          ))}
+      {expanded && (
+        <div className="web-research-summary">
+          <small>
+            {web ? "Web search" : metadata.mode === "deep_research" ? "Deep research" : "Research"} ·{" "}
+            {evidenceCount(sources.length, "source")} · {evidenceCount(pagesRead, "page")} read
+            {checked.length ? ` · ${checked.length} checks need review` : ""}
+            {running && active.length > 1 ? ` · ${active.length} requests in parallel` : ""}
+          </small>
+          {sites.length > 0 && (
+            <ul className="web-research-sites" aria-label="Websites checked">
+              {sites.map(([host, site]) => (
+                <li key={host} className={site.read ? "read" : ""} title={site.read ? "Page read" : "Search result"}>
+                  <SiteIcon url={site.url} size={14} />
+                  {host}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
       {expanded && (
@@ -177,7 +189,7 @@ export default function ResearchActivity({
                   {e.phase === "searching" ? (
                     <Search size={13} />
                   ) : e.phase === "reading" ? (
-                    <Globe size={13} />
+                    e.url ? <SiteIcon url={e.url} size={13} /> : <Globe size={13} />
                   ) : (
                     <ShieldCheck size={13} />
                   )}

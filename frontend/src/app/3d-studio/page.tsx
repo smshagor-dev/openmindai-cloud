@@ -2,6 +2,8 @@
 import WorkspaceWelcome from "@/components/workspace-welcome";
 import StudioFrame from "@/components/studio-frame";
 import TypingIndicator from "@/components/typing-indicator";
+import CreationProgress from "@/components/creation-progress";
+import type { DepthProgress } from "@/lib/image-depth-mesh";
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import {
@@ -93,6 +95,9 @@ export default function StudioPage() {
     [engineParams, setEngineParams] = useState<Record<string, unknown>>({}),
     [jobId, setJobId] = useState<string | null>(null),
     [selectedAsset, setSelectedAsset] = useState<Asset | null>(null),
+    [meshPending, setMeshPending] = useState(false),
+    [relief, setRelief] = useState<{ asset: Asset; bytes: ArrayBuffer } | null>(null),
+    [reliefProgress, setReliefProgress] = useState<DepthProgress | null>(null),
     [panel, setPanel] = useState<"create" | "assets">("create"),
     [interactive, setInteractive] = useState(false);
   const pending = useRef(false);
@@ -190,6 +195,33 @@ export default function StudioPage() {
         upload_ids: selectedUploads,
       });
       let result;
+      // No hosted/GPU mesh engine: turn the image into a depth relief on this device.
+      const reliefImage = route.reason === "procedural_fallback"
+        ? references.find((r) => selectedUploads.includes(r.id) && r.mime.startsWith("image/"))
+        : undefined;
+      if (reliefImage) {
+        setReliefProgress({ stage: "download", percent: 0 });
+        try {
+          const original = await fetch(`/api/backend/3d-scenes/uploads/${reliefImage.id}`, { cache: "no-store" });
+          if (!original.ok) throw new Error("Could not read the reference image.");
+          const { imageToReliefGlb } = await import("@/lib/image-depth-mesh");
+          const bytes = await imageToReliefGlb(await original.blob(), setReliefProgress);
+          const asset: Asset = {
+            id: -Date.now(), parent_id: null, project_id: null, kind: "mesh", format: "glb", bytes: bytes.byteLength,
+            name: `${reliefImage.name.replace(/\.[^.]+$/, "") || "image"}-relief.glb`,
+            metadata: { source: "browser-depth" },
+          };
+          setRelief({ asset, bytes });
+          setSelectedAsset(asset);
+          setPanel("create");
+          setPrompt("");
+          submission.current = null;
+        } finally {
+          setReliefProgress(null);
+        }
+        pending.current = false;
+        return;
+      }
       if (route.output === "scene") {
         result = await workbenchApi("/jobs/scene", "POST", {
           request_key: requestKey,
@@ -215,6 +247,24 @@ export default function StudioPage() {
         );
         if (!image)
           throw new Error("Add an image reference for this engine.");
+        if (route.output === "hosted_mesh") {
+          // NVIDIA-hosted image to 3D: one direct request returns the saved GLB asset.
+          setMeshPending(true);
+          try {
+            const created = await workbenchApi("/jobs/image-model", "POST", {
+              request_key: requestKey,
+              upload_id: image.id,
+            });
+            setSelectedAsset(created.asset as Asset);
+            setPanel("create");
+            setPrompt("");
+            submission.current = null;
+          } finally {
+            setMeshPending(false);
+          }
+          pending.current = false;
+          return;
+        }
         result = await workbenchApi("/jobs", "POST", {
           request_key: requestKey,
           engine: route.engine,
@@ -437,9 +487,31 @@ export default function StudioPage() {
                 Loading your scene…
               </p>
             )}
-            {selectedAsset ? (
+            {meshPending || reliefProgress ? (
+              <div className="studio-result studio-mesh-pending">
+                <CreationProgress
+                  kind="3D model"
+                  localPercent={reliefProgress?.stage === "download" ? reliefProgress.percent : null}
+                  localLabel={
+                    !reliefProgress
+                      ? null
+                      : reliefProgress.stage === "download"
+                        ? "Loading the depth AI (first time only, about 27 MB)"
+                        : reliefProgress.stage === "prepare"
+                          ? "Starting the depth AI on this device"
+                          : reliefProgress.stage === "depth"
+                          ? "Estimating depth on this device"
+                          : "Building the 3D relief"
+                  }
+                />
+              </div>
+            ) : selectedAsset ? (
               <div className="studio-result">
-                <AssetViewport key={selectedAsset.id} asset={selectedAsset} />
+                <AssetViewport
+                  key={selectedAsset.id}
+                  asset={selectedAsset}
+                  local={relief?.asset.id === selectedAsset.id ? relief.bytes : undefined}
+                />
               </div>
             ) : saved ? (
               <div className="studio-result">
@@ -738,8 +810,11 @@ export default function StudioPage() {
                 </div>
               )}
               <p className="composer-note">
-                Each generation is saved to Your scenes. Models use basic shapes;
-                dimensions are illustrative.
+                {selectedAsset && relief?.asset.id === selectedAsset.id
+                  ? "Depth relief made on this device from your image. Front-facing (2.5D); download the GLB to keep it."
+                  : selectedAsset
+                  ? "Image-to-3D meshes are generated by NVIDIA TRELLIS and saved to Assets; review shape and scale before use."
+                  : "Each generation is saved to Your scenes. Models use basic shapes; dimensions are illustrative."}
               </p>
             </div>
           </>

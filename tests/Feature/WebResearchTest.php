@@ -16,6 +16,13 @@ class WebResearchTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+        // Every engine is queried; an engine a test does not fake must never reach the internet.
+        Http::preventStrayRequests();
+    }
+
     public function test_search_deduplicates_tracking_links_and_rejects_unsafe_results(): void
     {
         config(['models.search_url' => 'https://search.example/search', 'models.public_search_fallback' => false]);
@@ -63,6 +70,49 @@ class WebResearchTest extends TestCase
         $this->assertCount(1, $sources);
         $this->assertSame('duckduckgo', $sources[0]['provider']);
         $this->assertSame('https://www.php.net/manual/en/function.array-map.php', $sources[0]['url']);
+    }
+
+    public function test_brand_home_pages_do_not_satisfy_a_specific_product_year_query(): void
+    {
+        config(['models.search_url' => null, 'models.public_search_fallback' => true]);
+        Http::fake([
+            'www.bing.com/*' => Http::response('<rss><channel><item><title>Xiaomi Singapore | Xiaomi Official Website</title><link>https://www.mi.com/sg/</link><description>Discover the latest Xiaomi Phones, Redmi Phones and more.</description></item><item><title>Redmi - Wikipedia</title><link>https://en.wikipedia.org/wiki/Redmi</link></item><item><title>Xiaomi Book Pro 14 (2024) review</title><link>https://example.org/xiaomi-book-pro-14-2024</link></item></channel></rss>'),
+            'html.duckduckgo.com/*' => Http::response('<a class="result__a" href="https://www.notebookcheck.net/Xiaomi-RedmiBook-Pro-14-2026.1310010.0.html">Xiaomi RedmiBook Pro 14 2026 - Notebookcheck</a><a class="result__a" href="https://www.mi.com/global/">Xiaomi Global</a><a class="result__a" href="https://example.org/redmi-book-pro-16-2026-launch-specifications">Redmi Book Pro 16 2026 launch and specifications</a>'),
+        ]);
+        $sources = app(WebSearch::class)->search('Xiaomi Redmi Book Pro 2026 launch announcement specifications');
+
+        $this->assertSame('duckduckgo', $sources[0]['provider']);
+        // 2026 coverage ranks first; the 2024 review from another engine is kept, but last.
+        $this->assertSame(['https://example.org/redmi-book-pro-16-2026-launch-specifications', 'https://www.notebookcheck.net/Xiaomi-RedmiBook-Pro-14-2026.1310010.0.html', 'https://example.org/xiaomi-book-pro-14-2024'], array_column($sources, 'url'));
+        $this->assertArrayNotHasKey('score', $sources[0]);
+    }
+
+    public function test_region_targets_local_language_results_on_public_providers(): void
+    {
+        config(['models.search_url' => null, 'models.public_search_fallback' => true]);
+        Http::fake([
+            'www.bing.com/*' => Http::response('<rss><channel></channel></rss>'),
+            'html.duckduckgo.com/*' => Http::response('<a class="result__a" href="https://mi.moscow/product/redmi-book-pro-14-2026">Redmi Book Pro 14 2026 купить</a>'),
+        ]);
+        $sources = app(WebSearch::class)->search('Redmi Book Pro 2026 купить', ['region' => 'ru-ru']);
+
+        $this->assertSame('https://mi.moscow/product/redmi-book-pro-14-2026', $sources[0]['url']);
+        Http::assertSent(fn ($request) => str_contains($request->url(), 'bing.com') && $request['cc'] === 'RU' && $request['setlang'] === 'ru');
+        Http::assertSent(fn ($request) => str_contains($request->url(), 'duckduckgo.com') && $request['kl'] === 'ru-ru');
+    }
+
+    public function test_year_mismatched_results_remain_available_when_no_engine_has_the_year(): void
+    {
+        config(['models.search_url' => null, 'models.public_search_fallback' => true]);
+        Http::fake([
+            'www.bing.com/*' => Http::response('<rss><channel><item><title>Redmi Book Pro 14 2024 review</title><link>https://example.org/redmi-book-pro-14-2024</link></item></channel></rss>'),
+            'html.duckduckgo.com/*' => Http::response(''),
+        ]);
+        $sources = app(WebSearch::class)->search('Redmi Book Pro 2027 specifications');
+
+        $this->assertSame('https://example.org/redmi-book-pro-14-2024', $sources[0]['url']);
+        $this->assertSame('bing_rss', $sources[0]['provider']);
+        $this->assertSame(['bing_rss:completed', 'duckduckgo:empty'], array_map(fn ($event) => $event['provider'].':'.$event['status'], $sources[0]['provider_events']));
     }
 
     public function test_unrelated_search_noise_falls_through_to_relevant_official_sources(): void
@@ -168,12 +218,33 @@ class WebResearchTest extends TestCase
         Http::fake([
             'https://search.example/*' => Http::response('private error', 503),
             'https://www.bing.com/search*' => Http::response('<rss><channel><item><title>Primary evidence</title><link>https://example.org/paper?utm_source=bing</link><description>Useful summary</description></item></channel></rss>', 200, ['Content-Type' => 'application/rss+xml']),
+            'html.duckduckgo.com/*' => Http::response(''),
         ]);
         $sources = app(WebSearch::class)->search('Evidence', ['time_range' => 'week']);
         $this->assertSame('https://example.org/paper', $sources[0]['url']);
         $this->assertSame('bing_rss', $sources[0]['provider']);
         $this->assertFalse($sources[0]['time_filter_applied']);
-        Http::assertSentCount(3);
+        // SearXNG twice (retry), then every public engine is queried and merged.
+        Http::assertSentCount(4);
+        $this->assertStringNotContainsString('private error', json_encode($sources));
+    }
+
+    public function test_results_from_every_engine_are_merged_and_cross_engine_agreement_ranks_first(): void
+    {
+        config(['models.search_url' => null, 'models.public_search_fallback' => true, 'web_research.yandex_key' => 'test-key', 'web_research.yandex_folder' => 'folder-1']);
+        Http::fake([
+            'yandex.ru/search/xml*' => Http::response('<?xml version="1.0" encoding="utf-8"?><yandexsearch><response><results><grouping><group><doc><url>https://mi.moscow/redmi-book-pro-16-2026</url><title>Redmi Book Pro 16 2026 купить</title><passages><passage>Redmi Book Pro 16 2026 в наличии</passage></passages></doc></group><group><doc><url>https://www.ozon.ru/product/redmi-book-pro-2026</url><title>Redmi Book Pro 2026 Ozon</title></doc></group></grouping></results></response></yandexsearch>'),
+            'www.bing.com/*' => Http::response('<rss><channel><item><title>Redmi Book Pro 2026 on Ozon</title><link>https://www.ozon.ru/product/redmi-book-pro-2026</link></item></channel></rss>'),
+            'html.duckduckgo.com/*' => Http::response('<a class="result__a" href="https://www.notebookcheck.net/Redmi-Book-Pro-2026.html">Redmi Book Pro 2026 review</a>'),
+        ]);
+        $sources = app(WebSearch::class)->search('Redmi Book Pro 2026', ['region' => 'ru-ru', 'limit' => 10]);
+
+        $this->assertSame('https://www.ozon.ru/product/redmi-book-pro-2026', $sources[0]['url']);
+        $this->assertSame(['yandex', 'bing_rss'], $sources[0]['providers']);
+        $this->assertEqualsCanonicalizing(['https://www.ozon.ru/product/redmi-book-pro-2026', 'https://mi.moscow/redmi-book-pro-16-2026', 'https://www.notebookcheck.net/Redmi-Book-Pro-2026.html'], array_column($sources, 'url'));
+        $this->assertSame('Redmi Book Pro 16 2026 в наличии', collect($sources)->firstWhere('url', 'https://mi.moscow/redmi-book-pro-16-2026')['snippet']);
+        Http::assertSent(fn ($request) => str_contains($request->url(), 'yandex.ru/search/xml') && $request['folderid'] === 'folder-1' && $request['query'] === 'Redmi Book Pro 2026' && $request['l10n'] === 'ru');
+        $this->assertStringNotContainsString('test-key', json_encode($sources));
     }
 
     public function test_quick_search_reads_pages_and_preserves_unavailable_source_status(): void

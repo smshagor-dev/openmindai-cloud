@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   PROMPT_UNDERSTANDING_INSTRUCTIONS,
   PROMPT_UNDERSTANDING_MARKER,
+  currentDateContext,
   withPromptUnderstanding,
 } from "../src/lib/prompt-understanding.ts";
 
@@ -42,6 +43,15 @@ test("older conversations with no system message gain guidance without losing co
   assert.equal(result.length, previous.length+1);
   assert.equal(result[0].role, "system");
   assert.deepEqual(result.slice(1), previous);
+});
+
+test("guidance states the current date so training-era knowledge is not presented as current", () => {
+  const today = new Date().toISOString().slice(0, 10);
+  assert.match(currentDateContext(), new RegExp("Current date: " + today));
+  assert.match(currentDateContext(new Date("2026-11-02T23:00:00Z")), /Current date: 2026-11-02 \(UTC\)/);
+  assert.ok(currentDateContext().includes("does not exist only because it is absent from your training"));
+  const result = withPromptUnderstanding([{role:"user",content:"Is the 2026 model out?"}]);
+  assert.match(result[0].content, new RegExp("Current date: " + today));
 });
 
 test("backend-provided language guidance is not duplicated", () => {

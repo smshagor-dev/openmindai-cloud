@@ -893,3 +893,210 @@
   display: flex;
   flex-direction: column;
 }
+
+/* Project header: two-line title, status pill and only the applicable run
+   actions as real buttons; compact on phones so the conversation keeps room. */
+.rs-chat .rs-project-header h1 {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  max-width: min(640px, 100%);
+  line-height: 1.35;
+}
+.rs-chat .rs-project-header .rs-status {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--ui-hover, #2f2f2f);
+  color: var(--text);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.rs-chat .rs-status-running { background: color-mix(in srgb, #3b82f6 22%, transparent); }
+.rs-chat .rs-status-completed { background: color-mix(in srgb, #22c55e 22%, transparent); }
+.rs-chat :is(.rs-status-failed, .rs-status-cancelled) { background: color-mix(in srgb, #ef4444 22%, transparent); }
+.rs-chat .rs-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.rs-chat .rs-actions button {
+  padding: 6px 14px;
+  border: 1px solid var(--border, #444);
+  border-radius: 999px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+}
+.rs-chat .rs-actions button:hover:not(:disabled) { background: var(--ui-hover, #2f2f2f); }
+.rs-chat .rs-actions .rs-action-primary { background: var(--text); color: var(--bg); border-color: var(--text); }
+.rs-chat .rs-actions .rs-action-primary:hover:not(:disabled) { background: var(--text); opacity: 0.88; }
+@media (max-width: 760px) {
+  .rs-chat .rs-project-header { padding: 10px 14px; gap: 8px; min-height: 0; }
+  .rs-chat .rs-project-header h1 { font-size: 14px; flex: 1 1 100%; }
+  .rs-chat .rs-project-meta { display: none; }
+  .rs-chat .rs-progress-row { margin-left: auto; }
+}
+
+/* Generated draft waiting for review, shown at the top of the Manuscript view. */
+.rs-chat .rs-proposal-ready {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 16px;
+  flex-wrap: wrap;
+  border-color: color-mix(in srgb, #3b82f6 45%, var(--border, #444));
+  background: color-mix(in srgb, #3b82f6 10%, var(--panel, #2a2a2a));
+}
+.rs-chat .rs-proposal-ready strong { display: block; font-size: 14px; }
+.rs-chat .rs-proposal-ready p { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
+.rs-chat .rs-proposal-ready button { padding: 8px 16px; border-radius: 999px; border: 1px solid var(--text); background: var(--text); color: var(--bg); font-weight: 600; cursor: pointer; }
+.rs-chat .rs-proposal-ready button:disabled { opacity: 0.5; cursor: default; }
+
+/* Recent research rows: left-aligned two-line titles with fixed-size icons. */
+.rs-chat .rs-recent-projects > button { align-items: center; gap: 12px; text-align: left; color: var(--text); font-size: 13px; }
+.rs-chat .rs-recent-projects > button > svg { flex: 0 0 auto; }
+.rs-chat .rs-recent-projects > button > span {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  line-height: 1.4;
+}
+.rs-chat .rs-recent-projects > button:hover { background: var(--ui-hover, #2f2f2f); }
+/* Sidebar project names end with an ellipsis instead of being cut mid-letter. */
+.rs-chat .history-list .history-title { display: block; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+/* Manual exports: grouped, styled like the delivery download buttons. */
+.rs-export-files { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 6px; }
+.rs-export-files h3 { flex-basis: 100%; margin: 0 0 2px; font-size: 13px; font-weight: 600; }
+.rs-export-files a, .rs-export-pending {
+  display: inline-flex; align-items: center; padding: 8px 13px; border: 1px solid var(--border, #444);
+  border-radius: 10px; color: var(--text); font-size: 13px; text-decoration: none;
+}
+.rs-export-files a:hover { background: var(--ui-hover, #2f2f2f); }
+.rs-export-pending { color: var(--muted); border-style: dashed; }
+
+/* ---------------------------------------------------------------------------
+   Professional pass: calmer cards, one control style, sentence-case labels,
+   icon navigation and a quiet editor toolbar. Scoped to Research Studio.
+   --------------------------------------------------------------------------- */
+.rs .rs-canvas-content { padding: 20px; }
+.rs .rs-canvas-header { min-height: 52px; padding: 10px 16px 10px 20px; }
+.rs .rs-canvas-header h2 { font-size: 14px; font-weight: 600; letter-spacing: -0.1px; }
+
+.rs .rs-card {
+  padding: 20px 22px;
+  margin: 0 0 14px;
+  border-radius: 14px;
+  box-shadow: 0 1px 2px #00000010;
+}
+.rs .rs-card h2 { font-size: 15px; font-weight: 600; letter-spacing: -0.1px; margin: 0 0 6px; }
+.rs .rs-card h3 { font-size: 13.5px; font-weight: 600; margin: 16px 0 6px; }
+.rs .rs-card p { font-size: 13px; line-height: 1.6; color: var(--muted); margin: 0 0 10px; }
+.rs .rs-card p :is(strong, b) { color: var(--text); font-weight: 600; }
+/* A card nested in a card is a section, not another box. */
+.rs .rs-card .rs-card { padding: 0; margin: 16px 0 0; border: 0; background: transparent; box-shadow: none; }
+
+/* One control style inside cards and canvases. */
+.rs :is(.rs-card, .rs-canvas-content) :is(button, .rs-file):not(.rs-action-primary):not(.rs-primary) {
+  min-height: 34px;
+  padding: 7px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 500;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.rs :is(.rs-card, .rs-canvas-content) :is(button, .rs-file):not(.rs-action-primary):not(.rs-primary):hover:not(:disabled) {
+  background: var(--panel2);
+  border-color: color-mix(in srgb, var(--line) 55%, var(--text) 30%);
+}
+.rs .rs-primary { border-color: var(--text); border-radius: 10px; font-weight: 600; }
+.rs .rs-card > button { margin: 4px 6px 4px 0; }
+
+/* Downloads: icon + label, same size as other controls. */
+.rs .rs-download-links { gap: 8px; }
+.rs .rs-download-links a, .rs .rs-export-files a {
+  display: inline-flex; align-items: center; gap: 7px; min-height: 34px; padding: 7px 13px;
+  border-radius: 10px; font-size: 13px; font-weight: 500;
+}
+.rs .rs-download-links a:hover { background: var(--panel2); }
+.rs .rs-download-links span { font-size: 12.5px; }
+
+/* Form fields: sentence-case labels, consistent inputs. */
+.rs label { font-size: 12.5px; font-weight: 500; margin: 12px 0; }
+.rs label::first-letter { text-transform: uppercase; }
+.rs :is(input:not([type="checkbox"]), textarea, select) {
+  margin-top: 6px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  color: var(--text);
+  transition: border-color 0.15s ease;
+}
+.rs :is(input:not([type="checkbox"]), textarea, select):focus { border-color: color-mix(in srgb, var(--line) 30%, var(--text) 60%); }
+
+/* Stat tiles. */
+.rs .rs-stats .rs-card h2, .rs .rs-stats .rs-card p:first-child { font-size: 12px; font-weight: 500; color: var(--muted); }
+.rs .rs-stats { gap: 12px; }
+
+/* Sidebar research tools: compact rows with icons. */
+.rs-sidebar-tools .history-title { display: flex; align-items: center; gap: 10px; padding: 6px 12px; font-size: 13.5px; }
+.rs-sidebar-tools .history-title svg { flex: 0 0 auto; color: var(--muted); }
+.rs-sidebar-tools .history-item.active .history-title svg { color: var(--text); }
+.rs-sidebar-tools .history-title span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+
+/* Editor toolbar: quiet buttons, borders only on hover. */
+.rs .rs-toolbar { gap: 2px; padding: 6px; }
+.rs .rs-toolbar button:not(.rs-primary) {
+  min-height: 30px; padding: 4px 10px; border: 1px solid transparent; border-radius: 8px;
+  background: transparent; font-size: 12.5px; font-weight: 500;
+}
+.rs .rs-toolbar button:not(.rs-primary):hover:not(:disabled) { background: var(--panel2); }
+/* Toolbar and banner refinements (higher specificity than the card control rule). */
+.rs .rs-canvas-content .rs-toolbar button:not(.rs-primary):not(.rs-action-primary) {
+  min-height: 30px; padding: 4px 10px; border-color: transparent; border-radius: 8px; background: transparent; font-size: 12.5px;
+}
+.rs .rs-canvas-content .rs-toolbar button:not(.rs-primary):not(.rs-action-primary):hover:not(:disabled) { background: var(--panel2); border-color: transparent; }
+.rs .rs-proposal-ready > div { flex: 1 1 260px; min-width: 0; }
+.rs .rs-proposal-ready p { margin: 2px 0 0; }
+.rs details.rs-card { padding: 12px 18px; }
+.rs details.rs-card > summary { cursor: pointer; font-size: 13px; font-weight: 500; }
+.rs details.rs-card[open] > summary { margin-bottom: 10px; }
+
+/* Live agents: responsive staged pipeline instead of a scaled SVG. */
+.rs .rs-task-summary { display: flex; flex-wrap: wrap; gap: 8px 14px; margin: 4px 0 16px; font-size: 12.5px; color: var(--muted); }
+.rs .rs-task-count { display: inline-flex; align-items: center; gap: 6px; text-transform: capitalize; }
+.rs .rs-task-stages { list-style: none; margin: 0; padding: 0; }
+.rs .rs-task-stage { position: relative; padding: 0 0 18px 36px; }
+.rs .rs-task-stage::before { content: ""; position: absolute; left: 11px; top: 26px; bottom: 2px; width: 2px; border-radius: 1px; background: var(--line); }
+.rs .rs-task-stage:last-child { padding-bottom: 0; }
+.rs .rs-task-stage:last-child::before { display: none; }
+.rs .rs-task-stage-head { display: flex; align-items: center; gap: 8px; min-height: 24px; margin-bottom: 8px; }
+.rs .rs-task-stage-index {
+  position: absolute; left: 0; top: 0; display: grid; place-items: center; width: 24px; height: 24px;
+  border-radius: 50%; background: var(--panel2); font-size: 11.5px; font-weight: 600;
+}
+.rs .rs-task-stage-head strong { font-size: 13px; font-weight: 600; }
+.rs .rs-task-stage-head small { color: var(--muted); font-size: 12px; }
+.rs .rs-task-chips { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.rs .rs-canvas-content .rs-task-chips .rs-task-chip {
+  display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 8px; row-gap: 1px;
+  align-items: center; justify-content: stretch; min-height: 0; padding: 8px 11px; text-align: left;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--bg);
+}
+.rs .rs-task-chip > i { grid-row: 1 / span 2; }
+.rs .rs-task-chip span { font-size: 12.5px; font-weight: 500; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.rs .rs-task-chip small { font-size: 11px; color: var(--muted); }
+.rs .rs-canvas-content .rs-task-chips .rs-task-chip.selected { border-color: var(--text); box-shadow: 0 0 0 1px var(--text) inset; }
+/* Status dots: completed green, running blue (pulsing), failed red, waiting grey. */
+.rs :is(.rs-task-chip, .rs-task-count) > i { width: 8px; height: 8px; border-radius: 50%; background: #8a96a3; }
+.rs .rs-task-completed > i { background: #22c55e; }
+.rs .rs-task-running > i { background: #3b82f6; animation: rs-task-pulse 1.4s ease-in-out infinite; }
+.rs :is(.rs-task-failed, .rs-task-cancelled) > i { background: #ef4444; }
+.rs .rs-task-queued > i { background: #eab308; }
+.rs .rs-task-detail { margin: 14px 0 0; padding: 10px 12px; border-radius: 10px; background: var(--panel2); color: var(--text); overflow-wrap: anywhere; }
+@keyframes rs-task-pulse { 50% { box-shadow: 0 0 0 5px color-mix(in srgb, #3b82f6 25%, transparent); } }
+@media (prefers-reduced-motion: reduce) { .rs .rs-task-running > i { animation: none; } }
+@media (max-width: 480px) { .rs .rs-task-chips { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); } }

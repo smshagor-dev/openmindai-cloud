@@ -1,17 +1,48 @@
 "use client";
 import WorkspaceWelcome from "../workspace-welcome";
 import StudioFrame from "../studio-frame";
+import ConversationSkeleton from "../conversation-skeleton";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  Activity,
   BookOpen,
   CheckCircle2,
   ChevronRight,
+  Download,
+  FileSearch,
+  FileText,
   FlaskConical,
+  Globe,
+  History,
   LayoutDashboard,
+  Library,
+  type LucideIcon,
   PanelRight,
+  Quote,
+  Settings,
+  ShieldCheck,
   SquarePen,
+  Target,
+  Users,
   X,
 } from "lucide-react";
+
+const viewIcons: Record<string, LucideIcon> = {
+  Overview: LayoutDashboard,
+  "Live agents": Activity,
+  "Web activity": Globe,
+  Literature: Library,
+  "PDF reader": FileSearch,
+  "Research gaps": Target,
+  Experiments: FlaskConical,
+  Manuscript: FileText,
+  Citations: Quote,
+  "Quality review": ShieldCheck,
+  Collaboration: Users,
+  Export: Download,
+  History: History,
+  Settings: Settings,
+};
 import {
   api,
   Row,
@@ -214,6 +245,7 @@ export default function ResearchStudio() {
   const [settings, setSettings] = useState<Row>({});
   const dirty = useRef(false);
   const chatDrafts = useRef<Record<string, string>>({});
+  const urlRestored = useRef(false);
   const setView = useCallback((next: string) => {
     if (dirty.current) {
       setError("Save or back up your manuscript before leaving the canvas.");
@@ -268,6 +300,10 @@ export default function ResearchStudio() {
     void list().catch((e) => {
       if (!/sign in|unauthenticated/i.test(e.message)) setError(e.message);
     });
+    // Read the link once: a repeated effect run (React StrictMode) would
+    // otherwise read back the URL the sync effect below already rewrote.
+    if (urlRestored.current) return;
+    urlRestored.current = true;
     const u = new URL(window.location.href);
     const project = Number(u.searchParams.get("project"));
     if (project > 0) setId(project);
@@ -552,7 +588,9 @@ export default function ResearchStudio() {
     data?.run?.plan?.output_language,
   );
   const label = (status: string) =>
-    statusLabels[languageCode(lang)]?.[status] || status;
+    statusLabels[languageCode(lang)]?.[status] ||
+    // No translation (e.g. English/auto): "awaiting_approval" → "Awaiting approval".
+    status.charAt(0).toUpperCase() + status.slice(1).replaceAll("_", " ");
   const fileInput = (kind: string, accept: string) => (
     <label className="rs-file">
       Upload {kind}
@@ -633,20 +671,24 @@ export default function ResearchStudio() {
               <span className="section-label">Research tools</span>
               {views
                 .filter((v) => v !== "Chat")
-                .map((v) => (
-                  <div
-                    key={v}
-                    className={`history-item ${view === v ? "active" : ""}`}
-                  >
-                    <button
-                      className="history-title"
-                      aria-current={view === v ? "page" : undefined}
-                      onClick={() => setView(v)}
+                .map((v) => {
+                  const Icon = viewIcons[v] || BookOpen;
+                  return (
+                    <div
+                      key={v}
+                      className={`history-item ${view === v ? "active" : ""}`}
                     >
-                      {v}
-                    </button>
-                  </div>
-                ))}
+                      <button
+                        className="history-title"
+                        aria-current={view === v ? "page" : undefined}
+                        onClick={() => setView(v)}
+                      >
+                        <Icon size={16} aria-hidden="true" />
+                        <span>{v}</span>
+                      </button>
+                    </div>
+                  );
+                })}
             </div>
           )}
           <div className="history-list">
@@ -803,58 +845,55 @@ export default function ResearchStudio() {
             )}
           </section>
         ) : !data ? (
-          <div role="status">Loading research project…</div>
+          <ConversationSkeleton label="Loading research project…" />
         ) : (
           <>
             <div className="rs-project-header">
-              <h1 dir="auto">{p.title}</h1>
+              <h1 dir="auto" title={p.title}>{p.title}</h1>
               <p className="rs-project-meta">
                 Progress language: {lang} · Manuscript: {manuscriptLanguage} ·
                 Role: {p.role}
               </p>
-              <span className="rs-status">{label(p.status)}</span>
+              <span className={`rs-status rs-status-${p.status}`}>{label(p.status)}</span>
               <div className="rs-progress-row">
+                {/* Only the actions that apply to the current run are shown. */}
                 <div className="rs-actions">
-                  <button
-                    disabled={
-                      !editable ||
-                      busy ||
-                      ["running", "paused"].includes(data.run?.status)
-                    }
-                    onClick={() =>
-                      void act(
-                        () => api(`projects/${id}/runs`, "POST", {}),
-                        "Research queued",
-                      )
-                    }
-                  >
-                    Start research
-                  </button>
-                  <button disabled={!editable || busy || ["running","paused"].includes(data.run?.status)} onClick={()=>void component("nvidia")}>NVIDIA Deep Research</button>
-                  {["pause", "resume", "cancel"].map((action) => (
+                  {!["running", "paused"].includes(data.run?.status) && (
                     <button
-                      key={action}
-                      disabled={
-                        !editable ||
-                        busy ||
-                        !data.run ||
-                        (action === "resume"
-                          ? !["paused", "failed", "cancelled"].includes(
-                              data.run.status,
-                            )
-                          : data.run.status !== "running")
-                      }
+                      className="rs-action-primary"
+                      disabled={!editable || busy}
                       onClick={() =>
                         void act(
-                          () =>
-                            api(`projects/${id}/control`, "POST", { action }),
-                          action + " requested",
+                          () => api(`projects/${id}/runs`, "POST", {}),
+                          "Research queued",
                         )
                       }
                     >
-                      {action}
+                      Start research
                     </button>
-                  ))}
+                  )}
+                  {["pause", "resume", "cancel"]
+                    .filter((action) =>
+                      data.run &&
+                      (action === "resume"
+                        ? ["paused", "failed", "cancelled"].includes(data.run.status)
+                        : data.run.status === "running"),
+                    )
+                    .map((action) => (
+                      <button
+                        key={action}
+                        disabled={!editable || busy}
+                        onClick={() =>
+                          void act(
+                            () =>
+                              api(`projects/${id}/control`, "POST", { action }),
+                            action + " requested",
+                          )
+                        }
+                      >
+                        {action.charAt(0).toUpperCase() + action.slice(1)}
+                      </button>
+                    ))}
                 </div>
               </div>
             </div>
@@ -1482,6 +1521,23 @@ export default function ResearchStudio() {
                     )}
                     {view === "Manuscript" && (
                       <>
+                        {/* The run's draft is only a proposal until reviewed; make it visible. */}
+                        {!proposal &&
+                          latest("manuscript")?.base_version === data.document.version && (
+                            <section className="rs-card rs-proposal-ready" role="status">
+                              <div>
+                                <strong>Generated manuscript draft ready</strong>
+                                <p>The research run wrote a draft. Review it before it replaces your manuscript.</p>
+                              </div>
+                              <button
+                                className="rs-action-primary"
+                                disabled={!editable}
+                                onClick={() => setProposal(latest("manuscript"))}
+                              >
+                                Review draft
+                              </button>
+                            </section>
+                          )}
                         <details className="rs-card rs-manuscript-tools">
                           <summary>Draft tools & figures</summary>
                           <div className="rs-actions">
@@ -1899,7 +1955,8 @@ export default function ResearchStudio() {
                               <a
                                 href={`/api/backend/research/projects/${id}/exports/${e.id}/download`}
                               >
-                                Download validated file ({e.bytes} bytes)
+                                <Download size={14} aria-hidden="true" />
+                                Download file ({e.bytes >= 1024 ? `${Math.round(e.bytes / 1024)} KB` : `${e.bytes} bytes`})
                               </a>
                             )}
                             {e.error_code && <p>{e.error_code}</p>}

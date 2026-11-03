@@ -2,6 +2,7 @@
 import { isValidElement, useEffect, useMemo } from "react";
 import { useAnimatedText } from "@/hooks/use-animated-text";
 import TypingIndicator from "./typing-indicator";
+import SiteIcon from "./site-icon";
 import CodeBlock from "./code-block";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -63,10 +64,16 @@ export default function ResponseMarkdown({
                   type="button"
                   className="web-inline-citation"
                   aria-label={`Inspect source ${source.citation || sources.indexOf(source) + 1}: ${source.title}`}
-                  title={sourceDomain(source) + " · " + source.title}
                   onClick={() => onSourceOpen(source)}
                 >
-                  {source.citation || sources.indexOf(source) + 1}
+                  <SiteIcon url={source.url} size={12} />
+                  <span className="web-inline-citation-name">{sourceDomain(source)}</span>
+                  {/* Preview card on hover/focus, like ChatGPT and Claude citations. */}
+                  <span className="web-citation-card" aria-hidden="true">
+                    <span className="web-citation-card-site"><SiteIcon url={source.url} size={14} />{sourceDomain(source)}</span>
+                    <strong dir="auto">{source.title}</strong>
+                    {source.snippet && <span dir="auto">{source.snippet.slice(0, 180)}</span>}
+                  </span>
                 </button>
               ) : (
                 <a

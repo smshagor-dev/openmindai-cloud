@@ -4,7 +4,7 @@ const routes: Record<string, RegExp> = {
     `^(3d-scenes/\\d+/revisions|3d-studio/(engines|projects|assets(?:/\\d+/(data|download))?|workflows|jobs(?:/${uuid})?))$`,
   ),
   POST: new RegExp(
-    `^3d-studio/(route|assets(?:/\\d+/restore)?|projects|workflows(?:/run)?|jobs(?:/scene|/${uuid}/cancel)?)$`,
+    `^3d-studio/(route|assets(?:/\\d+/restore)?|projects|workflows(?:/run)?|jobs(?:/scene|/image-model|/${uuid}/cancel)?)$`,
   ),
   PUT: /^(3d-scenes\/\d+|3d-studio\/workflows\/\d+)$/,
   DELETE: /^3d-studio\/assets\/\d+$/,

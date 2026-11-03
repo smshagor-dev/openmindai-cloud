@@ -18,7 +18,6 @@ use App\Models\Research\Source;
 use App\Models\Research\Task;
 use App\Models\User;
 use App\Services\Research\Access;
-use App\Services\Research\Blueprint;
 use App\Services\Research\Deliveries;
 use App\Services\Research\Documents;
 use App\Services\Research\Events;
@@ -116,10 +115,7 @@ class ResearchStudioController
     public function component(Request $r, int $id)
     {
         $p = $this->access($r, $id, ['owner', 'editor']);
-        $d = $r->validate(['agent' => 'required|in:nvidia,question,selection,quality,citations,verification,literature,gaps,editor,manuscript,integrity', 'input' => 'sometimes|array']);
-        if ($d['agent'] === 'nvidia') {
-            abort_unless(app(Blueprint::class)->health()['status'] === 'ready', 503, 'NVIDIA Deep Researcher runtime is not ready.');
-        }
+        $d = $r->validate(['agent' => 'required|in:question,selection,quality,citations,verification,literature,gaps,editor,manuscript,integrity', 'input' => 'sometimes|array']);
         if (isset($d['input']['source_id'])) {
             Source::where('project_id', $id)->findOrFail($d['input']['source_id']);
         }
@@ -377,9 +373,13 @@ class ResearchStudioController
             abort_unless($d['draft'] || $g['passed'], 422, 'Current integrity gates have not passed.');
             abort_if(Export::where('project_id', $id)->count() >= 100, 422, 'Export count limit.');
             $doc = Document::where('project_id', $id)->firstOrFail();
-            $p = Project::findOrFail($id);
-            $snapshot = app(ExportSnapshots::class)->make($id, $doc->content, $doc->version, $d['draft']) + ['format' => $d['format']];
-            $e = Export::create(['project_id' => $id, 'actor_id' => $r->user()->id, 'format' => $d['format'], 'draft' => $d['draft'], 'snapshot' => $snapshot]);
+            // Before the generated manuscript is accepted, export it (as a draft)
+            // rather than an empty saved document.
+            [$content, $source] = Deliveries::exportContent($id, $doc);
+            abort_if(trim(Deliveries::plainText($content)) === '', 422, 'The manuscript is empty. Run the research or write the manuscript before exporting.');
+            $draft = $d['draft'] || $source === 'proposal';
+            $snapshot = app(ExportSnapshots::class)->make($id, $content, $doc->version, $draft) + ['format' => $d['format'], 'content_source' => $source];
+            $e = Export::create(['project_id' => $id, 'actor_id' => $r->user()->id, 'format' => $d['format'], 'draft' => $draft, 'snapshot' => $snapshot]);
             ExportDocument::dispatch($e->id)->onConnection('database')->onQueue('research')->afterCommit();
             Events::add($id, 'export.queued', ['format' => $d['format'], 'status' => 'queued']);
 

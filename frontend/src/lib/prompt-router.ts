@@ -79,6 +79,14 @@ function chooseChatModel(text: string, cfg: RouterConfig, opt: Options): string 
   return cfg.fastModel || cfg.defaultModel || FAST;
 }
 
+const productFreshness = /\b(?:prices?|buy|purchase|in stock|available in|availability|release date|released|launch(?:ed)?|newest|upcoming)\b|দাম|কিনতে|\b(?:dam koto|kinte chai)\b|купить|цена|вышел/iu;
+const productChoice = /\b(?:best|top|which|what|recommend(?:ed)?|compare)\b.{0,40}\b(?:laptops?|notebooks?|phones?|smartphones?|tablets?|tvs?|monitors?|cameras?|gpus?|graphics cards?|cpus?|processors?|headphones|earbuds|smartwatch(?:es)?|cars?)\b/iu;
+// Years from last year onward are likely after the model's training data.
+function recentYear(text: string): boolean {
+  const current = new Date().getUTCFullYear();
+  return [...text.matchAll(/\b(20\d{2})\b/g)].some(([, year]) => Number(year) >= current - 1);
+}
+
 export function researchIntent(text: string, opt: Options = {}): {webSearch?: boolean; deepResearch?: boolean} {
   if (opt.allowTools === false || opt.hasImage) return {};
   if (opt.deepResearch) return {webSearch: true, deepResearch: true};
@@ -87,7 +95,22 @@ export function researchIntent(text: string, opt: Options = {}): {webSearch?: bo
   if (codeIntent.test(text)) return {};
   if (/\b(?:deep research|literature review|systematic review|research with sources|comprehensive research)\b|বিস্তারিত গবেষণা|গভীর গবেষণা|\bdeep research koro\b/iu.test(text)) return {webSearch: true, deepResearch: true};
   if (/\b(?:search (?:the )?(?:web|internet)|look (?:it |this )?up|browse|latest|current price|today's|news today|verify (?:this|the claim))\b|সর্বশেষ|আজকের|ইন্টারনেটে.{0,20}খুঁজ|\b(?:web search|search koro|latest news|ajker khobor|ajker news)\b/iu.test(text)) return {webSearch: true};
-  return {};
+  // Products, prices, availability and recent model years change after the model's training.
+  if (productFreshness.test(text) || productChoice.test(text) || recentYear(text)) return {webSearch: true};
+  // Every other informational request is cross-checked against live sources
+  // before answering; only requests that need no outside facts skip search.
+  if (needsNoLookup(text)) return {};
+  return {webSearch: true};
+}
+
+const smallTalk = /^(?:hi+|hello|hey|yo|hola|salam|assalamu ?alaikum|thanks?|thank you|thx|ty|ok(?:ay)?|yes|yeah|no|nope|sure|great|nice|cool|bye|good (?:morning|afternoon|evening|night)|kemon (?:acho|asen)|ki khobor|ধন্যবাদ|হ্যালো|আসসালামু আলাইকুম|ঠিক আছে|привет|спасибо)[\s!.?,🙂😊👍❤️]*$/iu;
+const ownTextTask = /^(?:(?:please|can you|could you)\s+)?(?:summari[sz]e|rewrite|rephrase|paraphrase|translate|proofread|shorten|expand|fix (?:the |my )?(?:grammar|spelling))\b|(?:বাংলায়|ইংরেজিতে).{0,15}অনুবাদ|^(?:অনুবাদ|সারসংক্ষেপ)|\b(?:bangla|english) koro\b/iu;
+const creative = /\b(?:write|compose|make)\b.{0,25}\b(?:poem|story|song|lyrics|joke|caption|shayari|rap)\b|\b(?:kobita|golpo)\b|কবিতা|গল্প লিখ/iu;
+const arithmetic = /^[\d\s+\-*/().^%=×÷x,]+\??$|^(?:solve|calculate|compute|simplify|differentiate|integrate)\b/iu;
+function needsNoLookup(text: string): boolean {
+  const p = text.trim();
+  return p.length < 4 || smallTalk.test(p) || ownTextTask.test(p) || creative.test(p) || arithmetic.test(p) ||
+    Boolean(generationIntent(p)) || threeDModelIntent(p.toLowerCase());
 }
 
 export async function routePrompt(prompt: string, cfg: RouterConfig, opt: Options = {}): Promise<Route> {
