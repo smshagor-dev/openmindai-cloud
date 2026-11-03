@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { api, type Conversation } from "@/lib/api";
 import Dialog from "./dialog";
+import ShareSnapshot from "./share-snapshot";
 export default function ConversationDialog({
   chat,
   onClose,
@@ -18,7 +19,6 @@ export default function ConversationDialog({
   const [project, setProject] = useState(chat.project_id?.toString() || "");
   const [projects, setProjects] = useState<{ id: number; name: string }[]>([]);
   const [error, setError] = useState("");
-  const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     const controller = new AbortController();
@@ -125,32 +125,7 @@ export default function ConversationDialog({
       </form>
       <hr />
       <h3>Share a snapshot</h3>
-      <p className="muted">
-        Anyone with the link can read this conversation snapshot for 30 days.
-        Later messages aren't included. Review private information before
-        sharing.
-      </p>
-      <button
-        className="secondary-button"
-        disabled={busy || !ready}
-        onClick={() =>
-          void run(async () => {
-            const share = await api<{ token: string }>(
-              `conversations/${chat.id}/share`,
-              "POST",
-            );
-            setUrl(`${location.origin}/share/${share.token}`);
-          })
-        }
-      >
-        Create share link
-      </button>
-      {url && (
-        <label className="share-url">
-          Your link
-          <input value={url} readOnly onFocus={(e) => e.target.select()} />
-        </label>
-      )}
+      <ShareSnapshot endpoint={`conversations/${chat.id}/share`} />
       {error && (
         <p className="feedback error" role="alert">
           {error}

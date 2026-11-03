@@ -168,16 +168,12 @@ class WorkspaceController
         $c = Conversation::where('user_id', $r->user()->id)->findOrFail($id);
         abort_if($c->messages()->count() > 500, 422, 'Share a smaller conversation.');
         $snapshot = ['title' => $c->title, 'messages' => $c->messages()->where('status', 'complete')->orderBy('id')->get(['role', 'content'])->all()];
-        abort_if(strlen(json_encode($snapshot)) > 3000000, 422, 'Conversation is too large to share.');
-        $token = bin2hex(random_bytes(32));
-        $share = ConversationShare::create(['user_id' => $r->user()->id, 'conversation_id' => $id, 'token_hash' => hash('sha256', $token), 'snapshot' => $snapshot, 'expires_at' => now()->addDays(30)]);
-
-        return ['id' => $share->id, 'token' => $token, 'expires_at' => $share->expires_at];
+        return ConversationShare::publish($r->user()->id, $snapshot, ['conversation_id' => $id]);
     }
 
     public function shares(Request $r)
     {
-        return ConversationShare::where('user_id', $r->user()->id)->latest()->get(['id', 'conversation_id', 'created_at', 'expires_at']);
+        return ConversationShare::where('user_id', $r->user()->id)->latest()->get(['id', 'conversation_id', 'research_project_id', 'created_at', 'expires_at']);
     }
 
     public function revokeShare(Request $r, int $id)

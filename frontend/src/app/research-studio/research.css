@@ -275,6 +275,30 @@
 .rs-project-header > p {
   font-size: 12px;
 }
+
+.rs-project-header > .rs-status-running {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.rs-project-header > .rs-status-running::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #22c55e;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .rs-project-header > .rs-status-running::before {
+    animation: rs-running-indicator 1.4s ease-in-out infinite;
+  }
+}
+@keyframes rs-running-indicator {
+  50% {
+    box-shadow: 0 0 0 4px #22c55e40;
+    opacity: 0.65;
+  }
+}
 .rs-progress-row {
   display: flex;
   align-items: center;
@@ -712,3 +736,31 @@ html:has(.rs) {
 }
 
 .rs-download-links{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0}.rs-download-links a{display:inline-block;border:1px solid var(--border,#555);border-radius:12px;padding:9px 12px;color:inherit}.rs-download-links span{color:var(--muted,#aaa);padding:9px}.rs-research-downloads{margin-block:18px;overflow-wrap:anywhere}.rs-download-notifications{margin-top:12px}.rs-download-notifications p{font-size:13px;line-height:1.5}
+
+.rs-task-toast {
+  position: fixed;
+  inset-inline-end: 1rem;
+  bottom: calc(1rem + env(safe-area-inset-bottom));
+  z-index: 60;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  width: min(25rem, calc(100vw - 2rem));
+  padding: 0.9rem 1rem;
+  border: 1px solid #475569;
+  border-radius: 0.8rem;
+  background: #172337;
+  color: #f1f5f9;
+  box-shadow: 0 8px 24px #0004;
+  line-height: 1.45;
+}
+
+.rs-task-toast button {
+  margin-inline-start: auto;
+  padding: 0 0.25rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 1.2rem;
+  cursor: pointer;
+}

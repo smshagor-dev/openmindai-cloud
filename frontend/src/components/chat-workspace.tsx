@@ -37,6 +37,7 @@ import {
   PenLine,
   Search,
   Settings,
+  Share2,
   SquarePen,
   Trash2,
   X,
@@ -50,6 +51,7 @@ import TypingIndicator from "./typing-indicator";
 import ConversationSkeleton from "./conversation-skeleton";
 import ModelPicker from "./model-picker";
 import Dialog from "./dialog";
+import ShareSnapshot from "./share-snapshot";
 import WelcomeToolsMenu, { type WelcomeToolAction } from "./welcome-tools-menu";
 import BrowserTabLinksDialog from "./browser-tab-links-dialog";
 import { applyAppearance, type Preferences } from "@/lib/settings";
@@ -161,6 +163,7 @@ export default function ChatWorkspace() {
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [projectToolOpen, setProjectToolOpen] = useState(false);
   const [browserTabLinksOpen, setBrowserTabLinksOpen] = useState(false);
+  const [shareChatId, setShareChatId] = useState<number | null>(null);
   const [toolsChat, setToolsChat] = useState<Conversation | null>(null);
   const [projects, setProjects] = useState<{ id: number; name: string }[]>([]);
   const [projectId, setProjectId] = useState<number | null>(null);
@@ -1596,6 +1599,16 @@ export default function ChatWorkspace() {
                 >
                   {temporary ? "Temporary on" : "Temporary"}
                 </button>
+                {conversationId && !temporary && (
+                  <button
+                    className="icon-button"
+                    aria-label="Share chat"
+                    title="Share chat"
+                    onClick={() => setShareChatId(conversationId)}
+                  >
+                    <Share2 size={18} />
+                  </button>
+                )}
                 {conversationId && (
                   <button
                     className="icon-button"
@@ -2319,6 +2332,11 @@ ${source.read_status === "read" ? "Page read" : "Snippet only"}`,
               .catch(report);
           }}
         />
+      )}
+      {shareChatId && (
+        <Dialog title="Share chat" onClose={() => setShareChatId(null)}>
+          <ShareSnapshot endpoint={`conversations/${shareChatId}/share`} />
+        </Dialog>
       )}
       {toolsChat && (
         <ConversationDialog

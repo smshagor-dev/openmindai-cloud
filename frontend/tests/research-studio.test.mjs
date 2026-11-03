@@ -10,6 +10,8 @@ import {
 import { researchRoute, researchDownload } from "../src/lib/research-proxy.ts";
 test("research proxy allows only scoped implemented methods and paths", () => {
   assert.ok(researchRoute("GET", "research/status"));
+  assert.ok(researchRoute("POST", "research/projects/1/share"));
+  assert.equal(researchRoute("GET", "research/projects/1/share"), false);
   assert.equal(researchRoute("POST", "research/status"), false);
   assert.ok(researchRoute("POST", "research/projects/1/experiments/2/execute"));
   assert.ok(researchDownload("research/projects/1/exports/2/download"));
