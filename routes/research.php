@@ -16,6 +16,7 @@ Route::prefix('v1/research')->middleware([ResearchRequestLimits::class, 'verifie
     Route::post('invitations/{invite}/accept', [R::class, 'accept'])->whereNumber('invite');
     Route::prefix('projects/{id}')->whereNumber('id')->group(function () {
         Route::get('', [R::class, 'show']);
+        Route::post('share', [R::class, 'share'])->middleware('throttle:sensitive');
         Route::put('settings', [R::class, 'settings']);
         Route::post('runs', [R::class, 'run'])->middleware('throttle:chat');
         Route::post('components', [R::class, 'component'])->middleware('throttle:chat');

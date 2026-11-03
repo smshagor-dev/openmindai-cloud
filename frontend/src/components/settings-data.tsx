@@ -21,7 +21,7 @@ export default function SettingsData({
   const [busy, setBusy] = useState(false);
   const [archived, setArchived] = useState<Page<Conversation> | null>(null);
   const [shares, setShares] = useState<
-    { id: number; conversation_id: number; expires_at: string }[]
+    { id: number; conversation_id: number | null; research_project_id?: number | null; expires_at: string }[]
   >([]);
   const [action, setAction] = useState<keyof typeof actions>("archive_chats");
   const controller = useRef<AbortController | null>(null);
@@ -215,7 +215,7 @@ export default function SettingsData({
       {shares.map((s) => (
         <div className="device-row" key={s.id}>
           <span>
-            Chat #{s.conversation_id}
+            {s.research_project_id ? `Research project #${s.research_project_id}` : `Chat #${s.conversation_id}`}
             <small>Expires {new Date(s.expires_at).toLocaleDateString()}</small>
           </span>
           <button

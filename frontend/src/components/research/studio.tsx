@@ -1,6 +1,8 @@
 "use client";
 import WorkspaceWelcome from "../workspace-welcome";
 import StudioFrame from "../studio-frame";
+import Dialog from "../dialog";
+import ShareSnapshot from "../share-snapshot";
 import ConversationSkeleton from "../conversation-skeleton";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -204,6 +206,14 @@ export default function ResearchStudio() {
   const [historyPage, setHistoryPage] = useState<Row[]>([]);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [toast, setToast] = useState("");
+  const [sharing, setSharing] = useState(false);
+  const observedRuns = useRef(new Map<number, Row>());
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(""), 15000);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
   const [busy, setBusy] = useState(false);
   const [creating, setCreating] = useState(false);
   const [title, setTitle] = useState("");
@@ -271,6 +281,18 @@ export default function ResearchStudio() {
     try {
       const value = await api(`projects/${project}`);
       if (currentId.current === project) {
+        const run = value.run;
+        if (run) {
+          const previous = observedRuns.current.get(run.id);
+          if (previous && ["running", "paused"].includes(previous.status)) {
+            if (run.status === "completed") {
+              setToast("Research task completed. Open Chat or Manuscript to review the result.");
+            } else if (run.status === "failed") {
+              setToast("Research task failed. Open Live agents for details or resume the run.");
+            }
+          }
+          observedRuns.current.set(run.id, run);
+        }
         setData(value);
         if (initial.current) {
           cursor.current = Math.max(cursor.current, value.event_cursor);
@@ -382,6 +404,8 @@ export default function ResearchStudio() {
         }
         if (incoming.length) {
           setEvents((old) => [...old, ...incoming].slice(-150));
+        }
+        if (incoming.length || dataRef.current?.run?.status === "running") {
           await refresh(id);
         }
       } catch {
@@ -469,6 +493,7 @@ export default function ResearchStudio() {
     setId(project);
     setCreating(false);
     setProposal(null);
+    setSharing(false);
     setView("Chat");
     setDrawer(false);
     setError("");
@@ -492,9 +517,17 @@ export default function ResearchStudio() {
       setPrompt("");
     }, "Project created");
   };
+  const queueResearch = async (path: string, payload: Row, workflow = false) => {
+    const run = await api(path, "POST", payload);
+    observedRuns.current.set(run.id, run);
+    const estimate = workflow ? "15–60 minutes" : "2–10 minutes";
+    setToast(
+      `We're working on it. Estimated time: ${estimate}. Complex tasks or a busy queue can take longer. We'll email your verified address when the task succeeds or fails.`,
+    );
+  };
   const component = (agent: string, input: Row = {}) =>
     void act(
-      () => api(`projects/${id}/components`, "POST", { agent, input }),
+      () => queueResearch(`projects/${id}/components`, { agent, input }),
       "Component queued",
     );
   const sendQuestion = () => {
@@ -502,7 +535,7 @@ export default function ResearchStudio() {
     const text = question.trim();
     if (!project || !text) return;
     void act(async () => {
-      await api(`projects/${project}/components`, "POST", {
+      await queueResearch(`projects/${project}/components`, {
         agent: chatMode,
         input:
           chatMode === "selection"
@@ -535,7 +568,7 @@ export default function ResearchStudio() {
       setView("Chat");
       setCreating(false);
       setQuestion("");
-      await api(`projects/${project.id}/runs`, "POST", {});
+      await queueResearch(`projects/${project.id}/runs`, {}, true);
     }, "Research queued");
   };
   const upload = async (file: File, kind: string) => {
@@ -736,6 +769,22 @@ export default function ResearchStudio() {
             {notice}
           </div>
         )}
+        <div className={toast ? "rs-task-toast" : undefined} role="status" aria-live="polite">
+          {toast && (
+            <>
+              <span>{toast}</span>
+              <button type="button" aria-label="Dismiss task notification" onClick={() => setToast("")}>×</button>
+            </>
+          )}
+        </div>
+        {sharing && p && (
+          <Dialog title="Share research chat" onClose={() => setSharing(false)}>
+            <ShareSnapshot
+              endpoint={`research/projects/${p.id}/share`}
+              description="Anyone with the link can read the project prompt, saved manuscript text, and completed turns from the latest 50 for 30 days."
+            />
+          </Dialog>
+        )}
         {creating ? (
           <section className="rs-card rs-new">
             <span className="rs-eyebrow">New research project</span>
@@ -858,13 +907,16 @@ export default function ResearchStudio() {
               <div className="rs-progress-row">
                 {/* Only the actions that apply to the current run are shown. */}
                 <div className="rs-actions">
+                  {p.role === "owner" && (
+                    <button type="button" onClick={() => setSharing(true)}>Share research chat</button>
+                  )}
                   {!["running", "paused"].includes(data.run?.status) && (
                     <button
                       className="rs-action-primary"
                       disabled={!editable || busy}
                       onClick={() =>
                         void act(
-                          () => api(`projects/${id}/runs`, "POST", {}),
+                          () => queueResearch(`projects/${id}/runs`, {}, true),
                           "Research queued",
                         )
                       }

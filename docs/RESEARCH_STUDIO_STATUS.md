@@ -651,3 +651,10 @@ The image creation card now has a shimmering "Creating image" title, a grainy ca
 ### Live agents dependency view made responsive — 2026-11-03
 
 The Live agents graph was a fixed 770px SVG with a pixel height and 100% width, so browsers scaled it down and centred it (large empty area, tiny text, clipped rows, crossing edges from wrapped levels). It is now a staged pipeline: status summary, numbered dependency stages joined by a vertical connector, and task chips in a wrapping grid with status dots (running pulses); repeated agents are numbered; selecting a chip shows its prerequisites. Checked with the live 27-task project at 1366px (three columns) and 390px (two columns). Frontend typecheck passed; integration 259/262 (same environmental failures). Not deployed.
+
+## 2026-11-03 Research run notifications and public chat snapshots
+
+- Feature branch checkpoint. Research Studio shows a queue confirmation and a terminal status toast. Initial estimates are 15–60 minutes for full workflows and 2–10 minutes for component runs. These are planning ranges pending production timing data.
+- Terminal run transitions enqueue a success or failure email to the original requester's verified address. The database queue and run receipt protect normal retries. Existing web push still covers export delivery.
+- Saved chats have a direct share action. Research project owners can publish the project prompt, saved manuscript text and completed turns from the latest 50 as a revocable, 30-day snapshot. Private artifacts stay behind authentication.
+- Frontend typecheck and four focused tests passed locally. Backend migration, database-queue and mail tests require PHP CI. Production rollout and live email and anonymous-share smoke tests remain pending.

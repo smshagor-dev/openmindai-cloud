@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\Research\EmailRunStatus;
 use App\Jobs\Research\ExecuteExperiment;
 use App\Jobs\Research\ExecuteTask;
 use App\Jobs\Research\ExportDocument;
@@ -30,6 +31,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
@@ -54,6 +56,60 @@ class ResearchStudioTest extends TestCase
         $id = $this->postJson('/api/v1/research/projects', ['title' => 'Scientific research', 'prompt' => $prompt])->assertCreated()->json('id');
 
         return Project::findOrFail($id);
+    }
+
+    public function test_research_share_is_owner_only_and_can_be_revoked(): void
+    {
+        $owner = $this->user();
+        $project = $this->project($owner, 'Public research prompt');
+        $endpoint = '/api/v1/research/projects/'.$project->id.'/share';
+
+        Sanctum::actingAs($this->user());
+        $this->postJson($endpoint)->assertNotFound();
+
+        Sanctum::actingAs($owner);
+        $share = $this->postJson($endpoint)->assertOk()->json();
+        $public = '/api/v1/shared/'.$share['token'];
+
+        $this->app['auth']->forgetGuards();
+        $this->getJson($public)
+            ->assertOk()
+            ->assertExactJson(['title' => 'Scientific research', 'messages' => [
+                ['role' => 'user', 'content' => 'Public research prompt'],
+            ]]);
+
+        Sanctum::actingAs($owner);
+        $this->deleteJson('/api/v1/shares/'.$share['id'])->assertNoContent();
+        $this->getJson($public)->assertNotFound();
+    }
+
+    public function test_terminal_run_emails_once_per_generation_and_ignores_stale_jobs(): void
+    {
+        Queue::fake();
+        $project = $this->project();
+        $orchestrator = app(Orchestrator::class);
+        $run = $orchestrator->start($project, $project->owner_id);
+        $task = Task::where('run_id', $run->id)->firstOrFail();
+        $task->update(['status' => 'failed']);
+        $orchestrator->pump($run->id);
+        Queue::assertPushed(EmailRunStatus::class, fn ($job) => $job->runId === $run->id && $job->status === 'failed');
+
+        Mail::shouldReceive('raw')->once()->withArgs(fn ($body, $callback) => str_contains($body, 'task failed') && is_callable($callback));
+        $failure = new EmailRunStatus($run->id, $run->generation, 'failed');
+        $failure->handle();
+        $failure->handle();
+        $this->assertSame($run->generation, $run->fresh()->emailed_generation);
+
+        $orchestrator->control($project, 'resume');
+        $task->update(['status' => 'completed']);
+        $orchestrator->pump($run->id);
+        Queue::assertPushed(EmailRunStatus::class, fn ($job) => $job->runId === $run->id && $job->status === 'completed');
+
+        Mail::shouldReceive('raw')->once()->withArgs(fn ($body, $callback) => str_contains($body, 'finished successfully') && is_callable($callback));
+        $failure->handle();
+        $current = $run->fresh();
+        (new EmailRunStatus($run->id, $current->generation, 'completed'))->handle();
+        $this->assertSame($current->generation, $run->fresh()->emailed_generation);
     }
 
     public function test_readiness_is_scoped_to_interactive_users_and_never_exposes_configuration(): void
