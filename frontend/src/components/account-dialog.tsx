@@ -12,6 +12,7 @@ import {
   UserRound,
 } from "lucide-react";
 import Dialog from "./dialog";
+import SocialProviderButtons from "./social-provider-buttons";
 import SettingsPreferences from "./settings-preferences";
 import DeveloperApiSettings from "./developer-api-settings";
 import SettingsData, { IdentityFields } from "./settings-data";
@@ -55,12 +56,21 @@ export default function AccountDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [socialProviders, setSocialProviders] = useState<string[]>([]);
   const [devices, setDevices] = useState<Device[]>([]);
   const [setup, setSetup] = useState<{ secret: string; qr: string } | null>(
     null,
   );
   const [codes, setCodes] = useState<string[]>([]);
   const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (tab !== "security") return;
+    const controller = new AbortController();
+    requestApi<{ social_providers?: string[] }>("public-config", "GET", undefined, controller.signal)
+      .then(result => setSocialProviders(result.social_providers || []))
+      .catch(() => {});
+    return () => controller.abort();
+  }, [tab]);
   useEffect(() => {
     if (tab === "devices") {
       const controller = new AbortController();
@@ -311,6 +321,13 @@ export default function AccountDialog({
           )}
           {tab === "security" && (
             <>
+              {socialProviders.length > 0 && (
+                <>
+                  <h3>Link a sign-in provider</h3>
+                  <p className="muted">Link a provider to use it the next time you sign in.</p>
+                  <SocialProviderButtons providers={socialProviders} intent="link" />
+                </>
+              )}
               <h3>
                 <ShieldCheck size={19} /> Two-factor authentication
               </h3>

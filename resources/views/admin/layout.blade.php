@@ -21,6 +21,7 @@ $navigation = [
     ['Media models', '/admin/model-bundles', 'layers', request()->is('admin/model-bundles*')],
     ['API credits', '/admin/api-credits', 'credit', request()->is('admin/api-credits*')],
     ['Public assistants', '/admin/assistants', 'spark', request()->is('admin/assistants*')],
+    ['Privacy and terms', '/admin/legal-pages', 'settings', request()->is('admin/legal-pages*')],
     ['Workspace settings', '/admin/settings', 'settings', request()->is('admin/settings*')],
     ['SMTP settings', '/admin/smtp-settings', 'mail', request()->is('admin/smtp-settings*')],
     ['My profile', '/admin/profile', 'profile', request()->is('admin/profile*')],

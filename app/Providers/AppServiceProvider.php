@@ -25,6 +25,10 @@ class AppServiceProvider extends ServiceProvider
             Limit::perMinute(10)->by('otp-ip:'.$r->ip()),
             Limit::perHour(20)->by('otp-email:'.hash('sha256', strtolower((string) $r->input('email')))),
         ]);
+        RateLimiter::for('social-auth', fn ($r) => [
+            Limit::perMinute(12)->by('social-minute:'.$r->ip()),
+            Limit::perHour(60)->by('social-hour:'.$r->ip()),
+        ]);
         RateLimiter::for('hub', fn ($r) => Limit::perMinute(10)->by('hub:'.$r->user()->id));
         RateLimiter::for('api', fn ($r) => Limit::perMinute(60)->by($r->user()?->id ?: $r->ip()));
         RateLimiter::for('research-events', fn ($r) => Limit::perMinute(30)->by('research-events:'.$r->user()->id));

@@ -121,6 +121,7 @@ const suggestions = [
   },
 ];
 export default function ChatWorkspace() {
+  const guestSignInSuggested = useRef(false);
   const [guestRemaining, setGuestRemaining] = useState<number | null>(null);
   const guestSlug = useRef<string | null>(null);
   const restoredRoute = useRef(false);
@@ -701,6 +702,10 @@ export default function ChatWorkspace() {
         if (controller.signal.aborted) return;
         setMessages([...history, {role: "user", content: text, animate: true}, {role: "assistant", content: response.content, status: "complete", animate: true}]);
         setGuestRemaining(response.remaining);
+        if (response.remaining <= 1 && !guestSignInSuggested.current) {
+          guestSignInSuggested.current = true;
+          setAuthOpen(true);
+        }
       } catch (e) {
         if (controller.signal.aborted) {
           if (generationRef.current === controller) setMessages((previous) => previous.map((message, index) => index === previous.length - 1 ? {...message, status: "cancelled"} : message));
@@ -1470,6 +1475,10 @@ export default function ChatWorkspace() {
               </button>
             )}
           </div>
+        </div>
+        <div className="auth-links">
+          <a href="/privacy-policy">Privacy</a>
+          <a href="/terms-and-conditions">Terms</a>
         </div>
         <div className="sidebar-footer" ref={accountMenuRef}>
           {user ? (

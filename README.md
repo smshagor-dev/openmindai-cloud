@@ -33,3 +33,12 @@ See [setup, scope and verification](docs/COLLABORATION_AND_LIVE.md) before enabl
 Set `ADMIN_EMAIL` and `ADMIN_PASSWORD` in the server environment, then run `php artisan db:seed --class=AdminSeeder --force` after migrating and clearing stale config. Optional `ADMIN_NAME` and `ADMIN_AVATAR_PATH` customize the first profile. No default password is included, and reseeding never resets or promotes an existing account.
 
 In the admin panel, **My profile** edits your name/photo and supports password or verified email changes. **New admin** creates another administrator with an optional image after confirming your current password and enabled 2FA. See [administrator setup](docs/ADMIN_ACCOUNTS.md).
+
+### Google and Facebook sign-in
+
+1. Set the same canonical HTTPS `FRONTEND_URL` on Laravel and Next.js. Keep the existing matching `FRONTEND_CHAT_BRIDGE_KEY` on both servers.
+2. On Laravel, configure `GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET` for a Google Web OAuth client. Register `https://chat.openmindai.org/api/auth/social/google/callback` as its authorized redirect URI.
+3. On Laravel, configure `FACEBOOK_OAUTH_APP_ID` and `FACEBOOK_OAUTH_APP_SECRET`. Register `https://chat.openmindai.org/api/auth/social/facebook/callback` in Facebook Login. Set `FACEBOOK_GRAPH_VERSION` to the supported version selected for the Meta app.
+4. Run `php artisan migrate --force` and refresh Laravel's config cache. Confirm SMTP delivers verification codes for Facebook and Google accounts that require OpenMindAI email verification.
+5. In **Admin → Privacy and terms**, review and publish the starter text at `/privacy-policy` and `/terms-and-conditions`. Set the public support address in Workspace settings. Use the published privacy page for provider disclosures and account deletion instructions.
+6. Test each provider with a test account. Existing OpenMindAI accounts sign in normally once and link the provider in **Settings → Security**. The public social buttons only appear for configured providers. Enable public access in each provider console after completing its app requirements.
