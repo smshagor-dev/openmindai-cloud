@@ -194,6 +194,25 @@ class CloudImagePipelineTest extends TestCase
         $this->assertSame($source, app(CloudImagePrompt::class)->normalize($source));
     }
 
+    public function test_complex_english_prompt_uses_ultra_first_then_lightning_with_bounded_timeouts(): void
+    {
+        config(['cloud_images.key' => 'fixture-key-only', 'cloud_images.prompt_timeout' => 120]);
+        $attempts = [];
+        Http::fake(['integrate.api.nvidia.com/*' => function ($request, $options) use (&$attempts) {
+            $attempts[] = [$request['model'], $options['timeout']];
+
+            return count($attempts) === 1
+                ? Http::response(['choices' => [['finish_reason' => 'length', 'message' => ['content' => 'Truncated prompt']]]])
+                : Http::response(['choices' => [['message' => ['content' => 'A poster with three panels and the caption “OpenMindAI”.']]]]);
+        }]);
+        $prompt = 'Create a poster with exactly three panels and caption it “OpenMindAI”.';
+        $this->assertSame('A poster with three panels and the caption “OpenMindAI”.', app(CloudImagePrompt::class)->normalize($prompt));
+        $this->assertSame([
+            ['nvidia/nemotron-3-ultra-550b-a55b', 60],
+            ['nvidia/nemotron-3.5-lightning-30b-a3b', 20],
+        ], $attempts);
+    }
+
     public function test_private_image_edit_uses_actual_upload_and_removes_source_after_success(): void
     {
         $this->signIn();

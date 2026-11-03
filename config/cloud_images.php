@@ -17,5 +17,6 @@ return [
     'mask_url' => env('CLOUD_IMAGE_MASK_NIM_URL'),
     'mask_key' => env('CLOUD_IMAGE_MASK_NIM_KEY'),
     'mask_model' => env('CLOUD_IMAGE_MASK_MODEL'),
-    'prompt_model' => env('CLOUD_IMAGE_PROMPT_MODEL', 'nvidia/nemotron-3.5-lightning-30b-a3b'),
+    'prompt_model' => env('CLOUD_IMAGE_PROMPT_MODEL', 'nvidia/nemotron-3-ultra-550b-a55b'),
+    'prompt_timeout' => (int) env('CLOUD_IMAGE_PROMPT_TIMEOUT', 60),
 ];
