@@ -39,6 +39,8 @@ def export(payload):
     if fmt not in ['docx','pdf','tex','bib','md']:raise ValueError('unsupported_format')
     settings=payload.get('settings',{});style=STYLES.get(settings.get('citation_style','apa'))
     if not style:raise ValueError('unsupported_csl')
+    if settings.get('journal', 'generic') == 'generic' and settings.get('citation_style', 'apa') == 'apa':
+        style = 'ieee'
     footnotes=[];cited=set();figures={int(f['id']):f for f in payload.get('figures',[])};source_ids={int(s['id']) for s in payload['sources']}
     anchors={};node_ids={};numbers={};counts={}
     def index_nodes(n):
@@ -97,20 +99,29 @@ def export(payload):
         content+='\n'+''.join('[^f'+str(i+1)+']: '+text+'\n' for i,text in enumerate(footnotes))
         refs=[csl(s) for s in payload['sources'] if fmt=='bib' or int(s['id']) in cited]
         (root/'references.json').write_text(json.dumps(refs,ensure_ascii=False));(root/'manuscript.md').write_text(content)
-        stylefile=Path(__file__).resolve().parents[2]/'frontend/public/research-csl'/(settings.get('citation_style','apa')+'.csl')
+        metadata = {}
+        if payload.get('title'):
+            metadata['title'] = '**' + escape(payload['title']) + '**'
+        if refs:
+            metadata['reference-section-title'] = 'References'
+        (root/'metadata.json').write_text(json.dumps(metadata, ensure_ascii=False))
+        stylefile=Path(__file__).resolve().parents[2]/'frontend/public/research-csl'/(('ieee' if style == 'ieee' else settings.get('citation_style', 'apa'))+'.csl')
         if not stylefile.is_file():stylefile=get_style_filepath(style)
         def run(args):
             p=subprocess.run(['pandoc',*args],cwd=root,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=100)
             if p.returncode:raise ValueError('document_conversion_failed: '+p.stderr.decode(errors='replace')[-300:])
             return p.stdout
-        common=['manuscript.md','--from=markdown+pipe_tables+footnotes+tex_math_dollars+citations-raw_html-raw_tex','--citeproc','--bibliography=references.json','--csl='+str(stylefile),'--resource-path='+str(root)]
+        common=['manuscript.md','--metadata-file=metadata.json','--from=markdown+pipe_tables+footnotes+tex_math_dollars+citations-raw_html-raw_tex','--citeproc','--bibliography=references.json','--csl='+str(stylefile),'--resource-path='+str(root)]
         ext=fmt
         if fmt=='bib':
             raw=run(['references.json','-f','csljson','-t','bibtex']);(root/'out.bib').write_bytes(raw);run(['out.bib','-f','bibtex','-t','csljson'])
         elif fmt=='md':raw=run(common+['-t','markdown-citations-raw_html']);assert raw
         elif fmt=='docx':
-            run(common+['-o','out.docx']);raw=(root/'out.docx').read_bytes();d=Document(io.BytesIO(raw))
+            run(common+['--standalone','-o','out.docx']);raw=(root/'out.docx').read_bytes();d=Document(io.BytesIO(raw))
             from docx.shared import Mm,Pt
+            from docx.enum.text import WD_ALIGN_PARAGRAPH
+            d.styles['Title'].paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            d.styles['Title'].font.bold = True
             font=int(settings.get('font_size',11));margin=int(settings.get('margin_mm',25));columns=int(settings.get('columns',1))
             if settings.get('journal') in ['ieee','acm']:font=10;margin=19;columns=2
             if not 9<=font<=14 or not 15<=margin<=35 or columns not in [1,2]:raise ValueError('invalid_layout')
@@ -136,7 +147,7 @@ def export(payload):
             if journal in ['ieee','acm']:columns=2;font=10;margin=19
             if not 9<=font<=14 or not 15<=margin<=35 or columns not in [1,2]:raise ValueError('invalid_layout')
             (root/'header.tex').write_text('\\usepackage{fontspec}\n\\usepackage{caption}\n\\captionsetup[figure]{labelformat=empty}\n')
-            variables=['--include-in-header=header.tex','-V',f'fontsize={font}pt','-V',f'geometry:margin={margin}mm','-V','mainfont=DejaVu Serif']
+            variables=['--number-sections','--include-in-header=header.tex','-V',f'fontsize={font}pt','-V',f'geometry:margin={margin}mm','-V','mainfont=DejaVu Serif']
             if columns==2:variables+=['-V','classoption=twocolumn']
             if fmt=='pdf':
                 run(common+variables+['--standalone','-t','latex','-o','manuscript.tex']);tex=prepare((root/'manuscript.tex').read_text());(root/'manuscript.tex').write_text(tex)
