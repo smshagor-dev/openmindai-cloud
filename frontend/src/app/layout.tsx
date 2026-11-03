@@ -1,4 +1,3 @@
-import PageLoading from "@/components/page-loading";
 import Pwa from "@/components/pwa";
 import type { Viewport, Metadata } from "next";
 import "@fontsource-variable/dm-sans";
@@ -64,7 +63,6 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <PageLoading initial />
         {children}
         <Pwa />
         <script
