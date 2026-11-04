@@ -293,6 +293,10 @@ for (const width of [1920, 1440, 1280, 1024, 768, 430, 375, 320]) {
         exact: true,
       })
       .click();
+    await page
+      .getByRole("dialog", { name: "Sources", exact: true })
+      .getByRole("button", { name: /GPS navigation measurements/ })
+      .click();
     await expect(
       page.getByRole("link", { name: "Open PDF page 24" }),
     ).toHaveAttribute("href", "https://primary.example/paper.pdf#page=24");
