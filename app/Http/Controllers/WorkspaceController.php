@@ -76,7 +76,7 @@ class WorkspaceController
     public function saveMemory(Request $r, ?int $id = null)
     {
         $d = $r->validate(['content' => 'required|string|max:2000']);
-        abort_if(! $id && Memory::where('user_id', $r->user()->id)->count() >= 100, 422, 'Memory limit reached.');
+        abort_if(($id ?? 0) === 0 && Memory::where('user_id', $r->user()->id)->count() >= 100, 422, 'Memory limit reached.');
         $m = $id ? Memory::where('user_id', $r->user()->id)->findOrFail($id) : new Memory(['user_id' => $r->user()->id]);
         $m->fill($d)->save();
 

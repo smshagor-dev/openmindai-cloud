@@ -1,7 +1,6 @@
 <?php
 
 use App\Http\Controllers\AccountController;
-use App\Http\Controllers\MobileSocialSessionController;
 use App\Http\Controllers\AssistantGalleryController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CanvasController;
@@ -17,6 +16,7 @@ use App\Http\Controllers\HostedImageController;
 use App\Http\Controllers\HostedMediaController;
 use App\Http\Controllers\LegalPageController;
 use App\Http\Controllers\MediaController;
+use App\Http\Controllers\MobileSocialSessionController;
 use App\Http\Controllers\NvidiaAvSceneController;
 use App\Http\Controllers\NvidiaAvWorkerController;
 use App\Http\Controllers\NvidiaCosmosController;
