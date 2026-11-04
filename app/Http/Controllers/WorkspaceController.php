@@ -168,6 +168,7 @@ class WorkspaceController
         $c = Conversation::where('user_id', $r->user()->id)->findOrFail($id);
         abort_if($c->messages()->count() > 500, 422, 'Share a smaller conversation.');
         $snapshot = ['title' => $c->title, 'messages' => $c->messages()->where('status', 'complete')->orderBy('id')->get(['role', 'content'])->all()];
+
         return ConversationShare::publish($r->user()->id, $snapshot, ['conversation_id' => $id]);
     }
 
