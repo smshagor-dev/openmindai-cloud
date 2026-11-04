@@ -515,7 +515,7 @@ for (const width of [1440, 375]) {
       .click();
     await expect(
       page.getByRole("region", { name: "Research activity" }),
-    ).toContainText("Searched the web");
+    ).toContainText("Searched 2 sites");
     await expect(
       page.getByText("HOST FOOTER INDEX", { exact: true }),
     ).toHaveCount(0);
