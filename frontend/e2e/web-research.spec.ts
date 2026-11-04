@@ -289,7 +289,7 @@ for (const width of [1920, 1440, 1280, 1024, 768, 430, 375, 320]) {
     ).toBeVisible();
     await page
       .getByRole("button", {
-        name: "Inspect source 1: GPS navigation measurements",
+        name: "View 1 source, 1 page read",
         exact: true,
       })
       .click();
