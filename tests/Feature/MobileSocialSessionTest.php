@@ -14,7 +14,12 @@ class MobileSocialSessionTest extends TestCase
     {
         $secret = str_repeat('x', 48);
         config(['mobile_gateway.bridge_key' => $secret]);
-        $user = User::factory()->create(['avatar' => 'data:image/png;base64,AAEC']);
+        $user = User::create([
+            'name' => 'Mobile User',
+            'email' => 'mobile@example.test',
+            'password' => 'StrongPassword123',
+        ]);
+        $user->forceFill(['email_verified_at' => now(), 'avatar' => 'data:image/png;base64,AAEC'])->save();
         $webToken = $user->createToken('Web', ['user'], now()->addHour())->plainTextToken;
         $verifier = bin2hex(random_bytes(32));
         $challenge = hash('sha256', $verifier);
