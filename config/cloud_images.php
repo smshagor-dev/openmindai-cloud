@@ -3,6 +3,8 @@
 return [
     'enabled' => (bool) env('CLOUD_IMAGE_ENABLED', true),
     'key' => env('NVIDIA_API_KEY'),
+    'quality_key' => env('CLOUD_IMAGE_OPENAI_KEY'),
+    'quality_model' => env('CLOUD_IMAGE_OPENAI_MODEL', 'gpt-image-1.5'),
     // Bounded below the 900-second image job and 1000-second queue reservation.
     'timeout' => (int) env('CLOUD_IMAGE_TIMEOUT', 720),
     'fast_model' => 'black-forest-labs/flux.2-klein-4b',

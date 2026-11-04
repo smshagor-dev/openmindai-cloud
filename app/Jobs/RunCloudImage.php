@@ -60,7 +60,7 @@ class RunCloudImage implements ShouldQueue
                     'error' => null,
                 ]);
                 $credits = app(ApiCreditUsage::class);
-                $connection = $credits->connection('nvidia', $result['model'], 'image');
+                $connection = $credits->connection($result['provider'], $result['model'], 'image');
                 $credits->completed($task->user_id, $connection, 'media:'.$task->id);
             });
         } catch (Throwable $error) {

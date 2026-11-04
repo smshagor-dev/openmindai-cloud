@@ -178,6 +178,24 @@ class CloudImagePipelineTest extends TestCase
             && ! isset($request['mode']) && ! isset($request['aspect_ratio']));
     }
 
+    public function test_configured_openai_quality_path_preserves_supported_image_ratios(): void
+    {
+        $this->signIn();
+        config(['cloud_images.quality_key' => 'fixture-quality-key']);
+        Storage::fake('local');
+        Queue::fake();
+        $id = $this->postJson('/api/v1/media/cloud-image', [
+            'prompt' => 'Sea landscape', 'aspect_ratio' => '3:2',
+        ])->assertAccepted()->json('id');
+        Http::fake(['api.openai.com/*' => Http::response([
+            'data' => [['b64_json' => base64_encode($this->png())]],
+        ])]);
+        (new RunCloudImage($id))->handle(app(CloudImageEngine::class));
+        Http::assertSent(fn ($request) => $request->url() === 'https://api.openai.com/v1/images/generations'
+            && $request['size'] === '1536x1024' && $request['quality'] === 'high'
+            && $request->hasHeader('Authorization', 'Bearer fixture-quality-key'));
+    }
+
     public function test_language_bridge_preserves_source_and_falls_back_when_unavailable(): void
     {
         $this->signIn();

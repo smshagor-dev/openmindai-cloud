@@ -16,6 +16,7 @@ use App\Http\Controllers\HostedImageController;
 use App\Http\Controllers\HostedMediaController;
 use App\Http\Controllers\LegalPageController;
 use App\Http\Controllers\MediaController;
+use App\Http\Controllers\MobileSocialSessionController;
 use App\Http\Controllers\NvidiaAvSceneController;
 use App\Http\Controllers\NvidiaAvWorkerController;
 use App\Http\Controllers\NvidiaCosmosController;
@@ -78,8 +79,9 @@ Route::prefix('v1')->middleware('verified-mobile-ip')->group(function () {
         Route::post('openmindai/chat/completions', [OpenMindAiGatewayController::class, 'chat'])->middleware('throttle:chat');
     });
     Route::post('guest/chat', [GuestChatController::class, 'send'])->middleware('throttle:10,1');
-    Route::get('public-config', fn () => ['social_providers' => SocialProvider::enabled(), 'guest_chat_daily_limit' => app(AdminSettings::class)->limit('guest_chat_daily_limit'), 'frontend_inference_route' => app(AdminSettings::class)->get('frontend_inference_route'), 'registration_enabled' => app(AdminSettings::class)->enabled('registration_enabled'), 'site_name' => app(AdminSettings::class)->get('site_name'), 'registration_email_verification_enabled' => app(AdminSettings::class)->enabled('registration_email_verification_enabled')])->middleware('throttle:60,1');
+    Route::get('public-config', fn () => ['social_providers' => SocialProvider::enabled(), 'mobile_social_handoff' => true, 'guest_chat_daily_limit' => app(AdminSettings::class)->limit('guest_chat_daily_limit'), 'frontend_inference_route' => app(AdminSettings::class)->get('frontend_inference_route'), 'registration_enabled' => app(AdminSettings::class)->enabled('registration_enabled'), 'site_name' => app(AdminSettings::class)->get('site_name'), 'registration_email_verification_enabled' => app(AdminSettings::class)->enabled('registration_email_verification_enabled')])->middleware('throttle:60,1');
     Route::get('legal/{slug}', [LegalPageController::class, 'show'])->where('slug', LegalPageController::SLUGS)->middleware('throttle:60,1');
+    Route::post('mobile/social/exchange', [MobileSocialSessionController::class, 'exchange'])->middleware('throttle:social-auth');
     Route::post('social/{provider}/start', [SocialAuthController::class, 'start'])->where('provider', 'google|facebook')->middleware('throttle:social-auth');
     Route::post('social/{provider}/exchange', [SocialAuthController::class, 'exchange'])->where('provider', 'google|facebook')->middleware('throttle:social-auth');
     Route::post('social/{provider}/complete', [SocialAuthController::class, 'complete'])->where('provider', 'google|facebook')->middleware('throttle:social-auth');
@@ -239,6 +241,7 @@ Route::prefix('v1')->middleware('verified-mobile-ip')->group(function () {
 
         Route::post('logout', [AuthController::class, 'logout']);
         Route::post('logout-all', [AccountController::class, 'logoutAll']);
+        Route::post('mobile/social/approve', [MobileSocialSessionController::class, 'approve'])->middleware('throttle:social-auth');
         Route::get('me', [AccountController::class, 'show']);
         Route::patch('me', [AccountController::class, 'update']);
         Route::get('tokens', [AccountController::class, 'tokens']);

@@ -289,9 +289,13 @@ for (const width of [1920, 1440, 1280, 1024, 768, 430, 375, 320]) {
     ).toBeVisible();
     await page
       .getByRole("button", {
-        name: "Inspect source 1: GPS navigation measurements",
+        name: "View 1 source, 1 page read",
         exact: true,
       })
+      .click();
+    await page
+      .getByRole("dialog", { name: "Sources", exact: true })
+      .getByRole("button", { name: /GPS navigation measurements/ })
       .click();
     await expect(
       page.getByRole("link", { name: "Open PDF page 24" }),
@@ -511,7 +515,7 @@ for (const width of [1440, 375]) {
       .click();
     await expect(
       page.getByRole("region", { name: "Research activity" }),
-    ).toContainText("Searched the web");
+    ).toContainText("Searched 2 sites");
     await expect(
       page.getByText("HOST FOOTER INDEX", { exact: true }),
     ).toHaveCount(0);

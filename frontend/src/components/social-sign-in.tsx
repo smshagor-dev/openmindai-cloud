@@ -34,8 +34,8 @@ export default function SocialSignIn({
             const response = await fetch(`/api/auth/social/${provider}/complete`, {
               method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }),
             });
-            const result = await readApiJson<{ signedIn: boolean; step?: string }>(response, "social sign-in");
-            if (result.signedIn) window.location.assign("/");
+            const result = await readApiJson<{ signedIn: boolean; step?: string; mobileConnected?: boolean }>(response, "social sign-in");
+            if (result.signedIn) window.location.assign(result.mobileConnected ? "/mobile-sign-in?connected=1" : "/");
             else if (result.step) setStep(result.step);
             else setError("Could not finish signing in. Start again.");
           } catch (e) {

@@ -60,7 +60,26 @@ class CloudImageEngine
             ->update(['progress_percent' => 20, 'progress_stage' => 'preparing']);
         $seed = (int) ($options['seed'] ?? 0);
         $headers = ['Accept' => 'application/json'];
-        if ($mode === 'generate') {
+        $qualityKey = (string) config('cloud_images.quality_key');
+        $provider = 'nvidia';
+        if ($mode === 'generate' && strlen($qualityKey) >= 12 && in_array($ratio, ['1:1', '3:2', '2:3'], true)) {
+            $provider = 'openai';
+            $key = $qualityKey;
+            $url = 'https://api.openai.com/v1/images/generations';
+            $model = config('cloud_images.quality_model');
+            $payload = [
+                'model' => $model,
+                'prompt' => $prompt,
+                'quality' => 'high',
+                'size' => match ($ratio) {
+                    '3:2' => '1536x1024',
+                    '2:3' => '1024x1536',
+                    default => '1024x1024',
+                },
+                'output_format' => 'png',
+                'n' => 1,
+            ];
+        } elseif ($mode === 'generate') {
             // Live API validation requires cfg_scale >= 1 and forbids mode.
             // Keep dimensions aligned to 16 pixels with the exact selected ratio.
             [$width, $height] = match ($ratio) {
@@ -140,6 +159,6 @@ class CloudImageEngine
         MediaTask::whereKey($task->id)->where('status', 'running')
             ->update(['progress_percent' => 90, 'progress_stage' => 'finalizing']);
 
-        return ['binary' => $binary, 'mime' => $mime, 'model' => $model];
+        return ['binary' => $binary, 'mime' => $mime, 'model' => $model, 'provider' => $provider];
     }
 }
