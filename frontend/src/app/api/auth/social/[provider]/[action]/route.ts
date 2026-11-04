@@ -12,6 +12,7 @@ const expiresAt = () => Date.now() + flowOptions.maxAge * 1000;
 const providers = ["google", "facebook"];
 const steps = ["email", "two-factor", "ip"];
 type Context = { params: Promise<{ provider: string; action: string }> };
+const validChallenge = (value: unknown): value is string => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
 
 function signature(value: string) {
@@ -63,7 +64,7 @@ async function backend(request: NextRequest, provider: string, action: string, p
   const key = process.env.FRONTEND_CHAT_BRIDGE_KEY || "";
   if (key.length < 32) throw new Error("Social sign-in is not configured");
   const base = process.env.LARAVEL_API_URL || "https://cloud.openmindai.org/api/v1";
-  const target = new URL(`${base.replace(/\/$/, "")}/social/${provider}/${action}`);
+  const target = new URL(`${base.replace(/\/$/, "")}${action === "approve-mobile" ? "/mobile/social/approve" : `/social/${provider}/${action}`}`);
   const body = JSON.stringify(payload);
   const headers: Record<string, string> = {
     Accept: "application/json",
@@ -86,16 +87,16 @@ async function backend(request: NextRequest, provider: string, action: string, p
     method: "POST", headers, body, redirect: "error", cache: "no-store",
     signal: AbortSignal.timeout(25000),
   });
-  const data = await response.json();
+  const data = response.status === 204 ? {} : await response.json();
   return { ok: response.ok, status: response.status, data };
 }
 
-function updateSession(response: NextResponse, provider: string, data: { token?: string; ticket?: string; step?: string; linked?: boolean }) {
+function updateSession(response: NextResponse, provider: string, data: { token?: string; ticket?: string; step?: string; linked?: boolean }, mobileChallenge?: string) {
   if (typeof data.token === "string") {
     response.cookies.set(webSessionCookie, data.token, webSessionOptions);
     expiredCookie(response, pendingCookie);
   } else if (typeof data.ticket === "string" && steps.includes(data.step || "")) {
-    response.cookies.set(pendingCookie, seal({ provider, ticket: data.ticket, expires: expiresAt() }), flowOptions);
+    response.cookies.set(pendingCookie, seal({ provider, ticket: data.ticket, mobileChallenge, expires: expiresAt() }), flowOptions);
   } else if (data.linked) {
     expiredCookie(response, pendingCookie);
   }
@@ -112,7 +113,11 @@ export async function POST(request: NextRequest, context: Context) {
   }
   try {
     if (action === "start") {
-      const link = (await request.formData()).get("intent") === "link";
+      const form = await request.formData();
+      const link = form.get("intent") === "link";
+      const challenge = form.get("mobile_challenge");
+      if (challenge !== null && (link || !validChallenge(challenge))) return errorRedirect(request, "expired");
+      const mobileChallenge = validChallenge(challenge) ? challenge : undefined;
       const token = request.cookies.get(webSessionCookie)?.value;
       if (link && !token) return errorRedirect(request, "sign-in-required");
       const state = randomBytes(32).toString("hex");
@@ -125,12 +130,12 @@ export async function POST(request: NextRequest, context: Context) {
       const expected = provider === "google" ? "https://accounts.google.com" : "https://www.facebook.com";
       if (target.origin !== expected) return errorRedirect(request, "unavailable");
       const response = redirect(request, target.href);
-      response.cookies.set(flowCookie, seal({ provider, state, verifier, session: link && token ? digest(token) : null, expires: expiresAt() }), flowOptions);
+      response.cookies.set(flowCookie, seal({ provider, state, verifier, session: link && token ? digest(token) : null, mobileChallenge, expires: expiresAt() }), flowOptions);
       expiredCookie(response, pendingCookie);
       return response;
     }
 
-    const pending = open<{ provider: string; ticket: string }>(request.cookies.get(pendingCookie)?.value);
+    const pending = open<{ provider: string; ticket: string; mobileChallenge?: string }>(request.cookies.get(pendingCookie)?.value);
     if (pending?.provider !== provider || !/^[a-f0-9]{64}$/.test(pending.ticket)) {
       return NextResponse.json({ message: "Sign-in expired. Start again." }, { status: 422 });
     }
@@ -146,10 +151,14 @@ export async function POST(request: NextRequest, context: Context) {
         : "Could not finish signing in. Start again.";
       return NextResponse.json({ message }, { status });
     }
-    const response = NextResponse.json({ signedIn: typeof data.token === "string", step: data.step }, {
+    if (data.token && validChallenge(pending.mobileChallenge)) {
+      const approved = await backend(request, provider, "approve-mobile", { challenge: pending.mobileChallenge }, data.token);
+      if (!approved.ok) return NextResponse.json({ message: "Could not connect the mobile app. Start again." }, { status: 503 });
+    }
+    const response = NextResponse.json({ mobileConnected: Boolean(data.token && pending.mobileChallenge), signedIn: typeof data.token === "string", step: data.step }, {
       headers: { "Cache-Control": "no-store" },
     });
-    return updateSession(response, provider, data);
+    return updateSession(response, provider, data, pending.mobileChallenge);
   } catch {
     return action === "start" ? errorRedirect(request, "unavailable")
       : NextResponse.json({ message: "Could not finish signing in. Try again." }, { status: 503 });
@@ -159,7 +168,7 @@ export async function POST(request: NextRequest, context: Context) {
 export async function GET(request: NextRequest, context: Context) {
   const { provider, action } = await context.params;
   if (!providers.includes(provider) || action !== "callback") return new NextResponse(null, { status: 404 });
-  const flow = open<{ provider: string; state: string; verifier: string; session: string | null }>(request.cookies.get(flowCookie)?.value);
+  const flow = open<{ provider: string; state: string; verifier: string; session: string | null; mobileChallenge?: string }>(request.cookies.get(flowCookie)?.value);
   const state = request.nextUrl.searchParams.get("state") || "";
   const code = request.nextUrl.searchParams.get("code") || "";
   if (flow?.provider !== provider || !/^[a-f0-9]{64}$/.test(state) || !/^[a-f0-9]{64}$/.test(flow.state) ||
@@ -174,11 +183,15 @@ export async function GET(request: NextRequest, context: Context) {
       code, verifier: flow.verifier, link: Boolean(flow.session),
     }, flow.session ? token : undefined);
     if (!ok) return errorRedirect(request, status === 409 ? "existing-account" : "unavailable");
-    const response = redirect(request, data.token ? "/" : data.linked ? "/social-sign-in?linked=1"
+    if (data.token && validChallenge(flow.mobileChallenge)) {
+      const approved = await backend(request, provider, "approve-mobile", { challenge: flow.mobileChallenge }, data.token);
+      if (!approved.ok) return errorRedirect(request, "unavailable");
+    }
+    const response = redirect(request, data.token ? (flow.mobileChallenge ? "/mobile-sign-in?connected=1" : "/") : data.linked ? "/social-sign-in?linked=1"
       : steps.includes(data.step) ? `/social-sign-in?provider=${provider}&step=${data.step}`
         : "/social-sign-in?error=unavailable");
     expiredCookie(response, flowCookie);
-    return updateSession(response, provider, data);
+    return updateSession(response, provider, data, flow.mobileChallenge);
   } catch {
     return errorRedirect(request, "unavailable");
   }
