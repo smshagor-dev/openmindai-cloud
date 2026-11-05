@@ -58,6 +58,16 @@ class ResearchStudioTest extends TestCase
         return Project::findOrFail($id);
     }
 
+    public function test_legacy_completed_project_is_not_displayed_as_awaiting_approval(): void
+    {
+        $project = $this->project();
+        $project->update(['status' => 'awaiting_approval']);
+
+        $this->getJson('/api/v1/research/projects/'.$project->id)
+            ->assertOk()
+            ->assertJsonPath('project.status', 'completed');
+    }
+
     public function test_research_share_is_owner_only_and_can_be_revoked(): void
     {
         $owner = $this->user();
