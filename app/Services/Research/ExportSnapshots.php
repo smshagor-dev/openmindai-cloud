@@ -30,6 +30,8 @@ class ExportSnapshots
         $g = app(IntegrityGates::class)->inspect($project);
         abort_unless($draft || $g['passed'], 422, 'Current integrity gates have not passed.');
 
-        return ['document' => $clean, 'version' => $version, 'sources' => Source::where('project_id', $project)->get(['id', 'title', 'doi', 'authors', 'year', 'venue', 'url'])->toArray(), 'settings' => Project::findOrFail($project)->settings, 'figures' => $figures, 'integrity' => $g, 'draft' => $draft];
+        $projectRecord = Project::findOrFail($project);
+
+        return ['title' => $projectRecord->title, 'document' => $clean, 'version' => $version, 'sources' => Source::where('project_id', $project)->get(['id', 'title', 'doi', 'authors', 'year', 'venue', 'url'])->toArray(), 'settings' => $projectRecord->settings, 'figures' => $figures, 'integrity' => $g, 'draft' => $draft];
     }
 }
