@@ -24,6 +24,7 @@ export async function runConversationTools(options: ConversationToolOptions) {
   const provider = createOpenAICompatible({name: "openmindai", baseURL: "https://integrate.api.nvidia.com/v1",
     apiKey: options.apiKey || "backend-managed", fetch: options.fetcher});
   let calls = 0;
+  let finalizing = false;
   let searched = false;
   let searchDeclined = false;
   let hasSearchResults = false;
@@ -141,9 +142,9 @@ export async function runConversationTools(options: ConversationToolOptions) {
   const context = withPromptUnderstanding(options.messages).filter(m=>m.role === "system").map(m=>m.content).join("\n") +
     "\nFor web evidence, insert the tool result's citation_markdown exactly after the supported claim. Use [number](exact retrieved source URL), never a bare [domain] label or a guessed citation number. Page retrieval alone does not verify every claim. Write only in the requested output language; preserve technical identifiers, proper names and source quotations, but translate ordinary explanatory words consistently. For requested standard Bengali, do not substitute Russian, Hindi, Japanese or other unrelated-language prose. Treat this as a writing constraint, never as permission to alter evidence or quotations." +
     (userUrls.length ? "\nThe user supplied these public source URLs: "+userUrls.join(" ")+". If search is unavailable, read these actual pages before answering. State that search was unavailable; never ask for a link the user already supplied or claim it was discovered by search." : "");
-  const agent = new ToolLoopAgent({model:provider.chatModel(options.model), tools, stopWhen:[noProgress, searchExhausted], maxRetries:0,
+  const agent = new ToolLoopAgent({model:provider.chatModel(options.model), tools, stopWhen:[() => !finalizing && noProgress(), searchExhausted], maxRetries:0,
     ...(["nvidia/nemotron-3.5-lightning-30b-a3b", "nvidia/nemotron-3-ultra-550b-a55b"].includes(options.model) ? {providerOptions:{openmindai:{chat_template_kwargs:{enable_thinking:false}}}} : {}),
-    prepareStep: () => options.webSearchSelected && !searched && !searchDeclined
+    prepareStep: () => finalizing ? {toolChoice:"none"} : options.webSearchSelected && !searched && !searchDeclined
       ? {toolChoice:"required",activeTools:["web_search","decline_web_search"]}
       : options.webSearchSelected && ((hasSearchResults && !readAttempted) || (!readEvidence && userUrls.some(url => !attemptedUserUrls.has(url)))) && !searchDeclined
         ? {toolChoice:"required",activeTools:["read_page"]}
@@ -196,6 +197,18 @@ export async function runConversationTools(options: ConversationToolOptions) {
     if (reason === "stop" && options.webSearchSelected && !searchDeclined && (!searched || ((hasSearchResults || userUrls.length > 0) && !readAttempted))) {
       const steps = await result.steps;
       messages = [...messages, ...steps.flatMap(step => step.response.messages), {role:"user",content:"Complete the selected web search now using the native tools. Search, read a relevant result, then answer the original request with evidence. Do not stop at a promise."}];
+      continue;
+    }
+    // A tool-loop guard ends research, not the user's answer. Preserve all tool
+    // results and explicitly synthesize before reporting completion. Also recover
+    // a provider's empty stop without replaying already executed tools.
+    if ((reason === "tool-calls" || (reason === "stop" && !text.trim())) && continuation < 2) {
+      const steps = await result.steps;
+      messages = [...messages, ...steps.flatMap(step => step.response.messages), {
+        role:"user", content:"Now finish the original request using the tool results already collected. Give the substantive answer with source citations. Do not call more tools or repeat a plan. Clearly explain any missing evidence or unfinished part; never invent verification.",
+      }];
+      finalizing = true;
+      options.progress("Preparing the final answer");
       continue;
     }
     if (reason !== "stop") throw new Error("NVIDIA tool conversation stopped before completing the request.");

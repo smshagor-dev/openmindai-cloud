@@ -149,7 +149,7 @@ test('Auto grounds "latest news" prompts with web tools and survives brief statu
   const requests=[]; let statusChecks=0;
   const response=await nvidiaChat(JSON.stringify({message:'latest news about NVIDIA today'}),
     'user-session','https://backend/api/v1',new AbortController().signal,{
-      pollMs:40,config:{apiKey:'fixture-only',bridgeKey:'k'.repeat(32),model:'nvidia/nemotron-3.5-lightning-30b-a3b'},
+      pollMs:40,heartbeatMs:30,config:{apiKey:'fixture-only',bridgeKey:'k'.repeat(32),model:'nvidia/nemotron-3.5-lightning-30b-a3b'},
       fetcher:async (url,init) => {
         const body=JSON.parse(init.body); requests.push({url,body});
         if(url.endsWith('/begin')) return Response.json({ticket:'a'.repeat(64),messages:[{role:'user',content:'latest news about NVIDIA today'}],conversation_id:1,user_message_id:2,message_id:3,sources:[]});
@@ -165,6 +165,8 @@ test('Auto grounds "latest news" prompts with web tools and survives brief statu
   assert.doesNotMatch(output,/could not be checked/);
   assert.match(output,/NVIDIA announced/);
   assert.ok(statusChecks>=2,'status was polled during generation');
+  assert.match(output,/: keepalive\n\n/,'idle search emits SSE keepalives');
+  assert.ok(output.indexOf('event: answer') < output.indexOf('event: done'),'verified answer precedes completion');
   assert.deepEqual(requests.filter(r=>r.url.endsWith('/tool')).map(r=>r.body.action),['search','read']);
   assert.equal(requests.find(r=>r.url.endsWith('/finish')).body.status,'complete');
 });

@@ -112,6 +112,25 @@ class WebReader
             if ($mime === 'text/plain') {
                 return mb_substr($html, 0, 128000);
             }
+            if (config('web_research.reader_engine', 'chromium') === 'chromium') {
+                try {
+                    $process = new Process([(string) config('web_research.node_binary', 'node'), base_path('runtime/web-reader/chromium.mjs')], base_path('runtime/web-reader'));
+                    $clean = array_fill_keys(array_unique(array_merge(array_keys(getenv() ?: []), array_keys($_ENV))), false);
+                    foreach (['PATH', 'HOME', 'TMPDIR', 'PLAYWRIGHT_BROWSERS_PATH'] as $key) {
+                        if (getenv($key) !== false) $clean[$key] = getenv($key);
+                    }
+                    if (config('web_research.chromium_binary')) $clean['WEB_RESEARCH_CHROMIUM_BINARY'] = (string) config('web_research.chromium_binary');
+                    $process->setEnv($clean)->setInput(json_encode(['url' => $url, 'html' => $html], JSON_THROW_ON_ERROR))->setTimeout(16)->run();
+                    $rendered = $process->isSuccessful() ? json_decode($process->getOutput(), true) : null;
+                    if (is_array($rendered) && is_string($rendered['text'] ?? null) && mb_strlen(trim($rendered['text'])) >= 80) {
+                        $this->lastRead += ['title' => mb_substr((string) ($rendered['title'] ?? ''), 0, 200), 'engine' => 'chromium'];
+                        return mb_substr($rendered['text'], 0, 128000);
+                    }
+                } catch (\Throwable $e) {
+                    // Keep static sources readable when the browser is unavailable.
+                }
+                $this->lastRead['engine'] = 'static_fallback';
+            }
             $dom = new \DOMDocument;
             $previous = libxml_use_internal_errors(true);
             try {

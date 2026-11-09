@@ -112,7 +112,7 @@ export async function nvidiaChat(
   token: string,
   base: string,
   signal: AbortSignal,
-  options: { fetcher?: typeof fetch; config?: Config; pollMs?: number } = {},
+  options: { fetcher?: typeof fetch; config?: Config; pollMs?: number; heartbeatMs?: number } = {},
 ) {
   const config = options.config || {
     apiKey: process.env.NVIDIA_API_KEY || "",
@@ -396,6 +396,14 @@ export async function nvidiaChat(
         }
       };
 
+      // Search and verification may produce no answer bytes for a while. SSE
+      // comments keep idle proxies from closing that still-active connection.
+      const heartbeat = setInterval(() => {
+        if (!disconnected) {
+          try {controller.enqueue(encoder.encode(": keepalive\n\n"));}
+          catch {abort();}
+        }
+      }, options.heartbeatMs || 10000);
       try {
         emit("meta", {
           conversation_id: lease.conversation_id,
@@ -563,9 +571,10 @@ export async function nvidiaChat(
                 });
               }
               content += (content ? "\n\n" : "") + answer;
-              if (!lease.sources.length && !researchMetadata.activity.length) emit("delta", {content:answer});
+              emit("answer", {content});
             }
           }
+          if (!content.trim()) throw new Error("NVIDIA returned no answer before completion.");
           checkpoint.finished = true;
           await saveCheckpoint();
         }
@@ -858,6 +867,7 @@ export async function nvidiaChat(
             ? e.message
             : "NVIDIA connection failed or timed out.");
       } finally {
+        clearInterval(heartbeat);
         if (poll) clearInterval(poll);
         upstreamAbort.abort();
         signal.removeEventListener("abort", abort);
