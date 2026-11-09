@@ -64,6 +64,9 @@ async function render(url) {
   try {
     let requests = 0;
     const page = await context.newPage();
+    // HTTP routing does not cover WebSocket traffic. Block it explicitly,
+    // including connections initiated by untrusted third-party scripts.
+    await page.routeWebSocket("**/*", route => route.close());
     await page.route("**/*", async route => {
       const address = route.request().url();
       if (++requests > 90 || !await publicUrl(address)) {
