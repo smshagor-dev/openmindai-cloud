@@ -331,6 +331,8 @@ export async function nvidiaChat(
   let disconnected = signal.aborted;
   let cancelled = signal.aborted;
   let poll: ReturnType<typeof setInterval> | undefined;
+  let keepalive: ReturnType<typeof setInterval> | undefined;
+  let searchDeadline: ReturnType<typeof setTimeout> | undefined;
   let polling = false;
   const abort = () => {
     disconnected = true;
@@ -407,6 +409,20 @@ export async function nvidiaChat(
           resumable: Boolean(lease.message_id) && !inlineImage && (!conversationTools || deep),
         });
         if (cancelled) throw new Error("Cancelled");
+        // Search and verification can be silent for a long time. Keep the SSE
+        // response alive while tools are running; a heartbeat is NOT completion.
+        keepalive = setInterval(() => emit("heartbeat", {status:"working"}), 12000);
+        // The request lives on a platform with a hard execution limit. Leave
+        // time to persist a failed/interrupted checkpoint and send a truthful
+        // error instead of letting the runtime close the socket unannounced.
+        if (webSearchSelected || deep) {
+          searchDeadline = setTimeout(() => {
+            if (!upstreamAbort.signal.aborted) {
+              failure = "Search exceeded this request's execution window before a verified answer was ready. The incomplete response is saved; retry or continue if available.";
+              upstreamAbort.abort();
+            }
+          }, 220000);
+        }
         // Mark image turns non-resumable before inference so a failed request
         // cannot resume without the transient image, even with zero output.
         if (inlineImage) await saveCheckpoint();
@@ -859,6 +875,8 @@ export async function nvidiaChat(
             : "NVIDIA connection failed or timed out.");
       } finally {
         if (poll) clearInterval(poll);
+        if (keepalive) clearInterval(keepalive);
+        if (searchDeadline) clearTimeout(searchDeadline);
         upstreamAbort.abort();
         signal.removeEventListener("abort", abort);
         if (status === "complete" && (deep || lease.sources.length || researchMetadata.activity.length)) {
