@@ -10,4 +10,7 @@ return [
     'attempts' => 2,
     'cooldown_seconds' => 30,
     'python_binary' => env('WEB_RESEARCH_PYTHON_BINARY', 'python3'),
+    // Optional isolated Playwright/Chromium renderer for JavaScript-driven pages.
+    'chromium_url' => env('WEB_RESEARCH_CHROMIUM_URL'),
+    'chromium_token' => env('WEB_RESEARCH_CHROMIUM_TOKEN'),
 ];
