@@ -112,7 +112,7 @@ export async function nvidiaChat(
   token: string,
   base: string,
   signal: AbortSignal,
-  options: { fetcher?: typeof fetch; config?: Config; pollMs?: number } = {},
+  options: { fetcher?: typeof fetch; config?: Config; pollMs?: number; heartbeatMs?: number; searchDeadlineMs?: number } = {},
 ) {
   const config = options.config || {
     apiKey: process.env.NVIDIA_API_KEY || "",
@@ -411,7 +411,7 @@ export async function nvidiaChat(
         if (cancelled) throw new Error("Cancelled");
         // Search and verification can be silent for a long time. Keep the SSE
         // response alive while tools are running; a heartbeat is NOT completion.
-        keepalive = setInterval(() => emit("heartbeat", {status:"working"}), 12000);
+        keepalive = setInterval(() => emit("heartbeat", {status:"working"}), options.heartbeatMs ?? 12000);
         // The request lives on a platform with a hard execution limit. Leave
         // time to persist a failed/interrupted checkpoint and send a truthful
         // error instead of letting the runtime close the socket unannounced.
@@ -421,7 +421,7 @@ export async function nvidiaChat(
               failure = "Search exceeded this request's execution window before a verified answer was ready. The incomplete response is saved; retry or continue if available.";
               upstreamAbort.abort();
             }
-          }, 220000);
+          }, options.searchDeadlineMs ?? 220000);
         }
         // Mark image turns non-resumable before inference so a failed request
         // cannot resume without the transient image, even with zero output.
