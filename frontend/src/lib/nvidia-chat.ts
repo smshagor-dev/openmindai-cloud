@@ -114,6 +114,7 @@ export async function nvidiaChat(
   signal: AbortSignal,
   options: { fetcher?: typeof fetch; config?: Config; pollMs?: number; heartbeatMs?: number; searchDeadlineMs?: number } = {},
 ) {
+  const requestStartedAt = Date.now();
   const config = options.config || {
     apiKey: process.env.NVIDIA_API_KEY || "",
     bridgeKey: process.env.FRONTEND_CHAT_BRIDGE_KEY || "",
@@ -421,7 +422,10 @@ export async function nvidiaChat(
               failure = "Search exceeded this request's execution window before a verified answer was ready. The incomplete response is saved; retry or continue if available.";
               upstreamAbort.abort();
             }
-          }, options.searchDeadlineMs ?? 220000);
+          }, Math.max(1000, Math.min(
+            options.searchDeadlineMs ?? 220000,
+            240000 - (Date.now() - requestStartedAt),
+          )));
         }
         // Mark image turns non-resumable before inference so a failed request
         // cannot resume without the transient image, even with zero output.
