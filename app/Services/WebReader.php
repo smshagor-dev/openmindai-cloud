@@ -112,6 +112,22 @@ class WebReader
             if ($mime === 'text/plain') {
                 return mb_substr($html, 0, 128000);
             }
+            // Only the separately isolated Chromium worker executes page scripts.
+            // The static request above has already checked and pinned public DNS;
+            // the worker must independently enforce its own egress restrictions.
+            if (config('web_research.chromium_url') && config('web_research.chromium_token')) {
+                try {
+                    $rendered = $this->renderChromium($url);
+                    if (mb_strlen(trim($rendered['text'])) >= 80) {
+                        $this->lastRead['title'] = mb_substr($rendered['title'], 0, 200);
+                        $this->lastRead['url'] = $rendered['url'];
+                        return mb_substr($rendered['text'], 0, 128000);
+                    }
+                } catch (\Throwable) {
+                    // Rendering may be unavailable or a page may block Chromium.
+                    // Preserve the safe static parser, without inventing evidence.
+                }
+            }
             $dom = new \DOMDocument;
             $previous = libxml_use_internal_errors(true);
             try {
@@ -130,6 +146,26 @@ class WebReader
             return mb_substr(preg_replace('/\s+/u', ' ', $dom->textContent) ?? '', 0, 128000);
         }
         throw new \RuntimeException('Page unavailable.');
+    }
+
+    protected function renderChromium(string $url): array
+    {
+        $response = Http::connectTimeout(2)->timeout(14)
+            ->withToken((string) config('web_research.chromium_token'))
+            ->acceptJson()->asJson()
+            ->withOptions(['allow_redirects' => false, 'proxy' => ''])
+            ->post((string) config('web_research.chromium_url'), ['url' => $url]);
+        if (! $response->successful()) {
+            throw new \RuntimeException('Chromium reader unavailable.');
+        }
+        $data = $response->json();
+        if (! is_array($data) || ! is_string($data['text'] ?? null)
+            || ! is_string($data['url'] ?? null) || ! is_string($data['title'] ?? null)
+            || strlen($data['text']) > 250000
+            || ! WebSearch::canonicalUrl($data['url'])) {
+            throw new \RuntimeException('Invalid Chromium page data.');
+        }
+        return ['text' => $data['text'], 'title' => $data['title'], 'url' => $data['url']];
     }
 
     protected function fetchPinned(string $url, string $resolve): Response
