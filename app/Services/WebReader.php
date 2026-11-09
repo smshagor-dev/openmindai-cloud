@@ -155,17 +155,15 @@ class WebReader
             ->acceptJson()->asJson()
             ->withOptions(['allow_redirects' => false, 'proxy' => ''])
             ->post((string) config('web_research.chromium_url'), ['url' => $url]);
-        if (! $response->successful()) {
+        if ($response->successful() === false) {
             throw new \RuntimeException('Chromium reader unavailable.');
         }
         $data = $response->json();
-        if (! is_array($data) || ! is_string($data['text'] ?? null)
-            || ! is_string($data['url'] ?? null) || ! is_string($data['title'] ?? null)
-            || strlen($data['text']) > 512000
-            || ! WebSearch::canonicalUrl($data['url'])) {
-            throw new \RuntimeException('Invalid Chromium page data.');
+        if (is_array($data) && is_string($data['text'] ?? null) && is_string($data['url'] ?? null) && is_string($data['title'] ?? null) && strlen($data['text']) <= 512000 && WebSearch::canonicalUrl($data['url'])) {
+            return ['text' => $data['text'], 'title' => $data['title'], 'url' => $data['url']];
         }
-        return ['text' => $data['text'], 'title' => $data['title'], 'url' => $data['url']];
+
+        throw new \RuntimeException('Invalid Chromium page data.');
     }
 
     protected function fetchPinned(string $url, string $resolve): Response
