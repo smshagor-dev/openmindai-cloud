@@ -870,6 +870,15 @@ export default function ChatWorkspace() {
               ),
             );
           if (event === "error") setError(publicChatError(String(data.message)));
+          // Never leave an empty assistant bubble that looks like a completed
+          // answer when a search/verification task ends unsuccessfully.
+          if (event === "done" && data.status !== "complete" && !autoMedia)
+            setMessages((previous) => previous.map((m, i) =>
+              i === previous.length - 1 && m.role === "assistant" && !m.content.trim()
+                ? {...m, content: data.status === "cancelled"
+                  ? "Response stopped before it was completed."
+                  : "The search ended before a complete answer was available. No unverified response was presented. Please retry or continue this response if available."}
+                : m));
           if (
             event === "done" &&
             data.status === "complete" &&
@@ -924,6 +933,13 @@ export default function ChatWorkspace() {
           if (!override?.resumeId) setDraft(text);
         }
         report(e);
+        // The transport can drop before the server's final 'done' frame.
+        // Mark this turn interrupted, not complete, and preserve its history.
+        if (receivedMeta)
+          setMessages((previous) => previous.map((m, i) =>
+            i === previous.length - 1 && m.role === "assistant"
+              ? {...m, status: "failed", content: m.content.trim() || "The connection ended before a complete reply arrived. Your chat remains here; check history and retry or continue if available."}
+              : m));
       }
     } finally {
       if (generationRef.current === controller) {
