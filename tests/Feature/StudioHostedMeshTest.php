@@ -12,6 +12,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -156,6 +157,58 @@ class StudioHostedMeshTest extends TestCase
                 $this->assertTrue(true);
             }
         }
+        Http::assertNothingSent();
+    }
+
+    public function test_cancellation_in_progress_is_not_claimed_to_have_stopped_the_provider(): void
+    {
+        $user = $this->actor();
+        $upload = $this->upload($user);
+        Http::fake([
+            self::API => Http::response(['request_id' => self::REMOTE], 202),
+            self::API.'/requests/'.self::REMOTE.'/cancel' => Http::response(['status' => 'CANCELLATION_REQUESTED'], 202),
+            self::API.'/requests/'.self::REMOTE.'/status' => Http::sequence()->push(['status' => 'IN_PROGRESS'])->push(['status' => 'COMPLETED']),
+        ]);
+        $job = $this->submit($upload);
+        $this->postJson('/api/v1/3d-studio/jobs/'.$job['id'].'/cancel')->assertOk()->assertJsonPath('status', 'cancel_requested');
+        $this->getJson('/api/v1/3d-studio/jobs/'.$job['id'])->assertOk()->assertJsonPath('status', 'cancelled')->assertJsonPath('result.provider_finished_after_cancel', true);
+        $this->assertSame(0, DB::table('studio_assets')->count());
+    }
+
+    public function test_cdn_download_is_pinned_and_never_receives_provider_credentials(): void
+    {
+        $this->actor();
+        $bytes = $this->glb();
+        $url = 'https://v3b.fal.media/files/model.glb';
+        Http::fake([$url => Http::response($bytes, 200, ['Content-Type' => 'model/gltf-binary'])]);
+        $reader = new class extends HostedMeshDownload
+        {
+            protected function addresses(string $host): array
+            {
+                return ['8.8.8.8'];
+            }
+        };
+        $this->assertSame($bytes, $reader->get($url));
+        Http::assertSent(fn ($request) => $request->url() === $url && ! $request->hasHeader('Authorization') && ! $request->hasHeader('Cookie'));
+        $private = new class extends HostedMeshDownload
+        {
+            protected function addresses(string $host): array
+            {
+                return ['127.0.0.1'];
+            }
+        };
+        $this->expectException(\UnexpectedValueException::class);
+        $private->get($url);
+    }
+
+    public function test_inflight_submissions_count_toward_the_existing_user_job_limit(): void
+    {
+        $user = $this->actor();
+        $upload = $this->upload($user);
+        for ($index = 0; $index < 4; $index++) {
+            StudioJob::create(['id' => (string) Str::uuid(), 'user_id' => $user->id, 'request_key' => 'pending-'.$index, 'payload_hash' => str_repeat('a', 64), 'engine' => HostedMesh::ENGINE, 'operation' => 'hosted_mesh', 'status' => 'submitting', 'input' => []]);
+        }
+        $this->postJson('/api/v1/3d-studio/jobs/image-model', ['engine' => HostedMesh::ENGINE, 'upload_id' => $upload, 'request_key' => 'over-limit'])->assertStatus(429);
         Http::assertNothingSent();
     }
 }
