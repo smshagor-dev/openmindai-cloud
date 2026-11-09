@@ -57,11 +57,23 @@ class AdvancedWebResearchTest extends TestCase
             && $request->hasHeader('Authorization', 'Bearer '.str_repeat('x', 40))
             && $request['url'] === 'https://public.example/article');
 
+    }
+
+    public function test_chromium_reader_rejects_a_private_final_url(): void
+    {
+        config(['web_research.chromium_url' => 'https://worker.example/render', 'web_research.chromium_token' => str_repeat('x', 40)]);
         Http::fake(['worker.example/*' => Http::response([
             'url' => 'http://127.0.0.1/internal',
             'title' => 'Not public',
             'text' => str_repeat('Never accept this private response. ', 4),
         ], 200)]);
+        $reader = new class extends WebReader
+        {
+            public function renderForTest(string $url): array
+            {
+                return $this->renderChromium($url);
+            }
+        };
         $this->expectException(\RuntimeException::class);
         $reader->renderForTest('https://public.example/article');
     }
