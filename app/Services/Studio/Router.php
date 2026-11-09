@@ -20,6 +20,9 @@ class Router
             $architecture = $mode === 'architecture' || ($mode === 'auto' && preg_match('/architecture|microservice|system diagram|data flow|স্থাপত্য|আর্কিটেকচার|архитектур|схем[ау]|→|->/u', $prompt));
             $mesh = ! $architecture && ($hasImage || preg_match('/realistic|image.to.3d|image.to.mesh|photoreal|বাস্তবসম্মত|реалистич/u', $prompt));
             $selected = $mesh ? collect($catalog['data'])->first(fn ($e) => $e['kind'] === 'model' && $e['available']) : null;
+            if ($mesh && $hasImage && ! $selected) {
+                abort(503, 'Full 3D mesh generation is not configured. Configure a hosted mesh engine, or explicitly choose 2.5D depth relief.');
+            }
             if (! $selected) {
                 // Without a verified GPU mesh worker (e.g. on cPanel) a mesh-style
                 // prompt is still answered with a procedural scene.

@@ -15,9 +15,12 @@ class Catalog
         foreach (['procedural' => 'Procedural 3D', 'architecture' => '3D Architecture'] as $id => $name) {
             $builtins[] = ['id' => $id, 'name' => $name, 'kind' => 'scene', 'input' => 'text', 'output' => 'scene', 'available' => $reasoning, 'reason' => $reasoning ? null : 'scene_model_required'];
         }
+        $fal = app(HostedMesh::class)->available();
+        $builtins[] = ['id' => HostedMesh::ENGINE, 'name' => 'Full 3D mesh (TRELLIS 2)', 'kind' => 'model', 'input' => 'image', 'output' => 'hosted_mesh', 'available' => $fal, 'reason' => $fal ? null : 'fal_key_required'];
+        $builtins[] = ['id' => 'browser-relief', 'name' => '2.5D depth relief (this device)', 'kind' => 'relief', 'input' => 'image', 'output' => 'browser_relief', 'available' => true, 'reason' => null];
         // Hosted image-to-3D: NVIDIA runs the GPU work, so no Studio worker is needed.
         $hosted = app(ImageToMesh::class)->available();
-        $builtins[] = ['id' => 'nvidia-trellis', 'name' => 'Image to 3D (NVIDIA TRELLIS)', 'kind' => 'model', 'input' => 'image', 'output' => 'hosted_mesh', 'available' => $hosted, 'reason' => $hosted ? null : 'nvidia_key_required'];
+        $builtins[] = ['id' => 'nvidia-trellis', 'name' => 'Image to 3D (NVIDIA TRELLIS)', 'kind' => 'model', 'input' => 'image', 'output' => 'hosted_mesh', 'available' => $hosted, 'reason' => $hosted ? null : ((string) config('studio.image_model.key') === '' ? 'nvidia_key_required' : 'custom_image_endpoint_unverified')];
         foreach ($catalog['engines'] as &$engine) {
             $runtime = collect($health['engines'] ?? [])->firstWhere('id', $engine['id']);
             // Catalog presence is not installation evidence. A matching immutable

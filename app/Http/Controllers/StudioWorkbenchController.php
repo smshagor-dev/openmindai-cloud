@@ -9,6 +9,7 @@ use App\Services\ApiCreditUsage;
 use App\Services\Studio\Assets;
 use App\Services\Studio\Catalog;
 use App\Services\Studio\DirectScenes;
+use App\Services\Studio\HostedMesh;
 use App\Services\Studio\ImageToMesh;
 use App\Services\Studio\Jobs;
 use App\Services\Studio\Router;
@@ -75,10 +76,14 @@ class StudioWorkbenchController
     }
 
     /** Uploaded reference image → GLB mesh on NVIDIA's hosted TRELLIS, saved as a private asset. */
-    public function imageModel(Request $r, Assets $assets, ImageToMesh $engine, ApiCreditUsage $credits)
+    public function imageModel(Request $r, Assets $assets, ImageToMesh $engine, ApiCreditUsage $credits, HostedMesh $hosted, Jobs $jobs)
     {
         $data = $r->validate(['upload_id' => 'required|integer', 'request_key' => 'required|string|regex:/^[a-zA-Z0-9:_-]{1,80}$/', 'project_id' => 'nullable|integer']);
         $user = $r->user()->id;
+        $selected = $r->validate(['engine' => 'sometimes|in:fal-trellis-2,nvidia-trellis']);
+        if (($selected['engine'] ?? ($hosted->available() ? HostedMesh::ENGINE : 'nvidia-trellis')) === HostedMesh::ENGINE) {
+            return response()->json($jobs->public($hosted->create($user, $data)), 202)->header('Cache-Control', 'no-store');
+        }
         $public = fn (object $row) => response()->json(['asset' => collect((array) $row)->only(['id', 'project_id', 'parent_id', 'name', 'kind', 'format', 'bytes', 'sha256', 'metadata', 'created_at'])], 201)->header('Cache-Control', 'no-store');
         $replay = fn () => DB::table('studio_assets')->where('user_id', $user)->whereNull('deleted_at')->where('metadata->request_key', $data['request_key'])->first();
         // A retried request returns the saved model instead of a second billed call.
@@ -144,6 +149,7 @@ class StudioWorkbenchController
     {
         abort_unless(config('studio.queue_enabled'), 503, 'Worker jobs are not enabled on this hosting profile. Procedural and Architecture scenes remain available.');
         $data = $r->validate(['request_key' => 'required|string|regex:/^[a-zA-Z0-9:_-]{1,80}$/', 'project_id' => 'nullable|integer', 'engine' => 'required|string|max:60', 'operation' => 'required|in:generate,inspect,smooth,decimate,repair,transform,export,preprocess', 'asset_id' => 'nullable|integer', 'upload_id' => 'nullable|integer', 'params' => 'present|array']);
+        abort_if($data['engine'] === HostedMesh::ENGINE, 422, 'Use the hosted image-model endpoint for this engine.');
         $capabilities = $catalog->all();
         abort_unless($capabilities['worker']['ready'], 503, 'The isolated worker is unavailable.');
         if ($data['operation'] === 'generate') {
@@ -171,12 +177,20 @@ class StudioWorkbenchController
 
     public function job(Request $r, string $id, Jobs $jobs)
     {
-        return [...$jobs->public($jobs->owned($r->user()->id, $id)), 'events' => DB::table('studio_job_events')->where('job_id', $id)->orderBy('id')->limit(200)->get(['id', 'type', 'data', 'created_at'])];
+        $job = $jobs->owned($r->user()->id, $id);
+        if ($job->engine === HostedMesh::ENGINE) {
+            $job = app(HostedMesh::class)->sync($job);
+        }
+
+        return [...$jobs->public($job), 'events' => DB::table('studio_job_events')->where('job_id', $id)->orderBy('id')->limit(200)->get(['id', 'type', 'data', 'created_at'])];
     }
 
     public function cancel(Request $r, string $id, Jobs $jobs)
     {
         $job = $jobs->owned($r->user()->id, $id);
+        if ($job->engine === HostedMesh::ENGINE) {
+            return $jobs->public(app(HostedMesh::class)->sync($job, true));
+        }
         DB::transaction(function () use ($job, $jobs) {
             $locked = StudioJob::whereKey($job->id)->lockForUpdate()->firstOrFail();
             if (in_array($locked->status, ['queued', 'running'], true)) {

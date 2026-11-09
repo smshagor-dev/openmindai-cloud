@@ -24,7 +24,7 @@ class StudioImageToMeshTest extends TestCase
         $user = User::create(['name' => 'Mesh', 'email' => uniqid().'@example.com', 'password' => 'SyntheticPassword123']);
         $user->forceFill(['email_verified_at' => now()])->save();
         Sanctum::actingAs($user, ['user']);
-        config(['studio.image_model.key' => $key ? 'test-nvidia-key' : '', 'studio.image_model.url' => self::URL]);
+        config(['studio.image_model.custom_images' => true, 'studio.hosted_mesh.key' => '', 'studio.image_model.key' => $key ? 'test-nvidia-key' : '', 'studio.image_model.url' => self::URL]);
 
         return $user;
     }

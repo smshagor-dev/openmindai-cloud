@@ -196,7 +196,7 @@ export default function StudioPage() {
       });
       let result;
       // No hosted/GPU mesh engine: turn the image into a depth relief on this device.
-      const reliefImage = route.reason === "procedural_fallback"
+      const reliefImage = (route.output === "browser_relief" || route.reason === "procedural_fallback")
         ? references.find((r) => selectedUploads.includes(r.id) && r.mime.startsWith("image/"))
         : undefined;
       if (reliefImage) {
@@ -248,13 +248,20 @@ export default function StudioPage() {
         if (!image)
           throw new Error("Add an image reference for this engine.");
         if (route.output === "hosted_mesh") {
-          // NVIDIA-hosted image to 3D: one direct request returns the saved GLB asset.
+          // Hosted engines may return a durable queued job or an immediate asset.
           setMeshPending(true);
           try {
             const created = await workbenchApi("/jobs/image-model", "POST", {
               request_key: requestKey,
               upload_id: image.id,
+              engine: route.engine,
             });
+            if (created.id && !created.asset) {
+              setJobId(created.id);
+              setPanel("assets");
+              submission.current = null;
+              return;
+            }
             setSelectedAsset(created.asset as Asset);
             setPanel("create");
             setPrompt("");
@@ -458,8 +465,8 @@ export default function StudioPage() {
           {capabilities?.deployment?.scene_execution === "direct" &&
             !capabilities.worker.ready && (
               <p className="studio-muted">
-                Procedural 3D and Architecture run here. Mesh generation and
-                processing become available after a worker is connected.
+                Full 3D generation uses an available hosted mesh engine. Mesh
+                import and editing tools need a connected processing worker.
               </p>
             )}
           <Workbench
@@ -677,10 +684,10 @@ export default function StudioPage() {
                         >
                           <option value="auto">Auto (recommended)</option>
                           {capabilities?.data
-                            .filter((item) => item.available)
+                            .filter((item) => item.available || item.id === "fal-trellis-2")
                             .map((item) => (
-                              <option key={item.id} value={item.id}>
-                                {item.name}
+                              <option key={item.id} value={item.id} disabled={!item.available}>
+                                {item.name}{!item.available ? " (setup required)" : ""}
                               </option>
                             ))}
                         </select>
