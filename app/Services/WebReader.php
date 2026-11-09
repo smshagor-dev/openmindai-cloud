@@ -161,7 +161,7 @@ class WebReader
         $data = $response->json();
         if (! is_array($data) || ! is_string($data['text'] ?? null)
             || ! is_string($data['url'] ?? null) || ! is_string($data['title'] ?? null)
-            || strlen($data['text']) > 250000
+            || strlen($data['text']) > 512000
             || ! WebSearch::canonicalUrl($data['url'])) {
             throw new \RuntimeException('Invalid Chromium page data.');
         }
