@@ -898,6 +898,18 @@ export async function nvidiaChat(
           researchMetadata.coverage ||= {actions:researchMetadata.activity.filter(e=>e.status==='completed').length,sources:lease.sources.length,pagesRead:read.length,domainsRead:new Set(read.map(s=>new URL(s.url).hostname)).size};
           emit('research',{label:researchMetadata.status==='complete'?'Research finished':researchMetadata.status==='partial'?'Report ready with unresolved evidence gaps':'Research '+researchMetadata.status,sources:lease.sources,metadata:researchMetadata});
         }
+        // Persist a truthful incomplete-state notice. Without it, refreshing
+        // history can turn an interrupted Web Search back into a blank bubble.
+        // This is explicitly a failed status, never a fabricated final answer.
+        if (status === "failed" && !content.trim() && (webSearchSelected || deep)) {
+          const bangla = /[\u0980-\u09ff]|\b(?:bangla|bengali)\b/i.test(
+            typeof input.message === "string" ? input.message : "",
+          );
+          content = bangla
+            ? "ওয়েব সার্চ শেষ হওয়ার আগে সংযোগ বা সময়সীমার সমস্যা হয়েছে। যাচাই করা সম্পূর্ণ উত্তর পাওয়া যায়নি। আবার চেষ্টা করুন।"
+            : "Web Search stopped before a complete, verified answer was ready. Please retry; this response was not marked complete.";
+          emit("answer", {content});
+        }
         let saved = false;
         for (let attempt = 0; attempt < 3; attempt++) {
           try {
