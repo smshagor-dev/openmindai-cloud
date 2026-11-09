@@ -223,5 +223,6 @@ test('web search deadline finishes as interrupted rather than silently reporting
   assert.match(frames,/event: done/);
   assert.ok(!frames.includes('event: done\ndata: {"status":"complete"'), 'incomplete searches must not report success');
   assert.equal(persisted.status,'failed');
-  assert.equal(persisted.content,'');
+  assert.match(persisted.content,/stopped before a complete, verified answer/);
+  assert.match(frames,/Web Search stopped before a complete/);
 });
