@@ -34,6 +34,38 @@ class AdvancedWebResearchTest extends TestCase
         Http::assertSent(fn ($request) => $request->hasHeader('X-Subscription-Token', 'PRIVATE_BRAVE'));
     }
 
+    public function test_chromium_reader_uses_authenticated_private_renderer_and_validates_returned_url(): void
+    {
+        config(['web_research.chromium_url' => 'https://worker.example/render', 'web_research.chromium_token' => str_repeat('x', 40)]);
+        Http::fake(['worker.example/*' => Http::response([
+            'url' => 'https://public.example/article',
+            'title' => 'JavaScript-rendered article',
+            'text' => str_repeat('The article was rendered in Chromium. ', 4),
+        ], 200)]);
+
+        $reader = new class extends WebReader
+        {
+            public function renderForTest(string $url): array
+            {
+                return $this->renderChromium($url);
+            }
+        };
+        $result = $reader->renderForTest('https://public.example/article');
+        $this->assertSame('JavaScript-rendered article', $result['title']);
+        $this->assertStringContainsString('rendered in Chromium', $result['text']);
+        Http::assertSent(fn ($request) => $request->url() === 'https://worker.example/render'
+            && $request->hasHeader('Authorization', 'Bearer '.str_repeat('x', 40))
+            && $request['url'] === 'https://public.example/article');
+
+        Http::fake(['worker.example/*' => Http::response([
+            'url' => 'http://127.0.0.1/internal',
+            'title' => 'Not public',
+            'text' => str_repeat('Never accept this private response. ', 4),
+        ], 200)]);
+        $this->expectException(\RuntimeException::class);
+        $reader->renderForTest('https://public.example/article');
+    }
+
     public function test_late_passages_and_pdf_provenance_are_preserved_but_html_cannot_claim_pages(): void
     {
         $evidence = app(WebEvidence::class);
