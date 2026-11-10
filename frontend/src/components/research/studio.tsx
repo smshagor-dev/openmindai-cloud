@@ -60,118 +60,11 @@ import ResearchConversation, { ResearchComposer } from "./conversation";
 const AcademicEditor = dynamic(() => import("./editor"), {
   loading: () => <p role="status">Opening manuscript canvas…</p>,
 });
-import { effectiveLanguage, languageCode } from "@/lib/research-language";
+import { effectiveLanguage, languageLabel } from "@/lib/research-language";
 import TaskGraph from "./task-graph";
 import ResearchReadiness from "./readiness";
 import type { JSONContent } from "@tiptap/core";
 const readable = (x: unknown) => (typeof x === "string" ? x : pretty(x));
-const statusLabels: Record<string, Record<string, string>> = Object.fromEntries(
-  Object.entries({
-    bn: [
-      "চলছে",
-      "অপেক্ষায়",
-      "সারিতে",
-      "সম্পন্ন",
-      "ব্যর্থ",
-      "বিরত",
-      "বাতিল",
-      "অনুমোদনের অপেক্ষায়",
-      "খসড়া",
-    ],
-    ru: [
-      "Выполняется",
-      "Ожидание",
-      "В очереди",
-      "Завершено",
-      "Ошибка",
-      "Приостановлено",
-      "Отменено",
-      "Ожидает одобрения",
-      "Черновик",
-    ],
-    ar: [
-      "قيد التنفيذ",
-      "انتظار",
-      "في قائمة الانتظار",
-      "مكتمل",
-      "فشل",
-      "متوقف مؤقتًا",
-      "ملغى",
-      "بانتظار الموافقة",
-      "مسودة",
-    ],
-    hi: [
-      "चल रहा है",
-      "प्रतीक्षा",
-      "कतार में",
-      "पूर्ण",
-      "विफल",
-      "विराम",
-      "रद्द",
-      "अनुमोदन की प्रतीक्षा",
-      "मसौदा",
-    ],
-    zh: [
-      "运行中",
-      "等待中",
-      "排队中",
-      "已完成",
-      "失败",
-      "已暂停",
-      "已取消",
-      "等待批准",
-      "草稿",
-    ],
-    es: [
-      "En curso",
-      "Pendiente",
-      "En cola",
-      "Completado",
-      "Fallido",
-      "Pausado",
-      "Cancelado",
-      "Esperando aprobación",
-      "Borrador",
-    ],
-    fr: [
-      "En cours",
-      "En attente",
-      "En file",
-      "Terminé",
-      "Échec",
-      "En pause",
-      "Annulé",
-      "En attente d’approbation",
-      "Brouillon",
-    ],
-    de: [
-      "Läuft",
-      "Ausstehend",
-      "In Warteschlange",
-      "Abgeschlossen",
-      "Fehlgeschlagen",
-      "Pausiert",
-      "Abgebrochen",
-      "Wartet auf Freigabe",
-      "Entwurf",
-    ],
-  }).map(([code, values]) => [
-    code,
-    Object.fromEntries(
-      [
-        "running",
-        "pending",
-        "queued",
-        "completed",
-        "failed",
-        "paused",
-        "cancelled",
-        "awaiting_approval",
-        "draft",
-      ].map((key, i) => [key, values[i]]),
-    ),
-  ]),
-);
 
 function Data({ value }: { value: unknown }) {
   return (
@@ -621,8 +514,6 @@ export default function ResearchStudio() {
     data?.run?.plan?.output_language,
   );
   const label = (status: string) =>
-    statusLabels[languageCode(lang)]?.[status] ||
-    // No translation (e.g. English/auto): "awaiting_approval" → "Awaiting approval".
     status.charAt(0).toUpperCase() + status.slice(1).replaceAll("_", " ");
   const fileInput = (kind: string, accept: string) => (
     <label className="rs-file">
@@ -809,7 +700,7 @@ export default function ResearchStudio() {
                 value={prompt}
                 maxLength={16000}
                 onChange={(e) => setPrompt(e.target.value)}
-                placeholder="বাংলায়, English বা অন্য ভাষায় আপনার গবেষণার বিষয়, লক্ষ্য এবং সীমাবদ্ধতা লিখুন…"
+                placeholder="Describe your research topic, goals and constraints…"
               />
             </label>
             <div className="rs-grid">
@@ -820,7 +711,7 @@ export default function ResearchStudio() {
                   onChange={(e) => setProgressLanguage(e.target.value)}
                 >
                   {languages.map((l) => (
-                    <option key={l}>{l}</option>
+                    <option key={l} value={l}>{languageLabel(l)}</option>
                   ))}
                 </select>
               </label>
@@ -831,7 +722,7 @@ export default function ResearchStudio() {
                   onChange={(e) => setOutputLanguage(e.target.value)}
                 >
                   {languages.map((l) => (
-                    <option key={l}>{l}</option>
+                    <option key={l} value={l}>{languageLabel(l)}</option>
                   ))}
                 </select>
               </label>
@@ -900,7 +791,7 @@ export default function ResearchStudio() {
             <div className="rs-project-header">
               <h1 dir="auto" title={p.title}>{p.title}</h1>
               <p className="rs-project-meta">
-                Progress language: {lang} · Manuscript: {manuscriptLanguage} ·
+                Progress language: {languageLabel(lang)} · Manuscript: {languageLabel(manuscriptLanguage)} ·
                 Role: {p.role}
               </p>
               <span className={`rs-status rs-status-${p.status}`}>{label(p.status)}</span>
@@ -2077,7 +1968,7 @@ export default function ResearchStudio() {
                               }
                             >
                               {languages.map((l) => (
-                                <option key={l}>{l}</option>
+                                <option key={l} value={l}>{languageLabel(l)}</option>
                               ))}
                             </select>
                           </label>

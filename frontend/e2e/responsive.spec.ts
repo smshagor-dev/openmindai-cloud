@@ -126,6 +126,44 @@ async function fixtures(page: Page, guest = false) {
       return json({ models: [], base_url: "https://api.example.test/v1" });
     if (path === "developer/usage")
       return json({ daily: [], models: [], total_credits: 0 });
+    if (path === "research/projects/27")
+      return json({
+        project: {
+          id: 27,
+          title: "Research interface check",
+          prompt: "বাংলা গবেষণার বিষয়",
+          status: "awaiting_approval",
+          role: "owner",
+          settings: { progress_language: "বাংলা", output_language: "Русский" },
+        },
+        run: {
+          id: 42,
+          status: "paused",
+          plan: { language: "bn", output_language: "ru" },
+        },
+        tasks: [],
+        sources: [],
+        findings: [],
+        artifacts: [],
+        conversation: [],
+        recent_events: [],
+        event_cursor: 0,
+        document: {
+          content: { type: "doc", content: [{ type: "paragraph" }] },
+          version: 1,
+        },
+        comments: [],
+        members: [],
+        experiments: [],
+        approvals: [],
+        exports: [],
+      });
+    if (path === "research/projects/27/events")
+      return route.fulfill({
+        contentType: "text/event-stream",
+        body: ": keepalive\n\n",
+      });
+    if (path === "research/projects/27/history") return json({ data: [] });
     if (path === "research/projects") return json({ data: [] });
     if (path === "research/status")
       return json({
@@ -277,7 +315,9 @@ for (const [width, height] of sizes) {
       if (route === "/research-studio" || route === "/3d-studio") {
         await expect(page.locator(".workspace-welcome")).toBeVisible();
         const composer = page.locator(
-          route === "/3d-studio" ? ".studio-composer-area .composer" : ".rs-chat-composer",
+          route === "/3d-studio"
+            ? ".studio-composer-area .composer"
+            : ".rs-chat-composer",
         );
         await expect(composer).toBeVisible();
         expect(
@@ -294,8 +334,14 @@ for (const [width, height] of sizes) {
       }
       if (route === "/3d-studio") {
         await openSidebar(page);
-        await page.locator(".sidebar").getByRole("button", { name: long, exact: true }).click();
-        if (width <= 760) await page.getByRole("button", { name: "Close sidebar", exact: true }).click({ position: { x: width - 8, y: 80 } });
+        await page
+          .locator(".sidebar")
+          .getByRole("button", { name: long, exact: true })
+          .click();
+        if (width <= 760)
+          await page
+            .getByRole("button", { name: "Close sidebar", exact: true })
+            .click({ position: { x: width - 8, y: 80 } });
         await expect(
           page.getByRole("heading", { name: long, exact: true }),
         ).toBeVisible();
@@ -399,4 +445,67 @@ for (const viewport of [
         await context.close();
       }
     });
+}
+
+for (const width of [360, 390, 768, 1440]) {
+  test(`English research interface with multilingual preferences ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 950 });
+    await fixtures(page);
+    await page.goto("/research-studio");
+    await page
+      .getByRole("button", { name: "Set project details & languages" })
+      .click();
+    await expect(page.getByLabel("Research prompt")).toHaveAttribute(
+      "placeholder",
+      "Describe your research topic, goals and constraints…",
+    );
+    const progress = page.getByLabel("Progress language", { exact: true });
+    await expect(progress.locator("option")).toHaveText([
+      "Automatic",
+      "English",
+      "Bangla",
+      "Russian",
+      "Arabic",
+      "Hindi",
+      "Chinese",
+      "Spanish",
+      "French",
+      "German",
+    ]);
+    await progress.selectOption("বাংলা");
+    await expect(progress).toHaveValue("বাংলা");
+    await fits(page);
+    await page.goto("/research-studio?project=27");
+    await expect(page.locator(".rs-project-header .rs-status")).toHaveText(
+      "Awaiting approval",
+    );
+    await expect(page.locator(".rs-project-meta")).toHaveText(
+      /Progress language: Bangla · Manuscript: Russian/,
+    );
+    await expect(
+      page.getByRole("article", { name: "Original research request" }),
+    ).toContainText("বাংলা গবেষণার বিষয়");
+    await fits(page);
+    for (const view of ["Overview", "Live agents", "Settings"]) {
+      await page.goto(
+        `/research-studio?project=27&view=${encodeURIComponent(view)}`,
+      );
+      await expect(
+        page.getByRole("heading", {
+          name: "Research interface check",
+          exact: true,
+        }),
+      ).toBeVisible();
+      await fits(page);
+      await expect(page.locator(".rs-project-header")).not.toContainText(
+        /[\u0980-\u09ff\u0400-\u04ff]/,
+      );
+    }
+    await page.screenshot({
+      path: test.info().outputPath(`research-english-${width}.png`),
+      fullPage: true,
+    });
+  });
 }
