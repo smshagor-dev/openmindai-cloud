@@ -9,6 +9,7 @@ use App\Services\ApiCreditUsage;
 use App\Services\Studio\Assets;
 use App\Services\Studio\Catalog;
 use App\Services\Studio\DirectScenes;
+use App\Services\Studio\FreeMesh;
 use App\Services\Studio\HostedMesh;
 use App\Services\Studio\ImageToMesh;
 use App\Services\Studio\Jobs;
@@ -80,7 +81,11 @@ class StudioWorkbenchController
     {
         $data = $r->validate(['upload_id' => 'required|integer', 'request_key' => 'required|string|regex:/^[a-zA-Z0-9:_-]{1,80}$/', 'project_id' => 'nullable|integer']);
         $user = $r->user()->id;
-        $selected = $r->validate(['engine' => 'sometimes|in:fal-trellis-2,nvidia-trellis']);
+        $selected = $r->validate(['engine' => 'sometimes|in:hf-trellis-2,fal-trellis-2,nvidia-trellis']);
+        $free = app(FreeMesh::class);
+        if (($selected['engine'] ?? ($free->available() ? FreeMesh::ENGINE : null)) === FreeMesh::ENGINE) {
+            return response()->json($jobs->public($free->create($user, $data)), 202)->header('Cache-Control', 'no-store');
+        }
         if (($selected['engine'] ?? ($hosted->available() ? HostedMesh::ENGINE : 'nvidia-trellis')) === HostedMesh::ENGINE) {
             return response()->json($jobs->public($hosted->create($user, $data)), 202)->header('Cache-Control', 'no-store');
         }
@@ -149,7 +154,7 @@ class StudioWorkbenchController
     {
         abort_unless(config('studio.queue_enabled'), 503, 'Worker jobs are not enabled on this hosting profile. Procedural and Architecture scenes remain available.');
         $data = $r->validate(['request_key' => 'required|string|regex:/^[a-zA-Z0-9:_-]{1,80}$/', 'project_id' => 'nullable|integer', 'engine' => 'required|string|max:60', 'operation' => 'required|in:generate,inspect,smooth,decimate,repair,transform,export,preprocess', 'asset_id' => 'nullable|integer', 'upload_id' => 'nullable|integer', 'params' => 'present|array']);
-        abort_if($data['engine'] === HostedMesh::ENGINE, 422, 'Use the hosted image-model endpoint for this engine.');
+        abort_if(in_array($data['engine'], [HostedMesh::ENGINE, FreeMesh::ENGINE], true), 422, 'Use the hosted image-model endpoint for this engine.');
         $capabilities = $catalog->all();
         abort_unless($capabilities['worker']['ready'], 503, 'The isolated worker is unavailable.');
         if ($data['operation'] === 'generate') {
@@ -188,6 +193,9 @@ class StudioWorkbenchController
     public function cancel(Request $r, string $id, Jobs $jobs)
     {
         $job = $jobs->owned($r->user()->id, $id);
+        if ($job->engine === FreeMesh::ENGINE) {
+            return $jobs->public(app(FreeMesh::class)->cancel($job));
+        }
         if ($job->engine === HostedMesh::ENGINE) {
             return $jobs->public(app(HostedMesh::class)->sync($job, true));
         }

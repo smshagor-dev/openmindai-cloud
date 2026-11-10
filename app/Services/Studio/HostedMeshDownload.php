@@ -12,7 +12,7 @@ class HostedMeshDownload
     public function get(string $url): string
     {
         $parts = parse_url($url);
-        if (! $parts || ($parts['scheme'] ?? '') !== 'https' || ! preg_match('/^(?:[a-z0-9-]+\.)*fal\.media$/iD', $parts['host'] ?? '') || isset($parts['user']) || isset($parts['pass']) || isset($parts['port']) || isset($parts['fragment'])) {
+        if (! $parts || ($parts['scheme'] ?? '') !== 'https' || ! $this->allowed($parts) || isset($parts['user']) || isset($parts['pass']) || isset($parts['port']) || isset($parts['fragment'])) {
             throw new UnexpectedValueException('Unsupported provider artifact URL.');
         }
         $host = $parts['host'];
@@ -49,6 +49,11 @@ class HostedMeshDownload
         } finally {
             $body->close();
         }
+    }
+
+    protected function allowed(array $parts): bool
+    {
+        return (bool) preg_match('/^(?:[a-z0-9-]+\.)*fal\.media$/iD', $parts['host'] ?? '');
     }
 
     protected function addresses(string $host): array

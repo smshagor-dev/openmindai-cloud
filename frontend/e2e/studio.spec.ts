@@ -648,7 +648,8 @@ test("cPanel reconnect retries reuse the request key instead of charging a secon
   expect(keys[0]).toBe(keys[1]);
 });
 
-test("hosted full 3D submits once, tracks the saved job and opens its private GLB", async ({
+for (const engine of ["fal-trellis-2", "hf-trellis-2"]) {
+test(`${engine}: hosted full 3D submits once, tracks the saved job and opens its private GLB`, async ({
   page,
 }) => {
   const id = "55555555-1111-4111-8111-555555555555";
@@ -695,7 +696,7 @@ test("hosted full 3D submits once, tracks the saved job and opens its private GL
     bytes: glb.length,
     parent_id: null,
     project_id: null,
-    metadata: { source: "fal-trellis-2", geometry: "generated_mesh" },
+    metadata: { source: engine, geometry: "generated_mesh" },
   };
   let submitted = false,
     polls = 0,
@@ -713,12 +714,13 @@ test("hosted full 3D submits once, tracks the saved job and opens its private GL
       return reply({
         data: [
           {
-            id: "fal-trellis-2",
+            id: engine,
             name: "Full 3D mesh (TRELLIS 2)",
             kind: "model",
             input: "image",
             output: "hosted_mesh",
             available: true,
+            ...(engine === "hf-trellis-2" ? { limits: { per_user_daily: 2, per_user_hourly: 1, server_daily: 2, concurrent: 1 } } : {}),
           },
         ],
         deployment: { scene_execution: "direct", queued_jobs: false },
@@ -731,7 +733,7 @@ test("hosted full 3D submits once, tracks the saved job and opens its private GL
       );
     if (path.endsWith("/route"))
       return reply({
-        engine: "fal-trellis-2",
+        engine: engine,
         mode: "object",
         output: "hosted_mesh",
       });
@@ -739,13 +741,13 @@ test("hosted full 3D submits once, tracks the saved job and opens its private GL
       submissions++;
       submitted = true;
       expect(request.postDataJSON()).toMatchObject({
-        engine: "fal-trellis-2",
+        engine: engine,
         upload_id: 7,
       });
       return reply(
         {
           id,
-          engine: "fal-trellis-2",
+          engine: engine,
           operation: "hosted_mesh",
           status: "queued",
         },
@@ -756,7 +758,7 @@ test("hosted full 3D submits once, tracks the saved job and opens its private GL
       polls++;
       return reply({
         id,
-        engine: "fal-trellis-2",
+        engine: engine,
         operation: "hosted_mesh",
         status: polls > 1 ? "completed" : "running",
         ...(polls > 1 ? { result: { asset_id: 44, format: "glb" } } : {}),
@@ -799,3 +801,5 @@ test("hosted full 3D submits once, tracks the saved job and opens its private GL
   await expect(page.getByText(/Front-facing \(2.5D\)/)).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+}

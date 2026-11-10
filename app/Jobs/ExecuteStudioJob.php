@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Models\StudioJob;
 use App\Models\User;
 use App\Services\Studio\Assets;
+use App\Services\Studio\FreeMesh;
 use App\Services\Studio\HostedMesh;
 use App\Services\Studio\Jobs;
 use App\Services\Studio\Worker;
@@ -27,6 +28,9 @@ class ExecuteStudioJob implements ShouldQueue
 
     public function handle(): void
     {
+        if (StudioJob::whereKey($this->id)->value('engine') === FreeMesh::ENGINE) {
+            return; // Only the bounded free consumer may start these sessions.
+        }
         $lock = Cache::lock('studio:job:'.$this->id, 45);
         if (! $lock->get()) {
             return;

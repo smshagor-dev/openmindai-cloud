@@ -1,6 +1,12 @@
 <?php
 
 return [
+    'free_mesh' => [
+        'enabled' => (bool) env('STUDIO_FREE_3D_ENABLED', true),
+        'token' => env('STUDIO_FREE_3D_HF_TOKEN', ''),
+        'user_daily' => (int) env('STUDIO_FREE_3D_USER_DAILY', 2),
+        'server_daily' => (int) env('STUDIO_FREE_3D_SERVER_DAILY', 2),
+    ],
     'scene_execution' => env('STUDIO_SCENE_EXECUTION', 'direct'),
     'queue_enabled' => (bool) env('STUDIO_QUEUE_ENABLED', false),
     'worker_url' => env('STUDIO_WORKER_URL', ''),
