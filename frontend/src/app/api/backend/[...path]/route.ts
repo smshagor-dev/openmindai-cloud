@@ -360,7 +360,9 @@ async function proxy(
       return new NextResponse(upstream.body, {
         headers: {
           "Content-Type": mime,
-          "Content-Disposition": `attachment; filename="research-${endpoint.split("/").at(-2)}.${formats[mime]}"`,
+          "Content-Disposition":
+            upstream.headers.get("content-disposition") ||
+            `attachment; filename="research-${endpoint.split("/").at(-2)}.${formats[mime]}"`,
           "Cache-Control": "private, no-store",
           "X-Content-Type-Options": "nosniff",
         },

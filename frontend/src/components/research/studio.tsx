@@ -1028,6 +1028,8 @@ export default function ResearchStudio() {
                           tasks={tasks}
                           dependencies={data.dependencies}
                         />
+                        <details className="rs-agent-records">
+                          <summary>Inspect task inputs and execution records</summary>
                         <div className="rs-agent-grid">
                           {tasks.map((t) => (
                             <article
@@ -1065,6 +1067,7 @@ export default function ResearchStudio() {
                             </article>
                           ))}
                         </div>
+                        </details>
                         {!tasks.length && (
                           <p>
                             No agent is executing. Start research to create the

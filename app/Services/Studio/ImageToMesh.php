@@ -15,7 +15,7 @@ class ImageToMesh
 
     public function available(): bool
     {
-        return (string) config('studio.image_model.key') !== '' && self::safeUrl((string) config('studio.image_model.url'));
+        return (bool) config('studio.image_model.custom_images') && (string) config('studio.image_model.key') !== '' && self::safeUrl((string) config('studio.image_model.url'));
     }
 
     /** @return array{glb: string, model: string} */

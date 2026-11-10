@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Models\StudioJob;
 use App\Models\User;
 use App\Services\Studio\Assets;
+use App\Services\Studio\HostedMesh;
 use App\Services\Studio\Jobs;
 use App\Services\Studio\Worker;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -41,6 +42,11 @@ class ExecuteStudioJob implements ShouldQueue
 
                 return $job;
             });
+            if ($job && $job->engine === HostedMesh::ENGINE) {
+                app(HostedMesh::class)->sync($job);
+
+                return;
+            }
             if (! $job) {
                 return;
             }

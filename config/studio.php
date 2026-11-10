@@ -10,7 +10,12 @@ return [
     'storage_bytes' => 100000000,
     // Image to 3D on NVIDIA's hosted TRELLIS (no local GPU). Uses the existing
     // NVIDIA key unless a dedicated one is set.
+    'hosted_mesh' => [
+        'key' => env('FAL_KEY', ''),
+    ],
     'image_model' => [
+        // Enable only for an operator-verified custom-image-capable endpoint.
+        'custom_images' => (bool) env('STUDIO_IMAGE_TO_3D_CUSTOM_IMAGES', false),
         'url' => env('STUDIO_IMAGE_TO_3D_URL', 'https://ai.api.nvidia.com/v1/genai/microsoft/trellis'),
         'key' => env('STUDIO_IMAGE_TO_3D_KEY', env('NVIDIA_API_KEY', '')),
         'timeout' => (int) env('STUDIO_IMAGE_TO_3D_TIMEOUT', 170),

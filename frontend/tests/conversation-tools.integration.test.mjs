@@ -154,3 +154,26 @@ test('unread search results never release a draft as a verified answer',async()=
  assert.doesNotMatch(chunks.join(''),/2024/);
  assert.equal(result.readEvidence,false);
 });
+
+test('research loop exhaustion synthesizes a final answer without replaying tools', async () => {
+ const requests=[];let reads=0;
+ const source='https://example.org/evidence';
+ const responses=[call('web_search',{query:'evidence'},'s'),call('read_page',{url:source},'r'),
+   ...Array.from({length:6},(_,i)=>call('read_page',{url:source},`duplicate${i}`)),
+   sse({content:`The supported result is here [1](${source}).`},'stop')];
+ const result=await runConversationTools({...base(),webSearchSelected:true,
+   fetcher:async(_url,init)=>{requests.push(JSON.parse(init.body));return responses.shift();},
+   web:async input=>input.action==='search'?{sources:[{url:source}]}:(reads++,{read_status:'read',page_text:'Supported result.'}),
+ });
+ assert.equal(reads,1);
+ assert.match(result.text,/supported result/);
+ assert.equal(requests.at(-1).tool_choice,'none');
+ assert.ok(requests.at(-1).messages.some(m=>m.role==='tool'&&m.content.includes('Supported result.')));
+});
+
+test('an empty provider stop retries synthesis and never reports an empty completed reply', async () => {
+ let requests=0;
+ const result=await runConversationTools({...base(),fetcher:async()=>++requests===1?sse({},'stop'):sse({content:'The completed answer.'},'stop')});
+ assert.equal(requests,2);
+ assert.equal(result.text,'The completed answer.');
+});
