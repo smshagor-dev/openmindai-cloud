@@ -465,7 +465,9 @@ class ResearchStudioTest extends TestCase
         $this->assertSame($calls - 1, $task->checkpoint['next']);
         $this->assertFalse($task->output['passed']);
         $this->assertCount(2, $task->output['issues']);
-        $this->assertSame(['distinct_cited_sources' => 0, 'minimum' => 25], $task->output['reference_coverage']);
+        $this->assertCount(2, $task->output['reference_coverage']);
+        $this->assertSame(0, $task->output['reference_coverage']['distinct_cited_sources']);
+        $this->assertSame(25, $task->output['reference_coverage']['minimum']);
     }
 
     public function test_fulltext_license_allowlist_requires_an_actual_supported_license(): void
