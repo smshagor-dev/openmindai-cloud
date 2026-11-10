@@ -112,8 +112,9 @@ export async function nvidiaChat(
   token: string,
   base: string,
   signal: AbortSignal,
-  options: { fetcher?: typeof fetch; config?: Config; pollMs?: number } = {},
+  options: { fetcher?: typeof fetch; config?: Config; pollMs?: number; heartbeatMs?: number; searchDeadlineMs?: number } = {},
 ) {
+  const requestStartedAt = Date.now();
   const config = options.config || {
     apiKey: process.env.NVIDIA_API_KEY || "",
     bridgeKey: process.env.FRONTEND_CHAT_BRIDGE_KEY || "",
@@ -331,6 +332,8 @@ export async function nvidiaChat(
   let disconnected = signal.aborted;
   let cancelled = signal.aborted;
   let poll: ReturnType<typeof setInterval> | undefined;
+  let keepalive: ReturnType<typeof setInterval> | undefined;
+  let searchDeadline: ReturnType<typeof setTimeout> | undefined;
   let polling = false;
   const abort = () => {
     disconnected = true;
@@ -407,6 +410,23 @@ export async function nvidiaChat(
           resumable: Boolean(lease.message_id) && !inlineImage && (!conversationTools || deep),
         });
         if (cancelled) throw new Error("Cancelled");
+        // Search and verification can be silent for a long time. Keep the SSE
+        // response alive while tools are running; a heartbeat is NOT completion.
+        keepalive = setInterval(() => emit("heartbeat", {status:"working"}), options.heartbeatMs ?? 12000);
+        // The request lives on a platform with a hard execution limit. Leave
+        // time to persist a failed/interrupted checkpoint and send a truthful
+        // error instead of letting the runtime close the socket unannounced.
+        if (webSearchSelected || deep) {
+          searchDeadline = setTimeout(() => {
+            if (!upstreamAbort.signal.aborted) {
+              failure = "Search exceeded this request's execution window before a verified answer was ready. The incomplete response is saved; retry or continue if available.";
+              upstreamAbort.abort();
+            }
+          }, Math.max(1000, Math.min(
+            options.searchDeadlineMs ?? 220000,
+            240000 - (Date.now() - requestStartedAt),
+          )));
+        }
         // Mark image turns non-resumable before inference so a failed request
         // cannot resume without the transient image, even with zero output.
         if (inlineImage) await saveCheckpoint();
@@ -563,9 +583,10 @@ export async function nvidiaChat(
                 });
               }
               content += (content ? "\n\n" : "") + answer;
-              if (!lease.sources.length && !researchMetadata.activity.length) emit("delta", {content:answer});
+              emit("answer", {content});
             }
           }
+          if (!content.trim()) throw new Error("NVIDIA returned no answer before completion.");
           checkpoint.finished = true;
           await saveCheckpoint();
         }
@@ -859,6 +880,8 @@ export async function nvidiaChat(
             : "NVIDIA connection failed or timed out.");
       } finally {
         if (poll) clearInterval(poll);
+        if (keepalive) clearInterval(keepalive);
+        if (searchDeadline) clearTimeout(searchDeadline);
         upstreamAbort.abort();
         signal.removeEventListener("abort", abort);
         if (status === "complete" && (deep || lease.sources.length || researchMetadata.activity.length)) {
@@ -875,6 +898,18 @@ export async function nvidiaChat(
           const read=lease.sources.filter(s=>s.read_status==='read');
           researchMetadata.coverage ||= {actions:researchMetadata.activity.filter(e=>e.status==='completed').length,sources:lease.sources.length,pagesRead:read.length,domainsRead:new Set(read.map(s=>new URL(s.url).hostname)).size};
           emit('research',{label:researchMetadata.status==='complete'?'Research finished':researchMetadata.status==='partial'?'Report ready with unresolved evidence gaps':'Research '+researchMetadata.status,sources:lease.sources,metadata:researchMetadata});
+        }
+        // Persist a truthful incomplete-state notice. Without it, refreshing
+        // history can turn an interrupted Web Search back into a blank bubble.
+        // This is explicitly a failed status, never a fabricated final answer.
+        if (status === "failed" && !content.trim() && (webSearchSelected || deep)) {
+          const bangla = /[\u0980-\u09ff]|\b(?:bangla|bengali)\b/i.test(
+            typeof input.message === "string" ? input.message : "",
+          );
+          content = bangla
+            ? "ওয়েব সার্চ শেষ হওয়ার আগে সংযোগ বা সময়সীমার সমস্যা হয়েছে। যাচাই করা সম্পূর্ণ উত্তর পাওয়া যায়নি। আবার চেষ্টা করুন।"
+            : "Web Search stopped before a complete, verified answer was ready. Please retry; this response was not marked complete.";
+          emit("answer", {content});
         }
         let saved = false;
         for (let attempt = 0; attempt < 3; attempt++) {

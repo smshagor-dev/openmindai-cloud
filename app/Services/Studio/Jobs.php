@@ -31,7 +31,7 @@ class Jobs
 
                 return $existing;
             }
-            abort_if(! isset($data['workflow_parent_id']) && StudioJob::where('user_id', $user)->whereNull('input->workflow_parent_id')->whereIn('status', ['queued', 'running', 'cancel_requested'])->count() >= 4, 429, 'Your 3D jobs are already queued.');
+            abort_if(! isset($data['workflow_parent_id']) && StudioJob::where('user_id', $user)->whereNull('input->workflow_parent_id')->whereIn('status', ['queued', 'running', 'submitting', 'cancel_requested'])->count() >= 4, 429, 'Your 3D jobs are already queued.');
             $job = StudioJob::create(['id' => (string) Str::uuid(), 'user_id' => $user, 'project_id' => $data['project_id'] ?? null, 'request_key' => $data['request_key'], 'payload_hash' => $hash, 'engine' => $data['engine'], 'operation' => $data['operation'], 'input' => $data]);
             $this->event($job->id, 'queued');
             $class = $job->operation === 'workflow' ? ExecuteStudioWorkflow::class : ExecuteStudioJob::class;

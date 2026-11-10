@@ -647,3 +647,155 @@ test("cPanel reconnect retries reuse the request key instead of charging a secon
   expect(keys).toHaveLength(2);
   expect(keys[0]).toBe(keys[1]);
 });
+
+test("hosted full 3D submits once, tracks the saved job and opens its private GLB", async ({
+  page,
+}) => {
+  const id = "55555555-1111-4111-8111-555555555555";
+  const gltfDocument = {
+    asset: { version: "2.0" },
+    scene: 0,
+    scenes: [{ nodes: [0] }],
+    nodes: [{ mesh: 0 }],
+    meshes: [{ primitives: [{ attributes: { POSITION: 0 } }] }],
+    buffers: [{ byteLength: 36 }],
+    bufferViews: [{ buffer: 0, byteOffset: 0, byteLength: 36 }],
+    accessors: [
+      {
+        bufferView: 0,
+        componentType: 5126,
+        count: 3,
+        type: "VEC3",
+        min: [0, 0, 0],
+        max: [1, 1, 0],
+      },
+    ],
+  };
+  let json = JSON.stringify(gltfDocument);
+  json = json.padEnd(Math.ceil(json.length / 4) * 4, " ");
+  const binary = Buffer.alloc(36);
+  [0, 0, 0, 1, 0, 0, 0, 1, 0].forEach((value, index) =>
+    binary.writeFloatLE(value, index * 4),
+  );
+  const glb = Buffer.alloc(28 + Buffer.byteLength(json) + binary.length);
+  glb.write("glTF");
+  glb.writeUInt32LE(2, 4);
+  glb.writeUInt32LE(glb.length, 8);
+  glb.writeUInt32LE(Buffer.byteLength(json), 12);
+  glb.write("JSON", 16);
+  glb.write(json, 20);
+  glb.writeUInt32LE(binary.length, 20 + Buffer.byteLength(json));
+  glb.write("BIN\0", 24 + Buffer.byteLength(json));
+  binary.copy(glb, 28 + Buffer.byteLength(json));
+  const asset = {
+    id: 44,
+    name: "hosted-model.glb",
+    kind: "mesh",
+    format: "glb",
+    bytes: glb.length,
+    parent_id: null,
+    project_id: null,
+    metadata: { source: "fal-trellis-2", geometry: "generated_mesh" },
+  };
+  let submitted = false,
+    polls = 0,
+    submissions = 0;
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.route("**/api/backend/**", async (route) => {
+    const request = route.request(),
+      path = new URL(request.url()).pathname;
+    const reply = (json: unknown, status = 200) =>
+      route.fulfill({ status, json });
+    if (path.endsWith("/me")) return reply({ id: 1, name: "Mesh fixture" });
+    if (path.endsWith("/preferences")) return reply({ theme: "dark" });
+    if (path.endsWith("/engines"))
+      return reply({
+        data: [
+          {
+            id: "fal-trellis-2",
+            name: "Full 3D mesh (TRELLIS 2)",
+            kind: "model",
+            input: "image",
+            output: "hosted_mesh",
+            available: true,
+          },
+        ],
+        deployment: { scene_execution: "direct", queued_jobs: false },
+        worker: { ready: false },
+      });
+    if (path.endsWith("/uploads") && request.method() === "POST")
+      return reply(
+        { id: 7, name: "cube.png", mime: "image/png", bytes: 70 },
+        201,
+      );
+    if (path.endsWith("/route"))
+      return reply({
+        engine: "fal-trellis-2",
+        mode: "object",
+        output: "hosted_mesh",
+      });
+    if (path.endsWith("/jobs/image-model")) {
+      submissions++;
+      submitted = true;
+      expect(request.postDataJSON()).toMatchObject({
+        engine: "fal-trellis-2",
+        upload_id: 7,
+      });
+      return reply(
+        {
+          id,
+          engine: "fal-trellis-2",
+          operation: "hosted_mesh",
+          status: "queued",
+        },
+        202,
+      );
+    }
+    if (path.endsWith("/jobs/" + id)) {
+      polls++;
+      return reply({
+        id,
+        engine: "fal-trellis-2",
+        operation: "hosted_mesh",
+        status: polls > 1 ? "completed" : "running",
+        ...(polls > 1 ? { result: { asset_id: 44, format: "glb" } } : {}),
+      });
+    }
+    if (path.endsWith("/assets/44/data"))
+      return reply({ format: "glb", data: glb.toString("base64") });
+    if (path.endsWith("/assets"))
+      return reply({ data: submitted && polls > 1 ? [asset] : [] });
+    if (path.endsWith("/jobs")) return reply({ data: [] });
+    return reply({ data: [] });
+  });
+  await page.goto("/3d-studio");
+  await expect(
+    page.getByRole("button", { name: "Add reference files", exact: true }),
+  ).toBeEnabled();
+  const png = await page.evaluate(() => {
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 64;
+    const context = canvas.getContext("2d")!;
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, 64, 64);
+    context.fillStyle = "#4488ff";
+    context.fillRect(16, 16, 32, 32);
+    return canvas.toDataURL("image/png").split(",")[1];
+  });
+  await page.locator(".composer input[type=file]").setInputFiles({
+    name: "cube.png", mimeType: "image/png", buffer: Buffer.from(png, "base64"),
+  });
+  await expect(page.locator(".attachment-chips")).toContainText("cube.png");
+  await page
+    .getByRole("textbox", { name: "Describe your scene", exact: true })
+    .fill("Generate a full 3D mesh from this reference");
+  await page.getByRole("button", { name: "Generate scene" }).click();
+  await expect(
+    page.getByRole("link", { name: "Download GLB", exact: true }),
+  ).toBeVisible({ timeout: 20000 });
+  expect(submissions).toBe(1);
+  expect(polls).toBeGreaterThan(1);
+  await expect(page.getByText(/Front-facing \(2.5D\)/)).toHaveCount(0);
+  expect(errors).toEqual([]);
+});

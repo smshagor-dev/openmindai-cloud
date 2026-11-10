@@ -32,6 +32,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class ResearchStudioController
 {
@@ -449,7 +450,11 @@ class ResearchStudioController
         $bytes = Storage::disk('local')->get($e->path);
         abort_unless(hash_equals($e->sha256, hash('sha256', $bytes)), 500, 'Export checksum mismatch.');
 
-        return response($bytes)->header('Content-Type', $mime)->header('Content-Disposition', 'attachment; filename="openmind-research-'.$file.'.'.($e->format === 'tex' ? 'zip' : $e->format).'"')->header('Cache-Control', 'private, no-store')->header('X-Content-Type-Options', 'nosniff');
+        $title = $e->snapshot['title'] ?? Project::whereKey($id)->value('title');
+        $name = substr(Str::slug((string) $title), 0, 150) ?: 'research-'.$id;
+        $extension = $e->format === 'tex' ? 'zip' : $e->format;
+
+        return response($bytes)->header('Content-Type', $mime)->header('Content-Disposition', 'attachment; filename="'.$name.'.'.$extension.'"')->header('Cache-Control', 'private, no-store')->header('X-Content-Type-Options', 'nosniff');
     }
 
     public function artifact(Request $r, int $id, int $file)

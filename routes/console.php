@@ -15,6 +15,7 @@ use App\Services\AdminSettings;
 use App\Services\Research\Orchestrator;
 use App\Services\Research\Readiness;
 use App\Services\Research\WorkerTransfers;
+use App\Services\Studio\HostedMesh;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schedule;
@@ -240,7 +241,7 @@ Artisan::command('studio:recover', function () {
     if (! config('studio.queue_enabled')) {
         return;
     }
-    StudioJob::where('operation', '!=', 'direct_scene')->whereIn('status', ['queued', 'running', 'cancel_requested'])
+    StudioJob::where('engine', '!=', HostedMesh::ENGINE)->where('operation', '!=', 'direct_scene')->whereIn('status', ['queued', 'running', 'cancel_requested'])
         ->where(fn ($q) => $q->whereNull('lease_until')->orWhere('lease_until', '<', now()))
         ->where('updated_at', '<', now()->subSeconds(30))->orderBy('created_at')->limit(20)->get()
         ->each(function ($job) {
@@ -249,6 +250,23 @@ Artisan::command('studio:recover', function () {
         });
 });
 Schedule::command('studio:recover')->everyMinute()->withoutOverlapping();
+
+// cPanel's ordinary schedule:run cron collects hosted GPU results even when
+// the browser is closed. No local mesh worker/queue daemon is required.
+Artisan::command('studio:hosted-poll', function () {
+    if (! Schema::hasTable('studio_jobs')) {
+        return;
+    }
+    $deadline = microtime(true) + 45;
+    StudioJob::where('engine', HostedMesh::ENGINE)
+        ->whereIn('status', ['queued', 'running', 'submitting', 'cancel_requested'])
+        ->orderBy('updated_at')->limit(3)->get()->each(function ($job) use ($deadline) {
+            if (microtime(true) < $deadline) {
+                app(HostedMesh::class)->sync($job);
+            }
+        });
+});
+Schedule::command('studio:hosted-poll')->everyMinute()->withoutOverlapping();
 
 Artisan::command('studio:preflight {--cpanel : Check the direct scene profile without a worker} {--require-gpu : Require at least one verified GPU engine}', function () {
     if ($this->option('cpanel') && $this->option('require-gpu')) {

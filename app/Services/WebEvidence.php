@@ -50,7 +50,7 @@ class WebEvidence
         }
         $selected = implode("\n\n", array_map(fn ($p) => ($p['page'] ? 'PDF page '.$p['page'].': ' : '').$p['text'], $passages));
 
-        return ['url' => $url, 'page_text' => $selected, 'read_status' => mb_strlen(trim($text)) >= 80 ? 'read' : 'unavailable', 'passages' => $passages, 'mime' => $document['mime'] ?? 'text/plain', 'title' => $document['title'] ?? null, 'final_url' => $document['url'] ?? $url, 'retrieved_at' => now()->toIso8601String(), 'pdf' => $document['pdf'] ?? null];
+        return ['url' => $url, 'page_text' => $selected, 'read_status' => mb_strlen(trim($text)) >= 80 ? 'read' : 'unavailable', 'passages' => $passages, 'engine' => $document['engine'] ?? null, 'mime' => $document['mime'] ?? 'text/plain', 'title' => $document['title'] ?? null, 'final_url' => $document['url'] ?? $url, 'retrieved_at' => now()->toIso8601String(), 'pdf' => $document['pdf'] ?? null];
     }
 
     public function summary(array $source): ?array

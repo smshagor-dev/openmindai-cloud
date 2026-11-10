@@ -53,6 +53,7 @@ export default function Workbench({
     setAssets(a.data);
     setTrash(deleted.data);
     setJobs(j.data);
+    setTracked(previous => previous || (j.data as Job[]).find(job => job.engine === "fal-trellis-2" && ["queued", "running", "submitting", "cancel_requested"].includes(job.status))?.id || null);
     setProjects(p.data);
     return { assets: a.data as Asset[], jobs: j.data as Job[] };
   }, []);
@@ -84,7 +85,9 @@ export default function Workbench({
           onBusyRef.current(false);
           if (detail.status === "failed")
             setError(
-              `Job failed: ${detail.error_code || "operation unavailable"}.`,
+              detail.error_code === "hosted_submission_unknown"
+                ? "The provider may have accepted this generation, but its receipt was not confirmed. Check this saved job and your provider account before starting another generation."
+                : `Job failed: ${detail.error_code || "operation unavailable"}.`,
             );
           if (
             detail.status === "completed" &&
@@ -176,7 +179,7 @@ export default function Workbench({
         <div role="status">
           <p>
             {current?.status === "cancel_requested"
-              ? "Cancellation requested; waiting for the worker."
+              ? current.engine === "fal-trellis-2" ? "Cancellation requested. The provider may still finish work already running." : "Cancellation requested; waiting for the worker."
               : `Saved job: ${current?.status || "queued"}`}
           </p>
           <button

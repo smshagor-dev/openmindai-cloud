@@ -11,11 +11,15 @@ test('selected web search uses focused native tools, reads the source and saves 
   const requests=[];
   const response=await nvidiaChat(JSON.stringify({message:'Search for the official PHP documentation on array_map, read it, and explain with its link.',web_search:true}),
     'user-session','https://backend/api/v1',new AbortController().signal,{
+      heartbeatMs:10,
       config:{apiKey:'fixture-only',bridgeKey:'k'.repeat(32),model:'nvidia/nemotron-3.5-lightning-30b-a3b'},
       fetcher:async (url,init) => {
         const body=JSON.parse(init.body); requests.push({url,body});
         if(url.endsWith('/begin')) return Response.json({ticket:'a'.repeat(64),messages:[{role:'user',content:'Search the official PHP array_map docs and read them.'}],conversation_id:1,user_message_id:2,message_id:3,sources:[]});
-        if(url.endsWith('/tool')) return Response.json(body.action==='search'?{sources:[{url:source,title:'PHP array_map'}]}:{url:source,read_status:'read',page_text:'array_map applies the callback to array elements.'});
+        if(url.endsWith('/tool')) {
+          if (body.action === 'read') await new Promise(resolve => setTimeout(resolve, 35));
+          return Response.json(body.action==='search'?{sources:[{url:source,title:'PHP array_map'}]}:{url:source,read_status:'read',page_text:'array_map applies the callback to array elements.'});
+        }
         if(url.endsWith('/chat/completions')) return inference.shift();
         if(url.endsWith('/status')) return Response.json({cancelled:false});
         if(url.endsWith('/checkpoint')||url.endsWith('/finish')) return Response.json({stored:true});
@@ -24,6 +28,8 @@ test('selected web search uses focused native tools, reads the source and saves 
     });
   const output=await response.text();
   assert.match(output,/array_map applies/);
+  assert.match(output,/event: heartbeat/);
+  assert.ok(output.indexOf("event: answer") < output.indexOf("event: done"), "send final answer before closing the stream");
   assert.doesNotMatch(output,/stale draft|2024 release/);
   assert.match(requests.find(r=>r.body.stream===false).body.messages[1].content,/2024 release/);
   const begin=requests.find(r=>r.url.endsWith('/begin')).body;
@@ -149,7 +155,7 @@ test('Auto grounds "latest news" prompts with web tools and survives brief statu
   const requests=[]; let statusChecks=0;
   const response=await nvidiaChat(JSON.stringify({message:'latest news about NVIDIA today'}),
     'user-session','https://backend/api/v1',new AbortController().signal,{
-      pollMs:40,config:{apiKey:'fixture-only',bridgeKey:'k'.repeat(32),model:'nvidia/nemotron-3.5-lightning-30b-a3b'},
+      pollMs:40,heartbeatMs:30,config:{apiKey:'fixture-only',bridgeKey:'k'.repeat(32),model:'nvidia/nemotron-3.5-lightning-30b-a3b'},
       fetcher:async (url,init) => {
         const body=JSON.parse(init.body); requests.push({url,body});
         if(url.endsWith('/begin')) return Response.json({ticket:'a'.repeat(64),messages:[{role:'user',content:'latest news about NVIDIA today'}],conversation_id:1,user_message_id:2,message_id:3,sources:[]});
@@ -165,6 +171,8 @@ test('Auto grounds "latest news" prompts with web tools and survives brief statu
   assert.doesNotMatch(output,/could not be checked/);
   assert.match(output,/NVIDIA announced/);
   assert.ok(statusChecks>=2,'status was polled during generation');
+  assert.match(output,/event: heartbeat/,'idle search emits SSE keepalives');
+  assert.ok(output.indexOf('event: answer') < output.indexOf('event: done'),'verified answer precedes completion');
   assert.deepEqual(requests.filter(r=>r.url.endsWith('/tool')).map(r=>r.body.action),['search','read']);
   assert.equal(requests.find(r=>r.url.endsWith('/finish')).body.status,'complete');
 });
@@ -189,4 +197,34 @@ test('Auto retries a rate-limited 550B coordinator with Super and saves the fall
   assert.deepEqual(models,['nvidia/nemotron-3-ultra-550b-a55b','nvidia/nemotron-3.5-super-vl-120b-a12b']);
   assert.equal(finish.provider_model,models[1]);
   assert.equal(finish.status,'complete');
+});
+
+test('web search deadline finishes as interrupted rather than silently reporting success', async () => {
+  let persisted;
+  const response = await nvidiaChat(JSON.stringify({message:'Search for current public information',web_search:true}),
+    'user-session','https://backend/api/v1',new AbortController().signal,{
+      heartbeatMs:10,searchDeadlineMs:100,pollMs:500,
+      config:{apiKey:'fixture-only',bridgeKey:'k'.repeat(32),model:'nvidia/nemotron-3.5-lightning-30b-a3b'},
+      fetcher:async (url,init) => {
+        const body=JSON.parse(init.body);
+        if(url.endsWith('/begin')) return Response.json({ticket:'a'.repeat(64),messages:[{role:'user',content:'Search for current public information'}],conversation_id:1,user_message_id:2,message_id:3,sources:[]});
+        if(url.endsWith('/chat/completions')) return call('web_search',{query:'recent public information'},'s1');
+        if(url.endsWith('/tool')) return new Promise((_,reject)=>{
+          if (init.signal.aborted) return reject(new DOMException('Aborted','AbortError'));
+          init.signal.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError')),{once:true});
+        });
+        if(url.endsWith('/checkpoint')) return Response.json({stored:true});
+        if(url.endsWith('/finish')) { persisted=body; return Response.json({stored:true}); }
+        if(url.endsWith('/status')) return Response.json({cancelled:false});
+        throw Error('Unexpected request');
+      }
+    });
+  const frames=await response.text();
+  assert.match(frames,/event: heartbeat/);
+  assert.match(frames,/event: error/);
+  assert.match(frames,/event: done/);
+  assert.ok(!frames.includes('event: done\ndata: {"status":"complete"'), 'incomplete searches must not report success');
+  assert.equal(persisted.status,'failed');
+  assert.match(persisted.content,/stopped before a complete, verified answer/);
+  assert.match(frames,/Web Search stopped before a complete/);
 });

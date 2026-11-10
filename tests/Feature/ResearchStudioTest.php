@@ -464,7 +464,8 @@ class ResearchStudioTest extends TestCase
         $this->assertSame($expected, $quotes);
         $this->assertSame($calls - 1, $task->checkpoint['next']);
         $this->assertFalse($task->output['passed']);
-        $this->assertCount(1, $task->output['issues']);
+        $this->assertCount(2, $task->output['issues']);
+        $this->assertSame(['distinct_cited_sources' => 0, 'minimum' => 25], $task->output['reference_coverage']);
     }
 
     public function test_fulltext_license_allowlist_requires_an_actual_supported_license(): void
@@ -486,6 +487,13 @@ class ResearchStudioTest extends TestCase
         $r = app(Orchestrator::class)->start($p, $p->owner_id);
         $this->runTasks($r);
         $proposal = Finding::where('project_id', $p->id)->where('kind', 'manuscript')->firstOrFail()->data;
+        // A validated export must satisfy the new distinct-reference gate as
+        // well as the existing evidence and current-manuscript review gates.
+        for ($index = Source::where('project_id', $p->id)->count(); $index < 25; $index++) {
+            $source = Source::create(['project_id' => $p->id, 'fingerprint' => hash('sha256', 'export-fixture-'.$index), 'title' => 'Synthetic supporting reference '.$index, 'authors' => [['family' => 'Fixture']], 'year' => 2026, 'url' => 'https://example.org/fixture-'.$index, 'text' => 'Synthetic evidence supporting the controlled methodology.', 'verification' => 'verified', 'metadata' => []]);
+            Evidence::create(['project_id' => $p->id, 'source_id' => $source->id, 'claim' => 'Synthetic supporting claim '.$index, 'quote' => $source->text, 'status' => 'unreviewed']);
+            $proposal['content']['content'][] = ['type' => 'paragraph', 'content' => [['type' => 'text', 'text' => 'Synthetic supporting claim '.$index.' '], ['type' => 'citation', 'attrs' => ['sourceId' => $source->id]]]];
+        }
         $this->putJson("/api/v1/research/projects/$p->id/document", ['version' => 1, 'content' => $proposal['content']])->assertOk();
         foreach (Evidence::where('project_id', $p->id)->get() as $e) {
             $this->putJson("/api/v1/research/projects/$p->id/evidence/$e->id", ['status' => 'supported'])->assertOk();
