@@ -22,7 +22,7 @@ class FreeMeshClient
                 $functions[$dependency['api_name']] = $dependency;
             }
         }
-        foreach (['preprocess_image' => 1, 'image_to_3d' => 16, 'extract_glb' => 3] as $name => $count) {
+        foreach (['preprocess_image' => 1, 'image_to_3d' => 15, 'extract_glb' => 3] as $name => $count) {
             if (! isset($functions[$name]) || count($functions[$name]['inputs']) !== $count || ! is_int($functions[$name]['id'])) {
                 throw new FreeMeshException('free_provider_contract_changed');
             }
