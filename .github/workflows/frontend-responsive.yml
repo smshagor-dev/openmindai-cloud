@@ -1,7 +1,7 @@
 name: Responsive frontend browsers
 on:
   push:
-    branches: [fix/frontend-responsive-audit, feature/3d-modly-capabilities]
+    branches: [fix/frontend-responsive-audit, feature/3d-modly-capabilities, fix/cloud-english-responsive]
   pull_request:
     paths: ['frontend/**', '.github/workflows/frontend-responsive.yml']
 concurrency:
