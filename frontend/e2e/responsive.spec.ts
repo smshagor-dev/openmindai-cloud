@@ -464,7 +464,7 @@ for (const width of [360, 390, 768, 1440]) {
       "placeholder",
       "Describe your research topic, goals and constraints…",
     );
-    const progress = page.getByLabel("Progress language", { exact: true });
+    const progress = page.getByRole("combobox", { name: "Progress language", exact: true });
     await expect(progress.locator("option")).toHaveText([
       "Automatic",
       "English",
