@@ -29,3 +29,20 @@ export function languageCode(value: string): string {
     names[value.trim().toLowerCase()] || value.toLowerCase().split(/[-_]/)[0]
   );
 }
+
+// Display language choices in English while retaining saved preference values.
+export function languageLabel(value: string): string {
+  const names: Record<string, string> = {
+    auto: "Automatic",
+    en: "English",
+    bn: "Bangla",
+    ru: "Russian",
+    ar: "Arabic",
+    hi: "Hindi",
+    zh: "Chinese",
+    es: "Spanish",
+    fr: "French",
+    de: "German",
+  };
+  return names[languageCode(value)] || value;
+}

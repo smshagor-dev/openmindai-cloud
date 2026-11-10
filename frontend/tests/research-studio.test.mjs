@@ -83,10 +83,18 @@ test("numeric citations retain manuscript order and BibTeX imports preserve DOI"
 import {
   effectiveLanguage,
   languageCode,
+  languageLabel,
 } from "../src/lib/research-language.ts";
 test("explicit progress/manuscript choices take priority over detected prompt language", () => {
   assert.equal(effectiveLanguage("العربية", "bn"), "العربية");
   assert.equal(effectiveLanguage("Deutsch", "en"), "Deutsch");
   assert.equal(languageCode(effectiveLanguage("বাংলা", "en")), "bn");
   assert.equal(languageCode(effectiveLanguage("auto", "ru-RU")), "ru");
+});
+
+test("language preference names use English display labels without changing saved values", () => {
+  assert.equal(languageLabel("বাংলা"), "Bangla");
+  assert.equal(languageLabel("Русский"), "Russian");
+  assert.equal(languageLabel("auto"), "Automatic");
+  assert.equal(languageLabel("bn-BD"), "Bangla");
 });
