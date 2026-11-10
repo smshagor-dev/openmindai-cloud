@@ -147,6 +147,9 @@ async function fixtures(page: Page, guest = false) {
         artifacts: [],
         conversation: [],
         recent_events: [],
+        evidence: [],
+        dependencies: [],
+        integrity: { gates: {}, overrides: [] },
         event_cursor: 0,
         document: {
           content: { type: "doc", content: [{ type: "paragraph" }] },
