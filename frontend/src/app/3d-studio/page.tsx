@@ -351,6 +351,7 @@ export default function StudioPage() {
   const showingResult = Boolean(saved || selectedAsset);
   const activeMode = modes.find((m) => m.id === mode)!;
   const engineInfo = capabilities?.data.find((item) => item.id === engine);
+  const freeLimits = capabilities?.data.find(item => item.id === "hf-trellis-2" && item.available)?.limits;
   const selectedFiles = references.filter((file) =>
     selectedUploads.includes(file.id),
   );
@@ -684,7 +685,7 @@ export default function StudioPage() {
                         >
                           <option value="auto">Auto (recommended)</option>
                           {capabilities?.data
-                            .filter((item) => item.available || item.id === "fal-trellis-2")
+                            .filter((item) => item.available || ["fal-trellis-2", "hf-trellis-2"].includes(item.id))
                             .map((item) => (
                               <option key={item.id} value={item.id} disabled={!item.available}>
                                 {item.name}{!item.available ? " (setup required)" : ""}
@@ -769,6 +770,11 @@ export default function StudioPage() {
                       )}
                     </div>
                   </details>
+                  {(engine === "hf-trellis-2" || (engine === "auto" && selectedUploads.length > 0)) && freeLimits && (
+                    <p className="studio-free-quota-note">
+                      Free 3D sends the selected image to Hugging Face. Up to {freeLimits.per_user_daily} requests per account daily, one per hour; the server shares {freeLimits.server_daily} daily slots and runs one job at a time. GPU quota and queue availability apply. No automatic paid fallback.
+                    </p>
+                  )}
                   {(mode !== "auto" || engine !== "auto") && (
                     <span className="composer-active-mode">
                       {[mode !== "auto" ? activeMode.label : "", engine !== "auto" ? engineInfo?.name : ""]

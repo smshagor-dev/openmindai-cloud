@@ -510,3 +510,5 @@
   color: var(--text);
   font-size: 12px;
 }
+
+.studio-free-quota-note { flex-basis: 100%; font-size: .75rem; line-height: 1.5; color: var(--muted-foreground, #71717a); margin: .5rem 0; overflow-wrap: anywhere; }

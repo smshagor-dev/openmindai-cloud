@@ -15,6 +15,8 @@ class Catalog
         foreach (['procedural' => 'Procedural 3D', 'architecture' => '3D Architecture'] as $id => $name) {
             $builtins[] = ['id' => $id, 'name' => $name, 'kind' => 'scene', 'input' => 'text', 'output' => 'scene', 'available' => $reasoning, 'reason' => $reasoning ? null : 'scene_model_required'];
         }
+        $free = app(FreeMesh::class);
+        $builtins[] = ['id' => FreeMesh::ENGINE, 'name' => 'Free 3D mesh (TRELLIS.2 · shared GPU)', 'kind' => 'model', 'input' => 'image', 'output' => 'hosted_mesh', 'available' => $free->available(), 'reason' => $free->available() ? null : 'free_3d_disabled', 'limits' => $free->limits()];
         $fal = app(HostedMesh::class)->available();
         $builtins[] = ['id' => HostedMesh::ENGINE, 'name' => 'Full 3D mesh (TRELLIS 2)', 'kind' => 'model', 'input' => 'image', 'output' => 'hosted_mesh', 'available' => $fal, 'reason' => $fal ? null : 'fal_key_required'];
         $builtins[] = ['id' => 'browser-relief', 'name' => '2.5D depth relief (this device)', 'kind' => 'relief', 'input' => 'image', 'output' => 'browser_relief', 'available' => true, 'reason' => null];

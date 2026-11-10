@@ -25,3 +25,12 @@ test("3D proxy admits only implemented authenticated method/path pairs", () => {
   assert.ok(studioDownload("3d-studio/assets/4/download"));
   assert.equal(studioDownload("3d-studio/assets/4/data"), false);
 });
+
+
+import { studioJobError } from "../src/lib/studio-workbench.ts";
+test("free GPU exhaustion and interrupted sessions remain actionable without promising paid retries", () => {
+  assert.match(studioJobError("free_provider_quota"), /quota is exhausted/);
+  assert.match(studioJobError("free_provider_quota"), /No paid fallback/);
+  assert.match(studioJobError("free_submission_unknown"), /outcome is uncertain/);
+  assert.match(studioJobError("free_provider_auth_required"), /free account token/);
+});

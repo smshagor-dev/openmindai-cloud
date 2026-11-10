@@ -15,6 +15,7 @@ use App\Services\AdminSettings;
 use App\Services\Research\Orchestrator;
 use App\Services\Research\Readiness;
 use App\Services\Research\WorkerTransfers;
+use App\Services\Studio\FreeMesh;
 use App\Services\Studio\HostedMesh;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
@@ -241,7 +242,7 @@ Artisan::command('studio:recover', function () {
     if (! config('studio.queue_enabled')) {
         return;
     }
-    StudioJob::where('engine', '!=', HostedMesh::ENGINE)->where('operation', '!=', 'direct_scene')->whereIn('status', ['queued', 'running', 'cancel_requested'])
+    StudioJob::whereNotIn('engine', [HostedMesh::ENGINE, FreeMesh::ENGINE])->where('operation', '!=', 'direct_scene')->whereIn('status', ['queued', 'running', 'cancel_requested'])
         ->where(fn ($q) => $q->whereNull('lease_until')->orWhere('lease_until', '<', now()))
         ->where('updated_at', '<', now()->subSeconds(30))->orderBy('created_at')->limit(20)->get()
         ->each(function ($job) {
@@ -279,3 +280,10 @@ Artisan::command('studio:preflight {--cpanel : Check the direct scene profile wi
 
     return $status[$this->option('cpanel') ? 'cpanel_ready' : ($this->option('require-gpu') ? 'gpu_infrastructure_ready' : 'cpu_infrastructure_ready')] ? 0 : 1;
 })->purpose('Inspect private 3D worker readiness without exposing credentials or generating artifacts.');
+
+Artisan::command('studio:free-run', function () {
+    if (Schema::hasTable('studio_jobs')) {
+        app(FreeMesh::class)->runNext();
+    }
+})->purpose('Process one free TRELLIS.2 job within a bounded shared-hosting cron invocation.');
+Schedule::command('studio:free-run')->everyMinute()->withoutOverlapping(6)->runInBackground();
