@@ -39,7 +39,7 @@ class FreeMesh
             // Jobs::create verifies the payload hash even when replayed. Replays
             // never consume another daily/hourly slot and cannot change images.
             if (StudioJob::where('user_id', $user)->where('request_key', $data['request_key'])->exists()) {
-                return app(Jobs::class)->create($user, $payload, false);
+                return app(Jobs::class)->create($user, $payload, false)->fresh();
             }
             $limits = $this->limits();
             $query = StudioJob::where('engine', self::ENGINE);
@@ -50,7 +50,7 @@ class FreeMesh
             $this->limited((clone $own)->where('created_at', '>', now()->subHour())->exists(), 'Free 3D allows one new request per hour.', 3600);
             $this->limited(Cache::has('studio:free-provider-cooldown'), 'Hugging Face free GPU quota is unavailable. Try again after the cooldown.', 3600);
 
-            return app(Jobs::class)->create($user, $payload, false);
+            return app(Jobs::class)->create($user, $payload, false)->fresh();
         } finally {
             $lock->release();
         }

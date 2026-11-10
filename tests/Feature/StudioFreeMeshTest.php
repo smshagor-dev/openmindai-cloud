@@ -51,7 +51,7 @@ class StudioFreeMeshTest extends TestCase
     {
         [$user, $upload] = $this->actor();
         $this->postJson('/api/v1/3d-studio/route', ['mode' => 'auto', 'prompt' => 'Make full 3D', 'upload_ids' => [$upload]])->assertOk()->assertJsonPath('engine', FreeMesh::ENGINE);
-        $first = $this->submit($upload)->assertAccepted()->json('id');
+        $first = $this->submit($upload)->assertAccepted()->assertJsonPath('status', 'queued')->assertJsonPath('attempts', 0)->json('id');
         $this->submit($upload)->assertAccepted()->assertJsonPath('id', $first);
         $this->getJson('/api/v1/3d-studio/jobs/'.$first)->assertOk()->assertJsonPath('status', 'queued');
         $this->assertSame(1, StudioJob::count());
@@ -149,7 +149,7 @@ class StudioFreeMeshTest extends TestCase
         $sse = fn ($id, $data) => 'data: '.json_encode(['msg' => 'process_completed', 'event_id' => $id, 'success' => true, 'output' => ['data' => $data]])."\n\n";
         $url = $origin.'/gradio_api/file=/tmp/gradio/result/model.glb';
         Http::fake([
-            $origin.'/config' => Http::response(['dependencies' => [['id' => 4, 'api_name' => 'preprocess_image', 'inputs' => [4]], ['id' => 7, 'api_name' => 'image_to_3d', 'inputs' => range(1, 16)], ['id' => 9, 'api_name' => 'extract_glb', 'inputs' => [45, 8, 9]]]]),
+            $origin.'/config' => Http::response(['dependencies' => [['id' => 4, 'api_name' => 'preprocess_image', 'inputs' => [4]], ['id' => 7, 'api_name' => 'image_to_3d', 'inputs' => [4, 6, 5, 14, 15, 16, 17, 21, 22, 23, 24, 28, 29, 30, 31]], ['id' => 9, 'api_name' => 'extract_glb', 'inputs' => [45, 8, 9]]]]),
             $origin.'/gradio_api/upload' => Http::response(['/tmp/gradio/upload/image.png']),
             $origin.'/gradio_api/queue/join' => Http::sequence()->push(['event_id' => 'pre'])->push(['event_id' => 'gen'])->push(['event_id' => 'export']),
             $origin.'/gradio_api/queue/data*' => Http::sequence()->push($sse('pre', [$remoteImage]))->push($sse('gen', [null, '<div>Provider preview must not be rendered</div>']))->push($sse('export', [['url' => $url], ['url' => $url]])),
@@ -164,6 +164,7 @@ class StudioFreeMeshTest extends TestCase
         Http::assertSent(fn ($r) => str_ends_with($r->url(), '/queue/join') && $r['fn_index'] === 9 && $r['data'] === [null, 100000, 1024]);
         Http::assertSent(fn ($r) => $r->hasHeader('Authorization', 'Bearer private-hf-token'));
         $this->assertCount(8, Http::recorded());
+        Http::assertSent(fn ($r) => str_ends_with($r->url(), '/queue/join') && $r['fn_index'] === 7 && count($r['data']) === 15);
     }
 
     public function test_changed_provider_schema_is_rejected_before_upload_or_gpu_submission(): void
